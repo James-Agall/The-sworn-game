@@ -8,7 +8,7 @@ import {RUIN_FLOOR_URL,RUIN_WALL_ART,RUIN_TITLES,ruinFloorUrl,ruinWallPieces,rui
 import {caveWallPieces} from '@colony/shared/caveWalls';
 import {caveScenery} from '@colony/shared/caveScenery';
 import {stoneFloorCell,cliffStripCell,caveRailHalf} from './caveTextures';
-import {undergroundFloorUrl,CAVE_WALL_ART,undergroundPropUrl,undergroundPropSize,undergroundEntrance} from '@colony/shared/undergroundArt';
+import {undergroundFloorUrl,CAVE_WALL_ART,undergroundPropUrl,undergroundPropSize,undergroundEntrance,undergroundOreUrl} from '@colony/shared/undergroundArt';
 import {npcVariantFrame} from "./npcVariants";
 import {PLAYER_BASES,HOME_PROPS} from "@colony/shared/playerBases";
 // interior.ts: Stardew phase 5c (2026-11-09; server/src/interiors.ts, shared/src/interiors.ts). The building interior
@@ -30,7 +30,7 @@ import {
   INTERIOR_WALK_FRAME_MS, INTERIOR_WORK_MS, INTERIOR_ZOOM, type InteriorMap, type InteriorNpcLive, type InteriorProp, type InteriorView,
 } from "@colony/shared/interiors";
 import type { StructureTextures } from "./structureArt";
-import { MINE_STATUS_LABEL, type MineMobLive } from "@colony/shared/mines";
+import { MINE_STATUS_LABEL, type MineMobLive, type MineResource } from "@colony/shared/mines";
 import { rigTextureScale } from "./heroRig";
 import { directionalFrame, autumnFrame, loadAutumnSheet } from "./autumnAnimations";
 
@@ -323,7 +323,7 @@ export function setupInterior(deps: InteriorDeps): InteriorUi {
   let heroCombat:CombatLive|undefined;
   let pendingLive: { key: string; storey: number; npcs: InteriorNpcLive[] } | null = null;
 
-  function propSprite(prop: InteriorProp, x: number, y: number, facing="s"): Container {
+  function propSprite(prop: InteriorProp, x: number, y: number, facing="s", ore?: string): Container {
     if (prop === "stairsUp" || prop === "stairsDown") {
       const texture = autumnFrame("furniture-stations", 5, prop === "stairsUp" ? 2 : 3);
       if (texture) {
@@ -347,7 +347,8 @@ export function setupInterior(deps: InteriorDeps): InteriorUi {
       const a=ruinPropArt(prop),t=a?extraTexture(a.url):undefined;if(a&&t){const b=opaqueBox(t),sp=new Sprite(t),k=Math.min(T*a.w/b.w,T*a.h/b.h);sp.anchor.set((b.x+b.w/2)/t.width,(b.y+b.h)/t.height);sp.scale.set(k);sp.position.set((x+.5)*T,(y+1)*T-1);sp.zIndex=(y+1)*T;return sp;}
     }
     if(view&&(view.map.underground||view.map.templateId==='mine'&&(!view.mine?.encounter||view.mine.encounter==='cave'))){
-      const url=undergroundPropUrl(view.map,prop,view.mine?.tile,x,y),t=url?extraTexture(url):undefined;
+      // Mining rework: a Mine's mineral node shows the ore it holds now (the per-ore underground art).
+      const url=ore&&prop==='mineralNode'?undergroundOreUrl(ore as MineResource):undergroundPropUrl(view.map,prop,view.mine?.tile,x,y),t=url?extraTexture(url):undefined;
       if(t){const s=new Sprite(t),b=opaqueBox(t),size=undergroundPropSize(prop),k=Math.min(T*size.h/b.h,T*size.w/b.w);s.anchor.set((b.x+b.w/2)/t.width,(b.y+b.h)/t.height);s.scale.set(k);s.position.set((x+.5)*T,(y+1)*T-1);s.zIndex=(y+1)*T;return s;}
     }
     if (prop === "oreFace" || prop === "timberProp") {
@@ -496,7 +497,9 @@ export function setupInterior(deps: InteriorDeps): InteriorUi {
         else{g.rect(x+14,y+10,3,21).rect(x+9,y+29,14,2).fill(edge);g.rect(x+11,y+8,10,12).fill(0x6f6859);g.rect(x+14,y+10,4,8).fill(0x292824);}
         g.zIndex=(p.y+1)*T;room.addChild(g);continue;
       }
-      const o=v.exploration?.objects.find(o=>o.x===p.x&&o.y===p.y);if(o?.kind==='key'&&!o.available)continue;room.addChild(propSprite(p.prop,p.x,p.y,p.facing));}
+      const o=v.exploration?.objects.find(o=>o.x===p.x&&o.y===p.y);if(o?.kind==='key'&&!o.available)continue;
+      // A worked-out mineral / rock node (mining rework) is drawn faded until it grows back.
+      const sp=propSprite(p.prop,p.x,p.y,p.facing,f?.ore);if(f?.empty&&(p.prop==='mineralNode'||p.prop==='rockBlock'))sp.alpha=.35;room.addChild(sp);}
     for(const o of v.exploration?.objects??[]){if(o.opened&&!o.empty&&['crate','barrel','pot','cache'].includes(o.kind)){const tex=extraTexture('/sprites/adventure/pouch.png');if(tex){const b=opaqueBox(tex),sp=new Sprite(tex),k=12/b.h;sp.anchor.set((b.x+b.w/2)/tex.width,(b.y+b.h)/tex.height);sp.scale.set(k);sp.position.set((o.x+.5)*T,(o.y+1)*T);sp.zIndex=(o.y+1)*T;room.addChild(sp);}}if(o.kind==='gate'&&o.opened){const tex=extraTexture('/sprites/structure/extra/door_wood_stonearch_open_b.png');if(tex){const sp=new Sprite(tex);sp.anchor.set(.5,1);sp.width=1.3*T;sp.height=1.4*T;sp.position.set((o.x+.5)*T,(o.y+1)*T);sp.zIndex=(o.y+1)*T;room.addChild(sp);}}}
     const old = new Map(npcViews);
     npcViews.clear();

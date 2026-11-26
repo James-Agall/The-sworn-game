@@ -1,6 +1,7 @@
 import type {InteriorProp} from './interiors.js';
 export type FurnitureAction='equipment'|'supplies'|'light'|'fire'|'rest'|'meal'|'read'|'wardrobe'|'altar'|'clear'|'mine'|'work'|'travel'|'inspect';
-export interface FurnitureLive {x:number;y:number;prop:InteriorProp;label:string;prompt:string;action:FurnitureAction;empty?:boolean;off?:boolean;cleared?:boolean}
+// ore: a Mine's mineral node, the ore it holds now (its art); empty there = worked out until it regrows.
+export interface FurnitureLive {x:number;y:number;prop:InteriorProp;label:string;prompt:string;action:FurnitureAction;empty?:boolean;off?:boolean;cleared?:boolean;ore?:string}
 export const FURNITURE:Partial<Record<InteriorProp,{label:string;action:FurnitureAction;prompt:string}>>={
  weaponRack:{label:'Weapon rack',action:'equipment',prompt:'Browse weapons'},armourStand:{label:'Armour stand',action:'equipment',prompt:'Browse armour'},
  table:{label:'Table',action:'meal',prompt:'Eat provisions'},chair:{label:'Chair',action:'rest',prompt:'Rest here'},pew:{label:'Bench',action:'rest',prompt:'Rest here'},throne:{label:'High seat',action:'rest',prompt:'Rest here'},

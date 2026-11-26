@@ -35,7 +35,8 @@ export function explorationMap(key:string,li:number,base:{map:InteriorMap;solid:
  // containers and carved storeroom, but refresh access props from the new base.
  if(r.base!==base.map){
   const access=new Set(['mineShaft','stairsUp','stairsDown']);
-  r.plan.map={...r.plan.map,slots:base.map.slots,props:[...r.plan.map.props.filter(p=>!access.has(p.prop)),...base.map.props.filter(p=>access.has(p.prop))]};
+  // (level too: the interior title names the depth, e.g. a Quarry dug to its shaft.)
+  r.plan.map={...r.plan.map,level:base.map.level,slots:base.map.slots,props:[...r.plan.map.props.filter(p=>!access.has(p.prop)),...base.map.props.filter(p=>access.has(p.prop))]};
   r.base=base.map;r.version++;
  }
  if(r.cache?.version===r.version)return r.cache;
@@ -60,7 +61,9 @@ function reach(p:Player,r:Room,o:ExplorationObject,max=EXPLORATION_REACH){
 function rollLoot(r:Room,o:ExplorationObject):Loot{
  const n=adventureHash(`${state.worldNoiseSalt}:${r.key}:${o.id}`),goods:Loot['goods']={},items:Loot['items']={};const treasure=o.kind==='chest',cache=o.kind==='cache';
  if(r.kind==='camp'){goods[n%2?'grain':'wood']=2+n%4;if(treasure)goods.iron=3+n%3;items.hide=cache?1:0;}
- else if(r.kind==='cave'||r.kind==='mine'){const depth=r.plan.map.underground?.depth??1;goods[r.plan.map.underground?.rockOnly?'rock':depth>=2?'iron':'rock']=2+n%4;if(treasure||cache)items[r.plan.map.underground?.rockOnly?'limestone':depth>=3?(n%2?'goldOre':'leadOre'):depth===2?'coal':'copperOre']=2+n%3;}
+ else if(r.kind==='cave'||r.kind==='mine'){const depth=r.plan.map.underground?.depth??1,quarry=!!r.plan.map.underground?.rockOnly;goods[quarry?'rock':depth>=2?'iron':'rock']=2+n%4;
+  // Mining rework (2026-11-26): the Quarry is stone only (its chests hold more rock, no ore).
+  if((treasure||cache)&&quarry)goods.rock=(goods.rock??0)+2+n%3;else if(treasure||cache)items[depth>=3?(n%2?'goldOre':'leadOre'):depth===2?'coal':'copperOre']=2+n%3;}
  else{goods.rock=1+n%3;if(treasure||cache)items[n%2?'bones':'gems']=1+n%2;}
  return{goods,items,gold:treasure?12+n%14:cache?5+n%7:n%4,relic:treasure&&!!o.locked};
 }

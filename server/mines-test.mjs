@@ -12,7 +12,9 @@
 // and digs iron ore and coal; level 3 the iron pickaxe (+ vent, pump) and digs gold and lead; inside, the old mine head
 // on a level leads down to the next and the mat back up; the hero fights per layer (bites, kills, loot, cleared), a
 // fallen hero is put outside; soldiers clear the shallowest infested layer; re-infestation by layer at dawn (a miner
-// killed; the foreman; guards; odds); hazards; the Quarry is unchanged; save / load keeps every layer.
+// killed; the foreman; guards; odds); hazards; mineral nodes inside (the hero mines one ore of the level's pool, a
+// day to grow back, never while infested, the level's pickaxe, full-pack safe); the Quarry is unchanged apart from
+// its stone-only rock nodes; save / load keeps every layer and the nodes' timers.
 import WebSocket from "ws";
 
 const ws = new WebSocket(`ws://localhost:${process.env.PORT ?? 8080}`);
@@ -497,6 +499,122 @@ await tp(MN.x, MN.y + 1);
 said = await heroCraft("mine:1:copperOre");
 result(!/working/.test(said), `no digging from outside: "${said}"`);
 
+// 10d. mineral nodes (mining rework 2026-11-26): every Mine level holds 3-5 "Mineral outcrop" nodes. E (interiorUse) at
+// one mines ONE ore of the level's pool (the ore the node shows) into the stores (iron ore into the pack); the node is
+// then worked out for one game day and grows back (a new ore of the pool); refused while the level is infested, without
+// the level's pickaxe, and (iron ore) with a full pack, the node keeping its ore. (Rolls forced to 1 here: no nest
+// returns while days are skipped.)
+const POOL = { 1: ["copperOre", "tinOre", "limestone"], 2: ["iron", "coal"], 3: ["goldOre", "leadOre"] };
+const ORES = ["copperOre", "tinOre", "limestone", "coal", "goldOre", "leadOre"];
+for (const l of [1, 2, 3]) await mine(MN, { layer: l, set: { status: "clear" } });
+await mine(MN, { roll: 1, set: { closedDay: -1, unpropped: false } });
+await setItems({ timberProps: 4, mineVent: 1, minePump: 1 });
+for (const id of ["stonePick", "bronzePick", "ironPick"]) await setExact(id, 1);
+for (const id of ORES) await setExact(id, 0);
+await hook("heroLife", { pack: {} });
+const nodesOf = async (layer) => (await mine(MN, { layer })).mine.nodes;
+const totals = async () => { const it = (await prog()).items; const o = Object.fromEntries(ORES.map((id) => [id, it[id] ?? 0])); o.iron = (await hook("heroLife", {})).life.pack.iron ?? 0; return o; };
+// Stand on open floor beside the node, then E at it (the interiorUse message).
+const useNode = async (q) => {
+  const map = (await interior({})).view.map;
+  const open = (x, y) => map.cells[y * map.w + x] === "." && !map.props.some((p) => p.x === x && p.y === y);
+  const at = [[0, 1], [1, 0], [-1, 0], [0, -1], [1, 1], [-1, 1], [1, -1], [-1, -1]].map(([dx, dy]) => ({ x: q.x + dx, y: q.y + dy })).find((p) => open(p.x, p.y));
+  await interior({ at: { x: (at.x + 0.5) * TILE, y: (at.y + 0.5) * TILE } });
+  const n = c.events.length;
+  send({ type: "interiorUse", x: q.x, y: q.y });
+  await until(() => c.events.length > n, 1500);
+  await sleep(60);
+  return evSince(n);
+};
+const goDown = async () => {
+  const sh = (await interior({})).view.map.props.find((p) => p.prop === "mineShaft");
+  await ff(20);
+  await interior({ at: { x: (sh.x + 0.5) * TILE, y: (sh.y + 0.5) * TILE } });
+  await ff(4);
+  return interior({});
+};
+await tp(MN.x, MN.y + 1);
+I = await interior({ enter: { tx: MN.x, ty: MN.y } });
+let N1 = await nodesOf(1);
+const n1 = N1[0];
+result(I.inside?.variant === 0 && N1.length >= 3 && N1.length <= 5 && N1.every((q) => q.prop === "mineralNode" && POOL[1].includes(q.ore) && q.left === 0)
+  && !I.view.map.props.some((p) => p.prop === "rockBlock") && N1.every((q) => I.view.furniture.some((f) => f.x === q.x && f.y === q.y && f.ore === q.ore && /outcrop/.test(f.label) && !f.empty)),
+  `level 1 holds 3-5 mineral nodes of its pool, shown with their ore: ${JSON.stringify(N1.map((q) => q.ore))}`);
+await mine(MN, { layer: 1, infest: ["caveBat"] });
+let t0 = await totals();
+said = await useNode(n1);
+result(/clear the nest/.test(said) && (await nodesOf(1))[0].left === 0 && JSON.stringify(await totals()) === JSON.stringify(t0), `no mining while the level is infested: "${said}"`);
+await mine(MN, { layer: 1, clear: true });
+await setExact("stonePick", 0);
+said = await useNode(n1);
+result(/Stone pick in your stores/.test(said) && (await nodesOf(1))[0].left === 0, `level 1 needs the stone pick: "${said}"`);
+await setExact("stonePick", 1);
+t0 = await totals();
+said = await useNode(n1);
+let t1 = await totals();
+N1 = await nodesOf(1);
+let M10 = await mine(MN, { layer: 1 });
+result(new RegExp(`Mined 1 ${({ copperOre: "copper ore", tinOre: "tin ore", limestone: "limestone" })[n1.ore]}`).test(said) && t1[n1.ore] === t0[n1.ore] + 1
+  && ORES.concat("iron").every((id) => id === n1.ore || t1[id] === t0[id]) && N1[0].left === M10.mine.nodes[0].left && N1[0].left > M10.dayTicks - 5 && POOL[1].includes(N1[0].ore),
+  `E at a ${n1.ore} node: exactly one ${n1.ore} (${JSON.stringify(t0)} -> ${JSON.stringify(t1)}), worked out for a day (${N1[0].left}/${M10.dayTicks} ticks): "${said}"`);
+const f1 = (await interior({})).view.furniture.find((f) => f.x === n1.x && f.y === n1.y);
+result(f1?.empty === true && /Worked out/.test(f1?.prompt ?? ""), `the view shows it worked out: ${JSON.stringify(f1)}`);
+await ff(20);
+t0 = await totals();
+said = await useNode(n1);
+result(/worked out/.test(said) && JSON.stringify(await totals()) === JSON.stringify(t0), `a worked-out node gives nothing: "${said}"`);
+// A game day later it has grown back.
+await hook("setCycleTick", { tick: M10.cycleTick + M10.dayTicks + 1 });
+N1 = await nodesOf(1);
+const regrown = N1[0].ore;
+t0 = await totals();
+said = await useNode(n1);
+t1 = await totals();
+result(N1[0].left === 0 && /Mined 1/.test(said) && t1[regrown] === t0[regrown] + 1, `after a game day it grows back (now ${regrown}) and mines again: "${said}"`);
+// Level 2: the bronze pickaxe; iron ore is carried (a full pack leaves the node and its ore alone).
+I = await goDown();
+let N2 = await nodesOf(2);
+result(I.inside?.variant === 1 && N2.length >= 3 && N2.length <= 5 && N2.every((q) => POOL[2].includes(q.ore)), `level 2 nodes: ${JSON.stringify(N2.map((q) => q.ore))}`);
+await setExact("bronzePick", 0);
+said = await useNode(N2[0]);
+result(/Bronze pickaxe in your stores/.test(said) && (await nodesOf(2))[0].left === 0, `level 2 needs the bronze pickaxe: "${said}"`);
+await setExact("bronzePick", 1);
+// Make node 0 hold iron ore: mine it (whatever it holds) with the reroll forced to the pool's first ore (iron), skip a day.
+let n2 = N2[0];
+if (n2.ore !== "iron") {
+  await mine(MN, { roll: 0 });
+  t0 = await totals();
+  said = await useNode(n2);
+  t1 = await totals();
+  result(/Mined 1 coal/.test(said) && t1.coal === t0.coal + 1 && t1.iron === t0.iron, `a coal node gives coal to the stores: "${said}"`);
+  await mine(MN, { roll: 1 });
+  const M20 = await mine(MN, { layer: 2 });
+  await hook("setCycleTick", { tick: M20.cycleTick + M20.dayTicks + 1 });
+  await ff(20);
+  n2 = (await nodesOf(2))[0];
+}
+await hook("heroLife", { pack: { rock: 20 } });
+said = await useNode(n2);
+let N2b = await nodesOf(2);
+result(n2.ore === "iron" && /pack is full/.test(said) && N2b[0].left === 0 && N2b[0].ore === "iron" && (await hook("heroLife", {})).life.pack.iron === undefined,
+  `a full pack: nothing mined, the node keeps its iron ore: "${said}"`);
+await hook("heroLife", { pack: {} });
+said = await useNode(n2);
+result(/Mined 1 iron ore \(carried\)/.test(said) && (await hook("heroLife", {})).life.pack.iron === 1 && (await nodesOf(2))[0].left > 0, `iron ore goes into the pack: "${said}"`);
+// Level 3: gold or lead ore with the iron pickaxe.
+await ff(20);
+I = await goDown();
+const N3 = await nodesOf(3);
+t0 = await totals();
+said = await useNode(N3[0]);
+t1 = await totals();
+result(I.inside?.variant === 2 && N3.length >= 3 && N3.length <= 5 && N3.every((q) => POOL[3].includes(q.ore)) && t1[N3[0].ore] === t0[N3[0].ore] + 1,
+  `level 3 nodes (${JSON.stringify(N3.map((q) => q.ore))}) give gold / lead ore: "${said}"`);
+await interior({ exit: true });
+await mine(MN, { roll: null });
+await hook("heroLife", { pack: {} });
+for (const l of [1, 2, 3]) await mine(MN, { layer: l, set: { status: "clear" } });
+
 // 11. a fallen hero is put back outside
 await mine(MN, { layer: 1, infest: ["skeleton", "skeleton"] });
 await hook("damagePlayer", { amount: me().hp - 3 });
@@ -568,12 +686,37 @@ result(QM.mine.level === 2 && QM.mine.status === "infested" && QM.mine.mobs.ever
 await tp(Q.x, Q.y + 1);
 I = await interior({ enter: { tx: Q.x, ty: Q.y } });
 result(I.inside?.variant === 1 && /quarry \(shaft\)/.test(I.view?.title ?? ""), `Quarry interior: v${I.inside?.variant} "${I.view?.title}"`);
-await interior({ exit: true });
+// Mining rework: the Quarry is stone only: 3-5 "Rock outcrop" nodes (no mineral nodes) that give rock by hand.
+const QN = (await mine(Q, {})).mine.nodes;
+result(QN.length >= 3 && QN.length <= 5 && QN.every((q) => q.prop === "rockBlock" && q.ore === undefined) && !I.view.map.props.some((p) => p.prop === "mineralNode")
+  && QN.every((q) => I.view.furniture.some((f) => f.x === q.x && f.y === q.y && f.label === "Rock outcrop")),
+  `the Quarry holds ${QN.length} rock nodes and no mineral nodes`);
+await hook("heroLife", { pack: {} });
+said = await useNode(QN[0]);
+result(/clear the nest/.test(said), `no chipping while the Quarry is infested: "${said}"`);
 await mine(Q, { clear: true });
+for (const id of ORES) await setExact(id, 0);
+said = await useNode(QN[0]);
+const qPack = (await hook("heroLife", {})).life.pack;
+const qItems = (await prog()).items;
+result(/Chipped 2 rock/.test(said) && qPack.rock === 2 && Object.keys(qPack).every((k) => k === "rock") && ORES.every((id) => (qItems[id] ?? 0) === 0) && (await mine(Q, {})).mine.nodes[0].left > 0,
+  `a Quarry node gives stone only (pack ${JSON.stringify(qPack)}): "${said}"`);
+await ff(20);
+for (const id of ["stonePick", "bronzePick", "ironPick"]) await setExact(id, 0);
+said = await useNode(QN[1]);
+result(/need a pickaxe/.test(said), `chipping stone needs a pickaxe: "${said}"`);
+for (const id of ["stonePick", "bronzePick", "ironPick"]) await setExact(id, 1);
+await interior({ exit: true });
+await hook("heroLife", { pack: {} });
+// The Quarry's rock miners still quarry rock.
+const rock0 = (await stock()).rock;
+await runUntil(async () => (await stock()).rock > rock0, 40, 40);
+result((await stock()).rock > rock0, `the Quarry's miners still make rock: ${rock0} -> ${(await stock()).rock}`);
 
 // 15. save / load keeps every layer (status, monsters) and the ground
 await mine(MN, { layer: 2, infest: ["caveSpider", "giantSpider"] });
 const before = (await prog()).items;
+const nodesBefore = [await nodesOf(1), await nodesOf(2), await nodesOf(3)];
 send({ type: "saveGame", slot: "slot1" });
 await until(() => c.saves.length > 0, 5000);
 await mine(MN, { layer: 2, clear: true });
@@ -587,6 +730,11 @@ result(M.mine?.layered && M.mine.level === 3 && M.mine.status === "infested" && 
   && M.mine.mobs.find((m) => m.kind === "giantSpider")?.maxHp === Math.round(35 * 1.3) && M.mine.layers.length === 3 && tileAt(MN.x, MN.y) === T.Mine,
   `layers survive save/load: level ${M.mine?.level} ${JSON.stringify(M.mine?.layers)}`);
 result(["bronzePick", "ironPick", "mineVent", "minePump"].every((id) => after[id] === before[id]), `items survive: ${JSON.stringify(after)}`);
+const nodesAfter = [await nodesOf(1), await nodesOf(2), await nodesOf(3)];
+// (ready is absolute: compare it, the ore and the place; `left` moves with the clock after the load.)
+const nodeSig = (Ls) => JSON.stringify(Ls.map((L) => L.map((q) => [q.x, q.y, q.prop, q.ore, q.ready])));
+result(nodesBefore.flat().some((q) => q.ready > 0) && nodeSig(nodesAfter) === nodeSig(nodesBefore),
+  `mineral nodes (worked-out timers, ores) survive save/load: ${JSON.stringify(nodesAfter.map((L) => L.map((q) => `${q.x},${q.y}:${q.ore}@${q.ready}`)))} (before ${JSON.stringify(nodesBefore.map((L) => L.map((q) => `${q.x},${q.y}:${q.ore}@${q.ready}`)))})`);
 
 console.log(fails === 0 ? "ALL PASS" : `${fails} FAILED`);
 ws.close();

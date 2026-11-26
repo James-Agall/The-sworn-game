@@ -10,7 +10,7 @@ import {lifeOf,packWeight,furnitureTalk,toast,closeTalk,handleHeroAction,type Ch
 import {heroProfileOf,handleTakeFromArmoury,grantFoundEquipment} from './heroes.js';
 import {itemCount,addItem} from './progression.js';
 import {clanOf,withClan} from './clans.js';
-import {clearSight,interiorEnemiesNear} from './mines.js';
+import {clearSight,interiorEnemiesNear,mineNodeHarvest,mineNodeLive} from './mines.js';
 import {sendTo} from './saves.js';
 import {gameDay} from './diplomacy.js';
 import {sendJournal} from './story.js';
@@ -22,7 +22,10 @@ const key=(p:Player,q:{x:number;y:number;prop:InteriorProp})=>`${room(p)}:${q.x}
 const count=(s:ObjectState|undefined,prop:InteriorProp)=>s?.remaining??(prop==='weaponRack'?3:1);
 function loreFor(p:Player,prop:InteriorProp){const I=p.interior!;if(prop==='banner')return WORLD_LORE[6];if(prop==='statue'||prop==='altar')return WORLD_LORE[(I.tx+I.ty)%2?1:5];if(prop==='ruinColumn'||prop==='sarcophagus')return WORLD_LORE[7];return WORLD_LORE[adventureHash(`${I.key}:${prop}`)%WORLD_LORE.length];}
 export function furnitureView(p:Player,map:InteriorMap,own:boolean,excluded:{x:number;y:number}[]=[]):FurnitureLive[]{
- return map.props.filter(q=>FURNITURE[q.prop]&&!excluded.some(o=>o.x===q.x&&o.y===q.y)).map(q=>{const d=FURNITURE[q.prop]!,s=objects.get(key(p,q));const empty=d.action==='equipment'?(own?withClan(clanOf(p),()=>state.equipment[q.prop==='weaponRack'?'weapon':'armour'].every(n=>n<=0)):count(s,q.prop)<=0):s?.itemTaken===true;return{...q,label:d.label,action:d.action,prompt:empty?'Examine empty storage':d.prompt,empty,off:!!s?.off,cleared:!!s?.cleared};});
+ return map.props.filter(q=>FURNITURE[q.prop]&&!excluded.some(o=>o.x===q.x&&o.y===q.y)).map(q=>{const d=FURNITURE[q.prop]!,s=objects.get(key(p,q));
+  // Mining rework: a mineral / rock node of your own Mine or Quarry (mines.ts): its ore, worked out or not.
+  const node=d.action==='mine'?mineNodeLive(p,q.x,q.y,q.prop):undefined;if(node)return{...q,label:node.label,action:d.action,prompt:node.prompt,empty:node.empty,...(node.ore?{ore:node.ore}:{})};
+  const empty=d.action==='equipment'?(own?withClan(clanOf(p),()=>state.equipment[q.prop==='weaponRack'?'weapon':'armour'].every(n=>n<=0)):count(s,q.prop)<=0):s?.itemTaken===true;return{...q,label:d.label,action:d.action,prompt:empty?'Examine empty storage':d.prompt,empty,off:!!s?.off,cleared:!!s?.cleared};});
 }
 export function useFurniture(p:Player,q:InteriorMap['props'][number],ctx:FurnitureContext,op='',arg=''){
  const I=p.interior,d=FURNITURE[q.prop];if(!I||p.dead||!d)return false;
@@ -105,6 +108,8 @@ export function useFurniture(p:Player,q:InteriorMap['props'][number],ctx:Furnitu
   withClan(clanOf(p),()=>{if(bones)addItem('bones',1);else if(wardrobe)state.stock.clothes++;else if(q.prop==='hay')addItem('hay',2);});
   s.itemTaken=true;save();show(bones?'You recover a few old bones and leave the remains respectfully arranged.':wardrobe?'You recover one serviceable set of clothes for the stockpile.':'The useful supplies have been collected.');return true;
  }
+ // Mining rework: the nodes of your own Mine / Quarry respawn and yield by its rules (mines.ts mineNodeHarvest).
+ if(d.action==='mine'&&mineNodeHarvest(p,q.x,q.y,q.prop))return true;
  if(d.action==='clear'||d.action==='mine'){
   if(s.cleared){show('The loose material has already been cleared.');return true;}
   if(!safe()){toast(p,'Clear the nearby enemies before working here.');return true;}
