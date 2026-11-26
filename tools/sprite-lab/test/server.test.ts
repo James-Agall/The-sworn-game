@@ -193,10 +193,8 @@ test("palettes come from heroRig.ts; clips and lab palettes round-trip; layouts 
   assert.equal(p.heroError, null);
   assert.equal(p.hero.skin.length, 5);
   assert.equal(p.hero.hair.length, 6);
-  assert.equal((await write(base, "api/clips/walk-test", { loop: true, keys: [] }, "PUT")).status, 200);
-  assert.deepEqual((await request(base + "api/clips/walk-test")).json(), { loop: true, keys: [] });
-  assert.deepEqual((await request(base + "api/clips")).json(), ["walk-test"]);
   assert.equal((await write(base, "api/clips/Bad.Name", {}, "PUT")).status, 400);
+  assert.ok((await request(base + "api/clips")).json().includes("walk"), "built-in clips are listed");
   assert.equal((await write(base, "api/palettes/mine", { skin: ["#000000"] }, "PUT")).status, 200);
   assert.deepEqual((await request(base + "api/palettes")).json().lab, ["mine"]);
   const layouts = (await request(base + "api/layouts")).json();
@@ -230,4 +228,40 @@ test("slice: runs the repo slicer on a scratch set with validated args, backs up
 test("the real repo was not touched by these tests", async () => {
   assert.ok(!root.startsWith(path.resolve(PUBLIC, "../..")));
   await assert.rejects(stat(path.join(PUBLIC, "rig/parts/lab-copy")));
+});
+
+test("clips: strict validation on save, unknown fields kept, built-ins read-only, delete with backup", async () => {
+  const clip = { format: "sworn-clip/1", name: "walk-test", skeleton: "human", loop: true, duration: 1, fps: 24, tracks: { "spine.lean": { keys: [{ u: 0, v: 2, myNote: "kept" }] } }, futureThing: { x: 1 } };
+  const r = await write(base, "api/clips/walk-test", clip, "PUT");
+  assert.equal(r.status, 200, r.body.toString());
+  assert.deepEqual((await request(base + "api/clips/walk-test")).json(), clip);
+  const text = await readFile(path.join(root, "client/public/rig/clips/walk-test.json"), "utf8");
+  assert.match(text, /\{"u": 0, "v": 2, "myNote": "kept"\}/, "keys are written one per line");
+  // invalid: reason in the error, nothing written
+  const bad = await write(base, "api/clips/walk-test", { ...clip, tracks: { "spine.lean": { keys: [{ u: 2, v: 0 }] } } }, "PUT");
+  assert.equal(bad.status, 400);
+  assert.match(bad.json().error, /u must be 0\.\.1/);
+  assert.equal(await readFile(path.join(root, "client/public/rig/clips/walk-test.json"), "utf8"), text);
+  assert.equal((await write(base, "api/clips/other", clip, "PUT")).status, 400, "name must match the file");
+  // built-ins: cannot be overwritten, deleted or forged
+  const walk = (await request(base + "api/clips/walk")).json();
+  assert.equal((await write(base, "api/clips/walk", { ...walk, builtin: undefined }, "PUT")).status, 409);
+  assert.equal((await write(base, "api/clips/walk/delete", {})).status, 409);
+  assert.equal((await write(base, "api/clips/walk-test", { ...clip, builtin: true }, "PUT")).status, 400);
+  // delete: backed up, gone
+  const del = await write(base, "api/clips/walk-test/delete", {});
+  assert.equal(del.status, 200);
+  assert.equal(await readFile(path.join(root, del.json().backup, "client/public/rig/clips/walk-test.json"), "utf8"), text);
+  assert.equal((await request(base + "api/clips/walk-test")).status, 404);
+  assert.equal((await write(base, "api/clips/walk-test/delete", {})).status, 404);
+});
+
+test("exports: PNGs go to art-sources/lab/exports/ only, with a checked name and a real PNG", async () => {
+  const b64 = png(40, 30).toString("base64");
+  const r = await write(base, "api/exports", { name: "walk-contact", png: b64 });
+  assert.equal(r.status, 200, r.body.toString());
+  assert.equal(r.json().path, "art-sources/lab/exports/walk-contact.png");
+  assert.deepEqual(await readFile(path.join(root, "art-sources/lab/exports/walk-contact.png")), Buffer.from(b64, "base64"));
+  for (const name of ["../x", "a/b", "Walk", ""]) assert.equal((await write(base, "api/exports", { name, png: b64 })).status, 400, name);
+  assert.equal((await write(base, "api/exports", { name: "x", png: Buffer.from("not a png").toString("base64") })).status, 400);
 });

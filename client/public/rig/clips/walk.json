@@ -1,0 +1,88 @@
+{
+ "format": "sworn-clip/1",
+ "name": "walk",
+ "builtin": true,
+ "source": "client/public/rig/body.html skeleton(), state walk (planted feet: Rig.foot stride 22, lift 8, duty 0.58)",
+ "skeleton": "human",
+ "loop": true,
+ "duration": 0.8695652173913044,
+ "fps": 24,
+ "phases": 8,
+ "tracks": {
+  "root.y": {
+   "keys": [],
+   "waves": [
+    {"fn": "abscos", "amp": -2.5, "rate": 6.283, "per": "cycle"}
+   ]
+  },
+  "pelvis.tilt": {
+   "keys": [],
+   "waves": [
+    {"fn": "sin", "amp": 2, "rate": 6.283, "per": "cycle"}
+   ]
+  },
+  "spine.lean": {
+   "keys": [
+    {"u": 0, "v": 2.5}
+   ]
+  },
+  "head.tilt": {
+   "keys": [
+    {"u": 0, "v": 1.125}
+   ],
+   "waves": [
+    {"fn": "sin", "amp": 0.6, "rate": 1.7, "per": "second"}
+   ]
+  },
+  "armN.shoulder": {
+   "keys": [
+    {"u": 0, "v": 14}
+   ],
+   "waves": [
+    {"fn": "sin", "amp": 5, "rate": 6.283, "per": "cycle"}
+   ]
+  },
+  "armN.weapon": {
+   "keys": [
+    {"u": 0, "v": 78}
+   ],
+   "waves": [
+    {"fn": "sin", "amp": 5, "rate": 6.283, "per": "cycle"}
+   ]
+  },
+  "armF.shoulder": {
+   "keys": [
+    {"u": 0, "v": -10}
+   ],
+   "waves": [
+    {"fn": "sin", "amp": -20, "rate": 6.283, "per": "cycle"}
+   ]
+  }
+ },
+ "limbs": {
+  "legN": {
+   "mode": "ik",
+   "gait": {
+    "stride": 22,
+    "lift": 8,
+    "duty": 0.58,
+    "phase": 0,
+    "tilt": {"above": 2, "up": -14, "down": 10}
+   }
+  },
+  "legF": {
+   "mode": "ik",
+   "gait": {
+    "stride": 22,
+    "lift": 8,
+    "duty": 0.58,
+    "phase": 0.5,
+    "tilt": {"above": 2, "up": -14, "down": 10}
+   }
+  }
+ },
+ "events": [
+  {"u": 0, "type": "footdown", "note": "near foot plants"},
+  {"u": 0.5, "type": "footdown", "note": "far foot plants"}
+ ]
+}

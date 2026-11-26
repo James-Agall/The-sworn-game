@@ -1,0 +1,90 @@
+{
+ "format": "sworn-clip/1",
+ "name": "attack-sword",
+ "builtin": true,
+ "source": "client/public/rig/body.html K (dur 0.62, trail 0.5-0.78)",
+ "skeleton": "human",
+ "loop": false,
+ "duration": 0.62,
+ "fps": 30,
+ "phases": 12,
+ "tracks": {
+  "root.x": {
+   "keys": [
+    {"u": 0, "v": 0},
+    {"u": 0.4, "v": -3},
+    {"u": 0.62, "v": 7, "ease": "easeIn"},
+    {"u": 1, "v": 0}
+   ]
+  },
+  "root.y": {
+   "keys": [],
+   "waves": [
+    {"fn": "sin", "amp": 0.5, "rate": 2.2, "per": "second"}
+   ]
+  },
+  "spine.lean": {
+   "keys": [
+    {"u": 0, "v": 0},
+    {"u": 0.3, "v": -9},
+    {"u": 0.42, "v": -9},
+    {"u": 0.62, "v": 12, "ease": "easeIn"},
+    {"u": 1, "v": 0}
+   ]
+  },
+  "head.tilt": {
+   "keys": [
+    {"u": 0, "v": 0},
+    {"u": 0.3, "v": -2.25},
+    {"u": 0.42, "v": -2.25},
+    {"u": 0.62, "v": 3, "ease": "easeIn"},
+    {"u": 1, "v": 0}
+   ],
+   "waves": [
+    {"fn": "sin", "amp": 0.6, "rate": 1.7, "per": "second"}
+   ]
+  },
+  "armN.shoulder": {
+   "keys": [
+    {"u": 0, "v": 14},
+    {"u": 0.3, "v": 150, "ease": "easeOut"},
+    {"u": 0.42, "v": 162},
+    {"u": 0.62, "v": 55, "ease": "easeIn"},
+    {"u": 0.8, "v": 30},
+    {"u": 1, "v": 14, "ease": "easeOut"}
+   ]
+  },
+  "armN.elbow": {
+   "keys": [
+    {"u": 0, "v": 34},
+    {"u": 0.3, "v": 22},
+    {"u": 0.42, "v": 18},
+    {"u": 0.62, "v": 8, "ease": "easeIn"},
+    {"u": 0.8, "v": 26},
+    {"u": 1, "v": 34}
+   ]
+  },
+  "armN.weapon": {
+   "keys": [
+    {"u": 0, "v": 78},
+    {"u": 0.3, "v": 185, "ease": "easeOut"},
+    {"u": 0.42, "v": 192},
+    {"u": 0.62, "v": 82, "ease": "easeIn"},
+    {"u": 0.8, "v": 56},
+    {"u": 1, "v": 78, "ease": "easeOut"}
+   ]
+  }
+ },
+ "limbs": {
+  "legN": {"mode": "ik"},
+  "legF": {"mode": "ik"}
+ },
+ "weapon": {
+  "kind": "sword",
+  "trail": {"from": 0.5, "to": 0.78, "steps": 7, "step": 0.018}
+ },
+ "events": [
+  {"u": 0.3, "type": "mark", "note": "windup"},
+  {"u": 0.62, "type": "contact", "note": "strike"}
+ ]
+}

@@ -7,6 +7,7 @@ import { mountParts } from "./parts.ts";
 import { mountDraw } from "./draw.ts";
 import { mountCompare } from "./compare.ts";
 import { el, toast } from "./ui.ts";
+import { installHook } from "./rig/hook.ts";
 
 type TabId = "parts" | "draw" | "rig" | "area" | "compare";
 const TABS: [TabId, string][] = [["parts", "Parts"], ["draw", "Draw (based on Piskel)"], ["rig", "Rig (coming next)"], ["area", "Area (coming next)"], ["compare", "Compare"]];
@@ -89,6 +90,7 @@ window.addEventListener("keydown", (e) => {
     if (i >= 0 && i < project.order.length) { e.preventDefault(); project.selected = project.order[i]; project.emit("select"); }
   }
 });
+installHook();
 window.addEventListener("beforeunload", (e) => { if (project.dirty) { e.preventDefault(); e.returnValue = ""; } });
 
 (async () => {

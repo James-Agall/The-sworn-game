@@ -6,6 +6,7 @@ import { execFile } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
 import { checkManifestShape, writeManifestText, type Manifest } from "../shared/manifest.ts";
+import { formatClip, validateClip } from "../shared/clip.ts";
 import { isDataName, isPngName, isSetName, NON_PART_PNGS, SIDECAR_FILE } from "../shared/names.ts";
 import { HttpError, checkRel, resolveReadable, resolveWritable, CLIPS_BASE, LAB_BASE, PARTS_BASE } from "./paths.ts";
 import { Backup, atomicWrite, deleteWithBackup, ensureDir, writeWithBackup } from "./store.ts";
@@ -18,7 +19,8 @@ const APP_DIR = path.join(CODE_DIR, "app"), PISKEL_DIST = path.join(CODE_DIR, "p
 const SLICER = path.join(REPO_DIR, "scripts", "slice-rig-sheet.mjs"), LAYOUTS = path.join(REPO_DIR, "scripts", "rig-layouts");
 const HERO_RIG = path.join(REPO_DIR, "client", "src", "heroRig.ts");
 
-export const LIMITS = { jsonBody: 1 << 20, saveBody: 24 << 20, png: 4 << 20, maxPngSide: 1024, refs: 6000 };
+export const LIMITS = { jsonBody: 1 << 20, saveBody: 24 << 20, png: 4 << 20, maxPngSide: 1024, exportPng: 16 << 20, maxExportSide: 8192, refs: 6000 };
+const EXPORT_NAME_RE = /^[a-z0-9][a-z0-9_-]{0,80}$/;
 
 export type LabOptions = { root: string; port: number; vite?: boolean; log?: (s: string) => void };
 export type Lab = { server: http.Server; url: string; root: string; close(): Promise<void> };
@@ -100,7 +102,9 @@ export async function startLab(opts: LabOptions): Promise<Lab> {
     if (a === "palettes" && b && m === "PUT") return json(res, 200, await putData([...LAB_BASE, "palettes"].join("/"), b, await readJson(req)));
     if (a === "clips" && !b && m === "GET") return json(res, 200, await listData(CLIPS_BASE.join("/")));
     if (a === "clips" && b && m === "GET") return json(res, 200, await getData(CLIPS_BASE.join("/"), b));
-    if (a === "clips" && b && m === "PUT") return json(res, 200, await putData(CLIPS_BASE.join("/"), b, await readJson(req)));
+    if (a === "clips" && b && !c && m === "PUT") return json(res, 200, await putClip(b, await readJson(req)));
+    if (a === "clips" && b && c === "delete" && m === "POST") return json(res, 200, await deleteClip(b));
+    if (a === "exports" && !b && m === "POST") return json(res, 200, await saveExport(await readJson(req, LIMITS.saveBody)));
     if (a === "refs" && m === "GET") return json(res, 200, await refs());
     if (a === "layouts" && m === "GET") return json(res, 200, await layouts());
     if (a === "slice" && m === "POST") return json(res, 200, await slice(await readJson(req, LIMITS.saveBody)));
@@ -205,6 +209,54 @@ export async function startLab(opts: LabOptions): Promise<Lab> {
     await writeWithBackup(root, backup, `${relDir}/${name}.json`, JSON.stringify(body, null, 1) + "\n");
     await backup.prune();
     return { ok: true, name, backup: backup.dirRel };
+  }
+
+  // ---------------- clips: validated with the shared schema, built-in reference clips are read-only
+  async function clipIsBuiltin(name: string): Promise<boolean> {
+    const p = await resolveReadable(root, `${CLIPS_BASE.join("/")}/${name}.json`);
+    if (!p) return false;
+    try { return JSON.parse(await readFile(p, "utf8")).builtin === true; } catch { return false; }
+  }
+  async function putClip(name: string, body: Record<string, unknown>) {
+    if (!isDataName(name)) throw new HttpError(400, "bad name");
+    const errs = validateClip(body, name);
+    if (errs.length) throw new HttpError(400, "invalid clip: " + errs.slice(0, 12).join("; "));
+    if (body.builtin === true) throw new HttpError(400, "only the generator script writes built-in clips (remove \"builtin\")");
+    if (await clipIsBuiltin(name)) throw new HttpError(409, `${name} is a built-in reference clip (read-only); duplicate it to edit`);
+    const relDir = CLIPS_BASE.join("/"), backup = new Backup(root);
+    await ensureDir(root, relDir);
+    await writeWithBackup(root, backup, `${relDir}/${name}.json`, formatClip(body));
+    await backup.prune();
+    log(`saved clip ${name}`);
+    return { ok: true, name, backup: backup.dirRel };
+  }
+  async function deleteClip(name: string) {
+    if (!isDataName(name)) throw new HttpError(400, "bad name");
+    if (!(await resolveReadable(root, `${CLIPS_BASE.join("/")}/${name}.json`))) throw new HttpError(404, "not found");
+    if (await clipIsBuiltin(name)) throw new HttpError(409, `${name} is a built-in reference clip (read-only)`);
+    const backup = new Backup(root);
+    await deleteWithBackup(root, backup, `${CLIPS_BASE.join("/")}/${name}.json`);
+    await backup.prune();
+    return { ok: true, name, backup: backup.dirRel };
+  }
+  // ---------------- exports (contact sheets, baked previews) under art-sources/lab/exports/
+  async function saveExport(body: Record<string, unknown>) {
+    const name = body.name;
+    if (typeof name !== "string" || !EXPORT_NAME_RE.test(name)) throw new HttpError(400, "bad export name (a-z 0-9 _ -, max 81)");
+    const b64 = body.png;
+    if (typeof b64 !== "string" || !/^[A-Za-z0-9+/]*={0,2}$/.test(b64)) throw new HttpError(400, "png must be base64");
+    const buf = Buffer.from(b64, "base64");
+    if (buf.length > LIMITS.exportPng) throw new HttpError(413, "PNG too large");
+    if (!isPng(buf)) throw new HttpError(400, "not a PNG");
+    let img;
+    try { img = decodePNG(buf); } catch (e) { throw new HttpError(400, `PNG does not decode (${(e as Error).message})`); }
+    if (img.w < 1 || img.h < 1 || img.w > LIMITS.maxExportSide || img.h > LIMITS.maxExportSide) throw new HttpError(400, `PNG size ${img.w}x${img.h} not allowed`);
+    const relDir = [...LAB_BASE, "exports"].join("/"), rel = `${relDir}/${name}.png`, backup = new Backup(root);
+    await ensureDir(root, relDir);
+    await writeWithBackup(root, backup, rel, buf);
+    await backup.prune();
+    log(`export ${rel}`);
+    return { ok: true, path: rel, backup: backup.dirRel };
   }
 
   async function refs() {

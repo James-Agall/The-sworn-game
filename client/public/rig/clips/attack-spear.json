@@ -1,0 +1,93 @@
+{
+ "format": "sworn-clip/1",
+ "name": "attack-spear",
+ "builtin": true,
+ "source": "client/public/rig/index.html ATTACK.spear (dur 0.66, trail 0.5-0.7; off hand IK to the shaft 30 px from the weapon hand)",
+ "skeleton": "human",
+ "loop": false,
+ "duration": 0.66,
+ "fps": 30,
+ "phases": 12,
+ "tracks": {
+  "root.x": {
+   "keys": [
+    {"u": 0, "v": 0},
+    {"u": 0.4, "v": -4},
+    {"u": 0.58, "v": 9, "ease": "easeIn"},
+    {"u": 1, "v": 0}
+   ]
+  },
+  "root.y": {
+   "keys": [],
+   "waves": [
+    {"fn": "sin", "amp": 0.5, "rate": 2.2, "per": "second"}
+   ]
+  },
+  "spine.lean": {
+   "keys": [
+    {"u": 0, "v": 0},
+    {"u": 0.3, "v": -7},
+    {"u": 0.44, "v": -7},
+    {"u": 0.58, "v": 12, "ease": "easeIn"},
+    {"u": 0.8, "v": 5},
+    {"u": 1, "v": 0}
+   ]
+  },
+  "head.tilt": {
+   "keys": [
+    {"u": 0, "v": 0},
+    {"u": 0.3, "v": -2.8000000000000003},
+    {"u": 0.44, "v": -2.8000000000000003},
+    {"u": 0.58, "v": 4.800000000000001, "ease": "easeIn"},
+    {"u": 0.8, "v": 2},
+    {"u": 1, "v": 0}
+   ],
+   "waves": [
+    {"fn": "sin", "amp": 0.6, "rate": 1.7, "per": "second"}
+   ]
+  },
+  "armN.shoulder": {
+   "keys": [
+    {"u": 0, "v": 55},
+    {"u": 0.3, "v": 20, "ease": "easeOut"},
+    {"u": 0.44, "v": 18},
+    {"u": 0.58, "v": 82, "ease": "easeIn"},
+    {"u": 0.8, "v": 70},
+    {"u": 1, "v": 55}
+   ]
+  },
+  "armN.elbow": {
+   "keys": [
+    {"u": 0, "v": 40},
+    {"u": 0.3, "v": 92},
+    {"u": 0.44, "v": 96},
+    {"u": 0.58, "v": 4, "ease": "easeIn"},
+    {"u": 0.8, "v": 12},
+    {"u": 1, "v": 40}
+   ]
+  },
+  "armN.weapon": {
+   "keys": [
+    {"u": 0, "v": 84},
+    {"u": 0.3, "v": 72},
+    {"u": 0.44, "v": 70},
+    {"u": 0.58, "v": 92},
+    {"u": 0.8, "v": 88},
+    {"u": 1, "v": 84}
+   ]
+  }
+ },
+ "limbs": {
+  "legN": {"mode": "ik"},
+  "legF": {"mode": "ik"},
+  "armF": {"mode": "ik", "target": "grip", "along": 30}
+ },
+ "weapon": {
+  "kind": "spear",
+  "trail": {"from": 0.5, "to": 0.7, "steps": 7, "step": 0.018}
+ },
+ "events": [
+  {"u": 0.3, "type": "mark", "note": "pull back"},
+  {"u": 0.58, "type": "contact", "note": "thrust"}
+ ]
+}

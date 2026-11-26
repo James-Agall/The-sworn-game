@@ -1,0 +1,29 @@
+{
+ "format": "sworn-clip/1",
+ "name": "idle",
+ "builtin": true,
+ "source": "client/public/rig/body.html skeleton(), state idle",
+ "skeleton": "human",
+ "loop": true,
+ "duration": 2.855993321445266,
+ "fps": 12,
+ "phases": 8,
+ "tracks": {
+  "root.y": {
+   "keys": [],
+   "waves": [
+    {"fn": "sin", "amp": 0.5, "rate": 2.2, "per": "second"}
+   ]
+  },
+  "head.tilt": {
+   "keys": [],
+   "waves": [
+    {"fn": "sin", "amp": 0.6, "rate": 1.7, "per": "second"}
+   ]
+  }
+ },
+ "limbs": {
+  "legN": {"mode": "ik"},
+  "legF": {"mode": "ik"}
+ }
+}

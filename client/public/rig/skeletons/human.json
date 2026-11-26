@@ -1,0 +1,47 @@
+{
+  "format": "sworn-skeleton/1",
+  "name": "human",
+  "note": "The player rig's skeleton as data, from client/public/rig/body.html (frame, ground point, torso heights, hips, hand reach, shield pose) and index.html (bend signs, spear grip, bow string). Bone LENGTHS come from the part set's manifest (len of thigh, shin, upperArm, foreArm; soleBelowAnkle). Units: source px, degrees (0 = down, + = forward, 180 = up). Read by the Sprite Lab Rig tab (tools/sprite-lab/shared/pose.ts); the game runtime does not read it yet.",
+  "frame": { "w": 256, "h": 176, "groundX": 118, "groundY": 160, "drawScale": 1.08 },
+  "waistUp": 1,
+  "neckUp": 31,
+  "shoulder": [1.5, -26],
+  "headAt": [0, 1],
+  "helmAt": [1, -17],
+  "hips": { "near": [1.5, 3], "far": [-1.5, 3] },
+  "handReach": 3,
+  "rest": {
+    "armN.shoulder": 14, "armN.elbow": 34, "armN.weapon": 78,
+    "armF.shoulder": -10, "armF.elbow": 14,
+    "legN.ikX": 5, "legF.ikX": -7
+  },
+  "bend": { "arm": -1, "leg": 1 },
+  "shieldPose": { "shoulder": 42, "elbow": 62, "at": [1, 0] },
+  "weapons": {
+    "sword": { "source": "harvested from sprites/autumn/frames/heroes/base-05.png like body.html" },
+    "axe": { "part": "axe", "angle": 180, "length": 30 },
+    "spear": { "part": "spear", "angle": 0, "length": 60 },
+    "bow": { "part": "bow", "at": [6, 0], "string": { "from": [-4, 0], "to": [3, 3], "top": [-6, -27], "bottom": [-6, 27] } }
+  },
+  "bones": [
+    { "name": "root", "parent": null, "part": "pelvis", "kind": "upright", "at": "ground point - (thigh + shin + sole), + root.x / root.y", "channel": "pelvis.tilt" },
+    { "name": "waist", "parent": "root", "offset": [0, -1] },
+    { "name": "torso", "parent": "waist", "part": "torso", "kind": "upright", "channel": "spine.lean" },
+    { "name": "neck", "parent": "torso", "offset": [0, -31] },
+    { "name": "head", "parent": "neck", "part": "head", "kind": "upright", "offset": [0, 1], "channel": "head.tilt", "overlays": ["hair", "helm"] },
+    { "name": "shoulder", "parent": "torso", "offset": [1.5, -26] },
+    { "name": "upperArmN", "parent": "shoulder", "part": "upperArm", "len": "manifest", "channel": "armN.shoulder", "ik": "armN" },
+    { "name": "foreArmN", "parent": "upperArmN", "part": "foreArm", "len": "manifest + handReach", "channel": "armN.elbow" },
+    { "name": "weapon", "parent": "foreArmN", "channel": "armN.weapon", "absolute": true },
+    { "name": "upperArmF", "parent": "shoulder", "part": "upperArm", "far": true, "len": "manifest", "channel": "armF.shoulder", "ik": "armF" },
+    { "name": "foreArmF", "parent": "upperArmF", "part": "foreArm", "far": true, "len": "manifest + handReach", "channel": "armF.elbow" },
+    { "name": "hipN", "parent": "root", "offset": [1.5, 3] },
+    { "name": "thighN", "parent": "hipN", "part": "thigh", "len": "manifest", "channel": "legN.hip", "ik": "legN" },
+    { "name": "shinN", "parent": "thighN", "part": "shin", "len": "manifest", "channel": "legN.knee" },
+    { "name": "footN", "parent": "shinN", "part": "foot", "kind": "upright", "channel": "legN.ankle", "sole": "manifest soleBelowAnkle" },
+    { "name": "hipF", "parent": "root", "offset": [-1.5, 3] },
+    { "name": "thighF", "parent": "hipF", "part": "thigh", "far": true, "len": "manifest", "channel": "legF.hip", "ik": "legF" },
+    { "name": "shinF", "parent": "thighF", "part": "shin", "far": true, "len": "manifest", "channel": "legF.knee" },
+    { "name": "footF", "parent": "shinF", "part": "foot", "far": true, "kind": "upright", "channel": "legF.ankle" }
+  ]
+}

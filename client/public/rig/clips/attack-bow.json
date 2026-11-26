@@ -1,0 +1,71 @@
+{
+ "format": "sworn-clip/1",
+ "name": "attack-bow",
+ "builtin": true,
+ "source": "client/public/rig/index.html ATTACK.bow (dur 1.2, draw 0.18-0.55, release 0.74; bow hand IK to shoulder + (26, 2), string hand IK to the string)",
+ "skeleton": "human",
+ "loop": false,
+ "duration": 1.2,
+ "fps": 30,
+ "phases": 12,
+ "tracks": {
+  "root.y": {
+   "keys": [],
+   "waves": [
+    {"fn": "sin", "amp": 0.5, "rate": 2.2, "per": "second"}
+   ]
+  },
+  "spine.lean": {
+   "keys": [
+    {"u": 0, "v": 0},
+    {"u": 0.25, "v": -3},
+    {"u": 0.7, "v": -4},
+    {"u": 0.76, "v": 2},
+    {"u": 1, "v": 0}
+   ]
+  },
+  "head.tilt": {
+   "keys": [
+    {"u": 0, "v": 0},
+    {"u": 0.25, "v": -1.2000000000000002},
+    {"u": 0.7, "v": -1.6},
+    {"u": 0.76, "v": 0.8},
+    {"u": 1, "v": 0}
+   ],
+   "waves": [
+    {"fn": "sin", "amp": 0.6, "rate": 1.7, "per": "second"}
+   ]
+  },
+  "armF.ikX": {
+   "keys": [
+    {"u": 0, "v": 26}
+   ]
+  },
+  "armF.ikY": {
+   "keys": [
+    {"u": 0, "v": 2}
+   ]
+  },
+  "weapon.draw": {
+   "keys": [
+    {"u": 0, "v": 0},
+    {"u": 0.18, "v": 0},
+    {"u": 0.55, "v": 1},
+    {"u": 0.7, "v": 1},
+    {"u": 0.74, "v": 0, "ease": "easeIn"},
+    {"u": 1, "v": 0}
+   ]
+  }
+ },
+ "limbs": {
+  "legN": {"mode": "ik"},
+  "legF": {"mode": "ik"},
+  "armN": {"mode": "ik", "target": "string"},
+  "armF": {"mode": "ik", "target": "free"}
+ },
+ "weapon": {"kind": "bow", "release": 0.74, "shield": false},
+ "events": [
+  {"u": 0.55, "type": "mark", "note": "full draw"},
+  {"u": 0.74, "type": "release", "note": "arrow flies"}
+ ]
+}

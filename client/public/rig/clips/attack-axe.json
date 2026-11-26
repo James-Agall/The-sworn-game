@@ -1,0 +1,103 @@
+{
+ "format": "sworn-clip/1",
+ "name": "attack-axe",
+ "builtin": true,
+ "source": "client/public/rig/index.html ATTACK.axe (dur 0.8, trail 0.58-0.86; far arm elbow 16)",
+ "skeleton": "human",
+ "loop": false,
+ "duration": 0.8,
+ "fps": 30,
+ "phases": 12,
+ "tracks": {
+  "root.x": {
+   "keys": [
+    {"u": 0, "v": 0},
+    {"u": 0.5, "v": -4},
+    {"u": 0.72, "v": 8, "ease": "easeIn"},
+    {"u": 1, "v": 0}
+   ]
+  },
+  "root.y": {
+   "keys": [],
+   "waves": [
+    {"fn": "sin", "amp": 0.5, "rate": 2.2, "per": "second"}
+   ]
+  },
+  "spine.lean": {
+   "keys": [
+    {"u": 0, "v": 0},
+    {"u": 0.4, "v": -12},
+    {"u": 0.52, "v": -12},
+    {"u": 0.72, "v": 15, "ease": "easeIn"},
+    {"u": 1, "v": 0}
+   ]
+  },
+  "head.tilt": {
+   "keys": [
+    {"u": 0, "v": 0},
+    {"u": 0.4, "v": -4.800000000000001},
+    {"u": 0.52, "v": -4.800000000000001},
+    {"u": 0.72, "v": 6, "ease": "easeIn"},
+    {"u": 1, "v": 0}
+   ],
+   "waves": [
+    {"fn": "sin", "amp": 0.6, "rate": 1.7, "per": "second"}
+   ]
+  },
+  "armN.shoulder": {
+   "keys": [
+    {"u": 0, "v": 35},
+    {"u": 0.4, "v": 170, "ease": "easeOut"},
+    {"u": 0.52, "v": 174},
+    {"u": 0.72, "v": 52, "ease": "easeIn"},
+    {"u": 0.9, "v": 40},
+    {"u": 1, "v": 35}
+   ]
+  },
+  "armN.elbow": {
+   "keys": [
+    {"u": 0, "v": 50},
+    {"u": 0.4, "v": 10},
+    {"u": 0.52, "v": 8},
+    {"u": 0.72, "v": 6},
+    {"u": 0.9, "v": 30},
+    {"u": 1, "v": 50}
+   ]
+  },
+  "armN.weapon": {
+   "keys": [
+    {"u": 0, "v": 120},
+    {"u": 0.4, "v": 200, "ease": "easeOut"},
+    {"u": 0.52, "v": 205},
+    {"u": 0.72, "v": 60, "ease": "easeIn"},
+    {"u": 0.9, "v": 45},
+    {"u": 1, "v": 120}
+   ]
+  },
+  "armF.shoulder": {
+   "keys": [
+    {"u": 0, "v": -10},
+    {"u": 0.5, "v": -55},
+    {"u": 0.72, "v": 30},
+    {"u": 1, "v": -10}
+   ]
+  },
+  "armF.elbow": {
+   "keys": [
+    {"u": 0, "v": 16}
+   ]
+  }
+ },
+ "limbs": {
+  "legN": {"mode": "ik"},
+  "legF": {"mode": "ik"}
+ },
+ "weapon": {
+  "kind": "axe",
+  "trail": {"from": 0.58, "to": 0.86, "steps": 7, "step": 0.018}
+ },
+ "events": [
+  {"u": 0.4, "type": "mark", "note": "windup"},
+  {"u": 0.72, "type": "contact", "note": "strike"}
+ ]
+}

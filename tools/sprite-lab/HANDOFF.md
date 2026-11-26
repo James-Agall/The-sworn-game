@@ -1,5 +1,15 @@
 # Sprite Lab: handoff (2026-11-26)
 
+## Round 3: Rig tab (in progress, newest last)
+- DONE (commit "Rig: clip format..."): `shared/clip.ts` (format `sworn-clip/1`, strict validator, rig-core-based evaluation:
+  keys with eases, loop wrap, waves, gait), `shared/pose.ts` (body.html skeleton() as a solver + FK/IK modes),
+  `client/public/rig/skeletons/human.json`, built-in clips in `client/public/rig/clips/` (generator
+  `scripts/make-builtin-clips.ts`), server: clip PUT validates + refuses built-ins, `POST /api/clips/<n>/delete`,
+  `POST /api/exports` (art-sources/lab/exports/<name>.png), `app/src/rig/render.ts` (body.html build/drawFrame mirror,
+  loads /rig/rig-core.js), `app/src/rig/hook.ts` (window.__labRig), tests `clip.test.ts`, `rig-golden.test.ts`
+  (idle / walk / sword: 0 px differ vs body.html; axe / spear / bow: 504 channel checks vs index.html, worst 1e-13 deg).
+- NEXT: Rig tab UI (`app/src/rig/tab.ts`, timeline), export contact sheet / bake, smoke test, docs, MANUAL-TESTS.
+
 ## Progress (round 2, newest last)
 - Steps 1-7 DONE (see README.md for the user-facing description, NOTICE.md for Piskel).
   - Server + validators + CLI + tests (159f14c); pristine Piskel (d818db5); app + tabs (5686220); bridge + piskel-dist
