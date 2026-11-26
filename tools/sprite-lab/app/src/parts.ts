@@ -48,7 +48,7 @@ export function mountParts(root: HTMLElement, ctx: PartsCtx) {
   const center = el("section", { class: "center" }, toolbar, viewWrap, status);
   const view = new PixelView(viewWrap);
   view.onZoom = (z) => (zoomLbl.textContent = z + "x");
-  view.onHover = (x, y) => { const p = project.part(); status.textContent = p ? `x ${Math.floor(x)}  y ${Math.floor(y)}   |   pivot ${p.pivot.join(", ")}   len ${p.len ?? 0}   size ${(p.size || []).join("x")}   |   drag the red pivot / yellow joint; wheel zooms, drag empty space pans` : ""; };
+  view.onHover = (x, y) => { const p = project.part(); status.textContent = p ? `x ${Math.floor(x)}  y ${Math.floor(y)}   |   pivot ${p.pivot.join(", ")}   len ${p.len ?? 0}   size ${(p.size || []).join("x")}   |   drag the red pivot / yellow joint (Alt+drag: the joint under the pivot; Shift: whole px); wheel zooms, drag empty space pans` : ""; };
   gridChk.addEventListener("change", () => { view.grid = gridChk.checked; view.render(); });
 
   // ---- right: fields + assembled preview
@@ -142,9 +142,9 @@ export function mountParts(root: HTMLElement, ctx: PartsCtx) {
       g.strokeStyle = "rgba(255,48,48,0.7)"; g.lineWidth = 1; g.beginPath(); g.moveTo(x - 14, y); g.lineTo(x + 14, y); g.moveTo(x, y - 14); g.lineTo(x, y + 14); g.stroke();
     };
     view.handles = [
-      { id: "joint", x: p.pivot[0], y: p.pivot[1] + dir * (p.len || 0), color: "#ffe030", shape: "diamond", label: `${p.joint || "joint"} (len ${p.len || 0})`,
+      { id: "joint", x: p.pivot[0], y: p.pivot[1] + dir * (p.len || 0), color: "#ffe030", shape: "diamond", label: p.len ? `${p.joint || "joint"} (len ${p.len})` : undefined,
         start: () => project.begin(), drag: (_x, y) => project.live("joint", () => { p.len = Math.max(0, Math.round((y - p.pivot[1]) * dir)); }) },
-      { id: "pivot", x: p.pivot[0], y: p.pivot[1], color: "#ff3030", label: "pivot",
+      { id: "pivot", x: p.pivot[0], y: p.pivot[1], color: "#ff3030", label: p.len ? "pivot" : "pivot = joint (Alt+drag to pull the joint out)",
         start: () => project.begin(), drag: (x, y, e) => project.live("pivot", () => { p.pivot = [snap(x, e), snap(y, e)]; }) },
     ];
     view.render();

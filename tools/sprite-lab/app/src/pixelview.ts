@@ -38,8 +38,11 @@ export class PixelView {
     this.image = img; this.imgW = w; this.imgH = h;
     if (refit || changed) this.fit(); else this.render();
   }
+  private pendingFit = false;
   fit() {
     const r = this.canvas.parentElement!.getBoundingClientRect();
+    if (!r.width || !r.height) { this.pendingFit = true; return; }    // hidden tab: fit once it is shown
+    this.pendingFit = false;
     if (this.imgW && r.width) this.zoom = Math.max(1, Math.min(16, Math.floor(Math.min((r.width - 80) / this.imgW, (r.height - 80) / this.imgH))));
     this.panX = Math.round((r.width - this.imgW * this.zoom) / 2);
     this.panY = Math.round((r.height - this.imgH * this.zoom) / 2);
@@ -59,7 +62,8 @@ export class PixelView {
   }
   toImage(e: { offsetX: number; offsetY: number }) { return { x: (e.offsetX - this.panX) / this.zoom, y: (e.offsetY - this.panY) / this.zoom }; }
   private hit(e: PointerEvent): Handle | undefined {
-    for (const h of [...this.handles].reverse()) {
+    // topmost handle wins; with Alt the bottom one does (to grab a handle hidden under another)
+    for (const h of e.altKey ? this.handles : [...this.handles].reverse()) {
       const dx = e.offsetX - (this.panX + h.x * this.zoom), dy = e.offsetY - (this.panY + h.y * this.zoom);
       if (dx * dx + dy * dy <= 100) return h;
     }
@@ -82,6 +86,7 @@ export class PixelView {
 
   render() {
     const c = this.canvas, r = c.parentElement!.getBoundingClientRect(), dpr = window.devicePixelRatio || 1;
+    if (this.pendingFit && r.width && r.height) { this.fit(); return; }
     const W = Math.max(1, Math.floor(r.width)), H = Math.max(1, Math.floor(r.height));
     if (c.width !== W * dpr || c.height !== H * dpr) { c.width = W * dpr; c.height = H * dpr; c.style.width = W + "px"; c.style.height = H + "px"; }
     const g = c.getContext("2d")!;
