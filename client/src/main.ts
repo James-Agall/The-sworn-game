@@ -43,6 +43,7 @@ import {
   TilingSprite,
 } from "pixi.js";
 import { createAnimalPanel, createLivestock } from "./animals";
+import { createGroundItems } from "./groundItems";
 import { setupCreative } from "./creative";
 import { createLoadingScreen } from "./loadingScreen";
 import { makeStructureTextures, type StructureArt } from "./structureArt";
@@ -927,6 +928,9 @@ async function main() {
   const zonesUi = setupZones({ tileSize: () => tileSize, worldTilesX: () => worldTilesX, send: (m) => sendMessage(m) });
   worldLayer.addChild(zonesUi.ground);
   worldLayer.addChild(zonesUi.overlay);
+  // Inventory 2026-11-26: stacks dropped on the ground (snapshot `ground`), over the floor and zone goods.
+  const groundUi = createGroundItems(() => tileSize);
+  worldLayer.addChild(groundUi.layer);
   // Building templates: the Blueprints tab's panel and ghost (blueprints.ts).
   const blueprintsUi = setupBlueprints({
     send: (m) => sendMessage(m),
@@ -6185,7 +6189,11 @@ async function main() {
   };
   const SLOT_GLYPH: Record<string, string> = {
     head: "H", chest: "C", legs: "L", offhand: "O", trinket: "T", spell: "✶", tome: "▤",
-    sword: "⚔", spear: "↑", bow: ")", staff: "|", shield: "O", helm: "H", greaves: "L", cuirass: "C",
+    sword: "⚔", spear: "↑", bow: ")", staff: "|", shield: "O", helm: "H", greaves: "L", cuirass: "C", axe: "⚒", club: "!",
+  };
+  // Inventory 2026-11-26: the item's own socket kind in the tooltip (not the slot it would go to).
+  const KIND_LABEL: Record<string, string> = {
+    head: "Head", chest: "Chest", legs: "Legs", weapon: "Weapon", offhand: "Off-hand", trinket: "Trinket", spell: "Spell", tome: "Spell Tome",
   };
   const SLOT_FILL: Record<string, string> = {
     head: "#5b6b7a", chest: "#6b4a2a", legs: "#4f5a3a", weapon: "#7a3a2a", offhand: "#3a4f6b", trinket: "#6b5a2a", spell: "#4a2f6b", tome: "#4a2f6b",
@@ -6234,7 +6242,8 @@ async function main() {
     name.textContent = item.name;
     const tier = document.createElement("div");
     tier.className = "tier";
-    tier.textContent = item.tier === "relic" ? `Relic · ${SLOT_LABEL[gearSlotFor(item, heroProfile!) ?? "head"]}` : `Tier ${item.tier} · ${SLOT_LABEL[gearSlotFor(item, heroProfile!) ?? "head"]}`;
+    const kindText = item.kind && !["helm", "shield", "cuirass", "greaves"].includes(item.kind) ? ` (${item.kind})` : "";
+    tier.textContent = `${item.tier === "relic" ? "Relic" : `Tier ${item.tier}`} · ${KIND_LABEL[item.slot] ?? item.slot}${kindText}`;
     hsTip.append(name, tier);
     const trait=adventureTrait(item);if(trait){const d=ADVENTURE_GEAR[trait],line=document.createElement("p");line.textContent=d.benefit+" Tradeoff: "+d.cost;hsTip.append(line);}
     for (const line of STAT_LINES) {
@@ -6253,6 +6262,11 @@ async function main() {
           row.append(span);
         }
       }
+      hsTip.append(row);
+    }
+    if (!STAT_LINES.some((line) => (item.stats[line.key] ?? 0) !== 0)) {
+      const row = document.createElement("div");
+      row.textContent = "No stat bonuses";
       hsTip.append(row);
     }
     const foot = document.createElement("div");
@@ -6292,9 +6306,73 @@ async function main() {
     if (opts.tip) {
       el.addEventListener("mousemove", opts.tip);
       el.addEventListener("mouseleave", hideItemTip);
+      // Keyboard: the tooltip beside the focused socket.
+      el.addEventListener("focus", () => {
+        const r = el.getBoundingClientRect();
+        opts.tip!(new MouseEvent("mousemove", { clientX: r.left, clientY: r.bottom - 8 }));
+      });
+      el.addEventListener("blur", hideItemTip);
     } else if (opts.disabled) el.title = "Spells: coming soon";
     return el;
   }
+
+  // Inventory 2026-11-26: the Equip / Learn / Drop menu of a pack item (right click, the context-menu key, Shift+F10).
+  const invMenu = document.createElement("div");
+  invMenu.id = "hs-item-menu";
+  invMenu.setAttribute("role", "menu");
+  invMenu.hidden = true;
+  heroModal.append(invMenu);
+  let invMenuFor: HTMLElement | null = null;
+  const invNote = document.createElement("div");
+  invNote.className = "hs-inv-empty";
+  invNote.textContent = "Empty. Relics drop from bosses, mini-bosses and camps; plain gear comes from the armoury.";
+  hsInv.after(invNote);
+  function closeInvMenu(refocus = true) {
+    if (invMenu.hidden) return;
+    invMenu.hidden = true;
+    invMenu.replaceChildren();
+    if (refocus && invMenuFor?.isConnected) invMenuFor.focus();
+    invMenuFor = null;
+  }
+  function openInvMenu(anchor: HTMLElement, item: GearItem, actions: { label: string; run: () => void }[]) {
+    hideItemTip();
+    invMenu.replaceChildren();
+    const title = document.createElement("div");
+    title.className = "hs-menu-title";
+    title.textContent = item.name;
+    invMenu.append(title);
+    for (const a of [...actions, { label: "Cancel", run: () => {} }]) {
+      const b = document.createElement("button");
+      b.setAttribute("role", "menuitem");
+      b.textContent = a.label;
+      b.addEventListener("click", () => {
+        closeInvMenu(a.label === "Cancel");
+        a.run();
+      });
+      invMenu.append(b);
+    }
+    invMenuFor = anchor;
+    invMenu.hidden = false;
+    const r = anchor.getBoundingClientRect();
+    invMenu.style.left = `${Math.max(8, Math.min(r.left, window.innerWidth - invMenu.offsetWidth - 8))}px`;
+    invMenu.style.top = `${Math.min(r.bottom + 4, window.innerHeight - invMenu.offsetHeight - 8)}px`;
+    (invMenu.querySelector("button") as HTMLButtonElement | null)?.focus();
+  }
+  invMenu.addEventListener("keydown", (e) => {
+    const buttons = Array.from(invMenu.querySelectorAll("button"));
+    const i = buttons.indexOf(document.activeElement as HTMLButtonElement);
+    if (e.key === "Escape") {
+      e.stopPropagation();
+      e.preventDefault();
+      closeInvMenu();
+    } else if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+      e.preventDefault();
+      buttons[(i + (e.key === "ArrowDown" ? 1 : buttons.length - 1)) % buttons.length]?.focus();
+    } else if (e.key === "Tab") closeInvMenu(false);
+  });
+  document.addEventListener("pointerdown", (e) => {
+    if (!invMenu.hidden && !invMenu.contains(e.target as Node)) closeInvMenu(false);
+  });
 
   // ---- Hero phase 4: spells on the sheet (icons, tooltips) ----
   const hsSpellbook = document.getElementById("hs-spellbook")!;
@@ -6521,37 +6599,73 @@ async function main() {
       hsSpellAuto.onclick = () => sendMessage({ type: "setSpellAuto", heroId: hero.id, auto: !book.auto });
     }
 
-    // Pack.
+    // Pack: a fixed grid of inventoryCap slots (Inventory 2026-11-26). Click / Enter equips (or learns a tome); right
+    // click, the context-menu key or Shift+F10 opens Equip / Learn / Drop; Delete drops.
+    closeInvMenu(false);
     document.getElementById("hs-invcount")!.textContent = `(${prof.inventory.length}/${prof.inventoryCap})`;
     hsInv.replaceChildren();
-    if (prof.inventory.length === 0) {
-      const empty = document.createElement("div");
-      empty.className = "hs-inv-empty";
-      empty.textContent = "Empty. Relics drop from bosses, mini-bosses and camps; plain gear comes from the armoury.";
-      hsInv.append(empty);
-    }
+    hsInv.setAttribute("aria-label", `Pack: ${prof.inventory.length} of ${prof.inventoryCap} slots used`);
+    const dropItem = (item: GearItem) => sendMessage({ type: "dropGear", itemId: item.id });
+    const withMenu = (sock: HTMLElement, item: GearItem, actions: { label: string; run: () => void }[]) => {
+      if (sock.tabIndex < 0) {
+        sock.tabIndex = 0;
+        sock.setAttribute("role", "button");
+        sock.setAttribute("aria-label", `${item.name}: open the item menu`);
+      }
+      sock.setAttribute("aria-haspopup", "menu");
+      const all = [...actions, { label: hero ? "Drop (from your pack)" : "Drop on the ground", run: () => dropItem(item) }];
+      sock.addEventListener("contextmenu", (e) => {
+        e.preventDefault();
+        openInvMenu(sock, item, all);
+      });
+      sock.addEventListener("keydown", (e) => {
+        if (e.key === "ContextMenu" || (e.key === "F10" && e.shiftKey)) {
+          e.preventDefault();
+          openInvMenu(sock, item, all);
+        } else if (e.key === "Delete") {
+          e.preventDefault();
+          dropItem(item);
+        } else if ((e.key === "Enter" || e.key === " ") && !actions.length) {
+          e.preventDefault();
+          openInvMenu(sock, item, all);
+        }
+      });
+      if (!actions.length) sock.addEventListener("click", () => openInvMenu(sock, item, all));
+      return sock;
+    };
     for (const item of prof.inventory) {
       // Hero phase 4: a Spell Tome is read ("Learn") by whoever's tab is open, and consumed.
       if (item.slot === "tome" && item.spellId) {
         const spellId = item.spellId;
         const known = book.learned.includes(spellId);
-        hsInv.append(
+        const learn = () => sendMessage({ type: "useTome", itemId: item.id, ...heroArg });
+        hsInv.append(withMenu(
           makeSocket(null, item, {
-            onClick: known ? undefined : () => sendMessage({ type: "useTome", itemId: item.id, ...heroArg }),
-            tip: (e) => showSpellTip(e, spellId, prof.stats.spellPowerMult, known ? `${item.name}: already known${hero ? ` by ${hero.name}` : ""}` : `${item.name}: click to Learn${hero ? ` (${hero.name})` : ""}`, prof.spells?.castLevel),
-          })
-        );
+            onClick: known ? undefined : learn,
+            tip: (e) => showSpellTip(e, spellId, prof.stats.spellPowerMult, known ? `${item.name}: already known${hero ? ` by ${hero.name}` : ""} · right click: drop` : `${item.name}: click to Learn${hero ? ` (${hero.name})` : ""} · right click: drop`, prof.spells?.castLevel),
+          }),
+          item, known ? [] : [{ label: "Learn", run: learn }],
+        ));
         continue;
       }
       const target = gearSlotFor(item, prof);
       const current = target ? prof.equipment[target] : null;
-      hsInv.append(
+      const equip = target ? () => sendMessage({ type: "equipItem", itemId: item.id, slot: target, ...heroArg }) : undefined;
+      hsInv.append(withMenu(
         makeSocket(null, item, {
-          onClick: target ? () => sendMessage({ type: "equipItem", itemId: item.id, slot: target, ...heroArg }) : undefined,
-          tip: (e) => showItemTip(e, item, current, target ? `Click to equip (${SLOT_LABEL[target]})` : "Coming soon", !!target),
-        })
-      );
+          onClick: equip,
+          tip: (e) => showItemTip(e, item, current, `${target ? `Click / Enter: equip (${SLOT_LABEL[target]})` : "Can't be worn here"} · right click: drop`, !!target),
+        }),
+        item, equip ? [{ label: `Equip (${SLOT_LABEL[target!]})`, run: equip }] : [],
+      ));
     }
+    for (let i = prof.inventory.length; i < prof.inventoryCap; i++) {
+      const empty = document.createElement("div");
+      empty.className = "hs-socket hs-slot-empty";
+      empty.setAttribute("aria-hidden", "true");
+      hsInv.append(empty);
+    }
+    invNote.hidden = prof.inventory.length > 0;
 
     // Take from the armoury: one plain piece of a tier out of the colony stock (armour -> chest, weapon -> weapon).
     hsArmoury.replaceChildren();
@@ -6915,6 +7029,7 @@ async function main() {
       perf.setScene(colonistSprites.size+mobSprites.size+playerSprites.size,tileSpriteLayer.children.length+decorSpriteLayer.children.length+floorChunks.size);
     }
     if (message.type === "welcome") {
+      groundUi.clear();
       scenery.clear();hiddenHero.clear();chunkInbox.clear();
       myId = message.id;
       adventureUi.onWelcome();
@@ -6997,6 +7112,7 @@ async function main() {
       worldLayer.addChild(selectionRings);
       worldLayer.addChild(roleRings);
       worldLayer.addChild(dragBox);
+      worldLayer.addChild(groundUi.overlay);
       strategyOnWelcome();
     } else if (message.type === "snapshot") {
       loadingSnapshotSeen = true;
@@ -7022,6 +7138,9 @@ async function main() {
       syncDamagedBuildings(message.damagedBuildings);
       syncGates(message.gates);
       zonesUi.apply(message.zones);
+      groundUi.sync(message.ground);
+      const meNow = message.players.find((pl) => pl.id === myId);
+      if (meNow && !meNow.inside) groundUi.near(meNow.x, meNow.y);
       if (message.sites) syncFortMarkers(message.sites);
       if (message.relations) siteRelations = new Map(message.relations.map((r) => [r.num, r]));
       if (message.respawn) questCycleTicks = message.respawn.dayTicks + message.respawn.nightTicks;
@@ -8447,6 +8566,9 @@ async function main() {
     if(e.button===0&&!strategyCam.inStrategy&&buildPanel.classList.contains('collapsed')){
       const bx=Math.floor(x/tileSize),by=Math.floor(y/tileSize);
       if(tiles[by*worldTilesX+bx]===TileType.TownQuestBoard){sendMessage({type:'interact',tx:bx,ty:by});return;}
+      // Inventory 2026-11-26: a click on a stack on the ground picks it up (the server checks the reach).
+      const stack=selectedIds.size===0?groundUi.hit(x,y):null;
+      if(stack){sendMessage({type:'pickupGround',id:stack.id});return;}
       const person=findNearest(latestMobs.filter(m=>['townFarmer','townMiner','townPriest','townHerald'].includes(m.kind)),x,y,18);
       if(person){sendMessage({type:'interact',npcId:person.id});return;}
     }
@@ -8826,6 +8948,7 @@ async function main() {
     const x = (e.clientX - rect.left - worldLayer.position.x) / camZoom;
     const y = (e.clientY - rect.top - worldLayer.position.y) / camZoom;
     heroToolsRef.ui?.mouse(x, y);
+    if(!interiorRef.ui?.active())groundUi.hover(x,y);
     if(!interiorRef.ui?.active())combatControls?.aim(x,y);
     if (moatDrag && e.pointerId === moatDrag.pointerId) extendMoatDrag(x, y);
     if (orderPress && e.pointerId === orderPress.pointerId) {

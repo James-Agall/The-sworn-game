@@ -175,7 +175,7 @@ body.adventure-mode #hero-bar {display:grid!important;}
 #hl-pack-btn img {width:60px;height:62px;object-fit:contain;image-rendering:pixelated;}
 #hero-bar #hl-pack-btn:hover {background:#ad8c4e22;}
 #hero-appearance,.hs-family-col {display:none!important;}
-#hero-sheet .hs-cols {display:grid;grid-template-columns:230px minmax(0,1fr);gap:26px;}
+#hero-sheet .hs-cols {display:grid;grid-template-columns:262px minmax(0,1fr);gap:26px;}
 #hero-sheet .hs-body {display:grid;grid-template-columns:220px minmax(0,1fr);gap:24px;}
 #hero-sheet .hs-doll {position:relative;display:block;width:220px;height:330px;padding:0;border:0;background:radial-gradient(ellipse at bottom,#8b684432,transparent 65%);}
 .armour-stand {position:absolute;left:50%;top:5px;transform:translateX(-50%);height:310px;width:180px;object-fit:contain;image-rendering:pixelated;}
@@ -189,7 +189,41 @@ body.adventure-mode #hero-bar {display:grid!important;}
 #hs-doll [data-slot=legs] {left:79px;top:174px;}
 #hs-doll [data-slot=trinket1] {left:4px;top:30px;}
 #hs-doll [data-slot=trinket2] {right:4px;top:30px;}
-#hs-inv {min-height:110px;padding:10px;background:#ac875922;border:1px solid #ac875966;border-radius:5px;}
+#hs-inv {min-height:110px;padding:8px;background:#ac875922;border:1px solid #ac875966;border-radius:5px;}
+/* Inventory 2026-11-26: the pack as a fixed 40-slot grid (5 columns; 8 on a narrow single-column sheet). */
+#hero-sheet #hs-inv {grid-template-columns:repeat(5,minmax(0,1fr));gap:5px;min-height:0;}
+#hero-sheet #hs-inv .hs-socket {width:auto;height:auto;aspect-ratio:1;min-width:0;}
+#hero-sheet #hs-inv .hs-item {width:84%;height:84%;font-size:16px;}
+#hero-sheet #hs-inv .hs-socket:focus-visible,#hs-doll > .hs-socket:focus-visible {outline:3px solid var(--sel-ink,#2f6fbf);outline-offset:1px;}
+#hs-inv .hs-slot-empty {background:#f5edd855;border-style:dashed;border-color:#a2987d88;box-shadow:none;cursor:default;}
+#hs-inv .hs-slot-empty:hover {outline:none;}
+#hs-inv + .hs-inv-empty {margin:6px 2px 0;font-size:12px;}
+#hs-item-menu {position:fixed;z-index:102;min-width:170px;display:flex;flex-direction:column;gap:3px;padding:6px;background:#f5edd8;border:1px solid #8f7a55;border-radius:6px;box-shadow:0 8px 24px #0006;font-family:var(--font-sans,sans-serif);}
+#hs-item-menu[hidden] {display:none;}
+#hs-item-menu .hs-menu-title {font:13px Georgia;padding:2px 6px 4px;border-bottom:1px solid #a2987d66;margin-bottom:2px;}
+#hs-item-menu button {text-align:left;padding:7px 10px;font-size:12.5px;background:#fff6;border:1px solid #a69c81;border-radius:4px;cursor:pointer;color:var(--ink,#2b1a0b);}
+#hs-item-menu button:hover,#hs-item-menu button:focus-visible {background:#4a604b;color:#fff2d1;outline:none;}
+#hs-goods {margin-top:2px;}
+#hs-goods .hs-load-text {display:flex;justify-content:space-between;align-items:baseline;gap:8px;font-size:12px;}
+#hs-goods .hs-load-text span {color:var(--ink-faint,#6b5a40);font-style:italic;}
+#hs-goods .hs-load {height:8px;margin:4px 0 8px;background:#2e1a0c33;border:1px solid #8f7a55;border-radius:3px;overflow:hidden;}
+#hs-goods .hs-load-fill {height:100%;background:#5f8a4a;}
+#hs-goods .hs-load.heavy .hs-load-fill {background:#d28a2e;}
+#hs-goods .hs-load.full .hs-load-fill {background:#a8322a;}
+#hs-goods .hs-load.full + .hs-goods-list, #hs-goods .hs-load.full {border-color:#a8322a;}
+#hs-goods .hs-goods-list {display:flex;flex-direction:column;gap:4px;margin-bottom:8px;}
+#hs-goods .hs-good {display:grid;grid-template-columns:26px minmax(0,1fr) auto;align-items:center;gap:7px;font-size:12px;padding:4px 5px;background:#f5edd888;border:1px solid #a2987d66;border-radius:4px;}
+#hs-goods .hs-good-info {display:flex;flex-direction:column;min-width:0;line-height:1.2;}
+#hs-goods .hs-good-acts {display:flex;gap:3px;}
+#hs-goods .hs-good-icon {position:relative;width:24px;height:24px;display:flex;align-items:center;justify-content:center;font:bold 12px Georgia;color:#fbecc8;background:#6b4a2a;border-radius:4px;}
+#hs-goods .hs-good-icon img {position:absolute;inset:0;width:100%;height:100%;object-fit:contain;image-rendering:pixelated;background:#f5edd8;border-radius:4px;}
+#hs-goods .hs-good-name {overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:600;}
+#hs-goods .hs-good-qty {font-weight:600;}
+#hs-goods .hs-good-wt {color:var(--ink-faint,#6b5a40);font-size:11px;}
+#hs-goods .hs-good button {padding:2px 7px;font-size:11px;min-height:26px;min-width:0;width:auto;}
+#hs-goods > button {width:100%;margin-top:2px;}
+#hs-goods button:disabled {opacity:.5;cursor:default;}
+@media(max-width:850px) {#hero-sheet #hs-inv {grid-template-columns:repeat(8,minmax(0,1fr));} #hero-sheet #hs-inv .hs-socket {max-width:64px;}}
 #hs-spell-journal {margin:18px 0;padding:10px 12px;border:1px solid #94704a;border-radius:5px;background:linear-gradient(90deg,#cbb08633,#fff4);}
 #hs-spell-journal summary {display:flex;align-items:center;gap:12px;cursor:pointer;font:19px Georgia;}
 #hs-spell-journal summary img {width:42px;height:48px;object-fit:contain;image-rendering:pixelated;}
@@ -207,7 +241,7 @@ body.adventure-mode #hero-bar {display:grid!important;}
 #personal-builds button {margin:3px;padding:6px 9px;}
 #family-panel {position:fixed;right:16px;top:calc(var(--toolbar-bottom,100px) + 10px);width:min(410px,calc(100vw - 36px));max-height:70vh;overflow:auto;padding:20px;box-sizing:border-box;z-index:35;}
 #family-panel > button {float:right;cursor:pointer;}
-@media(max-width:1200px) {#hero-bar {bottom:100px!important;}#hero-sheet .hs-body{grid-template-columns:200px minmax(0,1fr);gap:12px;}#hero-sheet .hs-cols{grid-template-columns:200px minmax(0,1fr);gap:14px;}}
+@media(max-width:1200px) {#hero-bar {bottom:100px!important;}#hero-sheet .hs-body{grid-template-columns:200px minmax(0,1fr);gap:12px;}#hero-sheet .hs-cols{grid-template-columns:236px minmax(0,1fr);gap:14px;}}
 @media(max-width:850px) {#hero-sheet .hs-cols,#hero-sheet .hs-body {grid-template-columns:1fr;}#hero-bar,body.stockpile-open #hero-bar{left:42px!important;bottom:80px!important;}#hero-sheet .hs-doll{margin:auto;}}
 @media(prefers-reduced-motion:reduce) {.blood-drop{animation:none}.vital-fill{transition:none}}
 
