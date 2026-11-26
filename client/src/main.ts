@@ -16,43 +16,28 @@ import { loadTexture, loadTextures } from "./atlas";
 import "./characterCreator.css";
 import { initPerfOverlay } from "./perfOverlay";
 import { heroFrame, loadHeroRig, rigTextureScale } from "./heroRig";
-import {ADVENTURE_GEAR,adventureTrait} from "@colony/shared/expeditions";
-import { PLAYER_GEAR_SLOTS, PLAYER_WEAPON_KINDS } from "@colony/shared/protocol";
-import { menuPrefs, setupMainMenu, setActiveDifficulty, renderSaveRows, describeSave, saveSlotLabel, clanParam } from "./menu";
-import { setupChronicle } from "./chronicle";
+import { menuPrefs, setupMainMenu, setActiveDifficulty, saveSlotLabel, clanParam } from "./menu";
 import { setupEconomyPanel, type GoodKey } from "./economyPanel";
 import { setupProgressionPanel } from "./progressionPanel";
 import "./economySkin.css";
 import "./menuSkin.css";
-import { heroArt, loadHeroAppearanceArt, gearIconUrl } from "./heroAppearance";
-import { HERO_WEAPON_KINDS, type HeroVisual } from "@colony/shared/protocol";
+import { heroArt, loadHeroAppearanceArt } from "./heroAppearance";
+import { type HeroVisual } from "@colony/shared/protocol";
 import { autumnFrame, directionalFrame, loadAutumnPeople, movementFacing, type Cardinal } from "./autumnAnimations";
 import { autumnBuildingDamage, loadAutumnBuildings, syncAutumnHouses } from "./autumnWorld";
 import {
-  Application,
-  Assets,
-  CanvasSource,
-  Container,
-  defaultFilterVert,
-  Filter,
-  GlProgram,
-  Graphics,
-  Sprite,
-  Text,
-  Texture,
+  Application, Assets, Container, defaultFilterVert, Filter, GlProgram, Graphics, Sprite, Text, Texture,
   TilingSprite,
 } from "pixi.js";
-import { createAnimalPanel, createLivestock } from "./animals";
+import { createLivestock } from "./animals";
 import { createGroundItems } from "./groundItems";
 import { setupCreative } from "./creative";
 import { createLoadingScreen } from "./loadingScreen";
 import { makeStructureTextures, type StructureArt } from "./structureArt";
-import { STRUCTURE_FURNITURE_ART, ITEM_ICON, ROOM_STAT_ICON, STRUCTURE_ART_PX_PER_TILE, STRUCTURE_ART_URLS, iconImg, roomRoleIconUrl } from "./spriteRegistry";
+import { STRUCTURE_FURNITURE_ART, ITEM_ICON, STRUCTURE_ART_PX_PER_TILE, STRUCTURE_ART_URLS, iconImg } from "./spriteRegistry";
 import { setupZones } from "./zones";
 import { setupBlueprints } from "./blueprints";
 import { BLUEPRINT_TOOL } from "@colony/shared/buildingTemplates";
-import { setupWork } from "./work";
-import { WORK_LABEL } from "@colony/shared/work";
 import {
   ZONE_KIND_COLOR, ZONE_TOOL_ANIMAL, ZONE_TOOL_ERASE, ZONE_TOOL_HEMP, ZONE_TOOL_HOME, ZONE_TOOL_STOCKPILE, ZONE_TOOL_WHEAT, isZoneTool,
   type ZoneKind, RESOURCE_CATEGORY,
@@ -64,15 +49,8 @@ import {
 } from "@colony/shared/structures";
 import { type HeroLifeUi, setupHeroLife } from "./herolife";
 import { setupHeroTools } from "./herotools";
-import { setupWeatherOverlay } from "./weather";
-import {setupAdventureJournal,adventureMapMarker} from "./adventureJournal";
 import { opaqueBox, type InteriorUi, setupInterior } from "./interior";
-import { SEASONS, SEASON_GROUND_TINT, SEASON_TREE_TINT, WEATHER_LABEL, calendarLabel, type CalendarSnapshot } from "@colony/shared/calendar";
-import { raidForecastText, type RaidForecast } from "@colony/shared/raidForecast";
-import { FUEL_LOW_DAYS, type WinterSnapshot } from "@colony/shared/winter";
-import { foodLevel, type FoodSnapshot } from "@colony/shared/food";
-import type { AgriSnapshot } from "@colony/shared/agri";
-import { MINE_RISK_LABEL } from "@colony/shared/mines";
+import { SEASONS, SEASON_GROUND_TINT, SEASON_TREE_TINT } from "@colony/shared/calendar";
 // Solo hero (herolife.ts): set once the hero bar exists; the socket handler forwards dialogue / life to it.
 const heroLifeRef: { ui: HeroLifeUi | null } = { ui: null };
 const heroToolsRef: { ui: ReturnType<typeof setupHeroTools> | null } = { ui: null };
@@ -80,39 +58,9 @@ const heroToolsRef: { ui: ReturnType<typeof setupHeroTools> | null } = { ui: nul
 const interiorRef: { ui: InteriorUi | null } = { ui: null };
 let combatControls: ReturnType<typeof setupPlayerCombat> | undefined;
 import type {
-  ClientMessage,
-  SiteFaction,
-  SiteSnapshot,
-  SiteRelationSnapshot,
-  QuestSnapshot,
-  RelationTier,
-  TradeGood,
-  ServerMessage,
-  PlayerSnapshot,
-  ColonistSnapshot,
-  ColonistKind,
-  MobSnapshot,
-  MobKind,
-  AttackEffect,
-  Stance,
-  GravestoneSnapshot,
-  GameEventCategory,
-  Difficulty,
-  WildlifeKind,
-  TownCenterSnapshot,
-  BuildingInfo,
-  SaveInfo,
-  SaveSlot,
-  GoalSnapshot,
-  GateLock,
-  EquipSlot,
-  EquipmentStock,
-  GearItem,
-  GearSlot,
-  HeroProfileSnapshot,
-  HeroSheetSnapshot,
-  HeroClass,
-  ItemStats,
+  ClientMessage, SiteFaction, SiteSnapshot, SiteRelationSnapshot, QuestSnapshot, RelationTier, ServerMessage,
+  PlayerSnapshot, ColonistSnapshot, ColonistKind, MobSnapshot, MobKind, AttackEffect, Stance, GravestoneSnapshot,
+  Difficulty, WildlifeKind, TownCenterSnapshot, GearItem,
 } from "@colony/shared/protocol";
 import { TICK_RATE } from "@colony/shared/protocol"; // long days: respawn-window ETA
 import { applySnapshotDelta, newDeltaClientState } from "@colony/shared/snapshotDelta";
@@ -122,51 +70,23 @@ import {
   placedFootprintAt,
 } from "@colony/shared/buildings";
 import type { Footprint } from "@colony/shared/buildings";
-import { type ChainStep, type ItemId, PROGRESSION, PROGRESSION_BUILDING_LABEL, QUALITY_GRADES } from "@colony/shared/progression";
-import { spellCooldownSeconds, spellcastingCooldownMult, spellcastingEffectMult } from "@colony/shared/herolife"; // Spellcasting skill
+import { type ChainStep, type ItemId, PROGRESSION, PROGRESSION_BUILDING_LABEL, QUALITY_GRADES } from "@colony/shared/progression"; // Spellcasting skill
 import type { ProgressionSnapshot } from "@colony/shared/protocol";
 import {
-  Biome,
-  BOSS_RENDER_SCALE,
-  mobSizeScale,
-  bossTitle,
-  BUILDING_LEVEL_SNAPSHOT_STRIDE,
-  CONSTRUCTION_SNAPSHOT_STRIDE,
-  DAMAGED_BUILDING_SNAPSHOT_STRIDE,
-  HEARTH_SNAPSHOT_STRIDE,
-  FARM_STAGE_SNAPSHOT_STRIDE,
-  FarmStage,
-  GATE_FLAG_OPEN,
-  GATE_FLAG_OVERRUN,
-  SITE_TILE_SNAPSHOT_STRIDE,
-  CLAN_TILE_SNAPSHOT_STRIDE,
-  GATE_SNAPSHOT_STRIDE,
-  HUNGER_MARK_NAMES,
-  HungerMark,
-  isRoadTile,
-  PLAYER_SPEED,
-  TILE_SIZE,
-  TileType,
-  VISION_RADIUS_COLONIST,
-  VISION_RADIUS_PLAYER,
-  WILDLIFE_KINDS,
-  WILDLIFE_SNAPSHOT_STRIDE,
-  WildlifeState,
+  Biome, BOSS_RENDER_SCALE, mobSizeScale, bossTitle, BUILDING_LEVEL_SNAPSHOT_STRIDE, CONSTRUCTION_SNAPSHOT_STRIDE,
+  DAMAGED_BUILDING_SNAPSHOT_STRIDE, HEARTH_SNAPSHOT_STRIDE, FARM_STAGE_SNAPSHOT_STRIDE, FarmStage, GATE_FLAG_OPEN,
+  GATE_FLAG_OVERRUN, SITE_TILE_SNAPSHOT_STRIDE, CLAN_TILE_SNAPSHOT_STRIDE, GATE_SNAPSHOT_STRIDE, HUNGER_MARK_NAMES,
+  HungerMark, isRoadTile, TILE_SIZE, TileType, WILDLIFE_KINDS, WILDLIFE_SNAPSHOT_STRIDE, WildlifeState,
 } from "@colony/shared/protocol";
-import { SOUND_SILENT_RADIUS_TILES, proximityGain } from "./sound";
-import type { FightSnapshot } from "@colony/shared/protocol";
-import { FIGHT_WINDOW_SECONDS } from "@colony/shared/protocol";
-import { MOB_ROLE, isRearRole, SIEGE_KINDS, unitRole, HERO_CLASSES, HERO_CLASS_LABEL } from "@colony/shared/protocol";
-import type { CombatRole, SiegeKind } from "@colony/shared/protocol";
-import { SPELLS, SPELL_SLOT_COUNT } from "@colony/shared/protocol";
+import { MOB_ROLE, isRearRole, unitRole, HERO_CLASS_LABEL } from "@colony/shared/protocol";
+import type { CombatRole } from "@colony/shared/protocol";
 import { LINE_FACE_ENEMY_TILES, computeFormationTargets, computeLineFormationTargets as sharedLineFormation, groupShape, planOrderFormation } from "@colony/shared/formation";
 import type { FormationPlan } from "@colony/shared/formation";
-import type { SpellId, SpellBookSnapshot } from "@colony/shared/protocol";
-import { compassDirection, fightArrowAlpha, placeEdgeArrow } from "./fightArrows";
+import type { SpellId } from "@colony/shared/protocol";
 import { EDGE_SCROLL_PX, PAN_SCREEN_PX_PER_S, StrategyCamera, TACTICAL_ZOOM, WHEEL_ZOOM_STEP } from "./strategy/camera";
 import { ADVENTURE_CAM_PREF, AdventureCamera, PARTY_COMMAND_MAX, START_STRATEGY_PREF, readAdventurePrefs } from "./adventure";
 import { drawUnitDots, lodBand, StrategyBanners, StrategyFog } from "./strategy/lod";
-import type { BannerGroup, LodBand, UnitDot, VisionSource } from "./strategy/lod";
+import type { BannerGroup, LodBand, UnitDot } from "./strategy/lod";
 import { RegimentCardBar } from "./strategy/cards";
 import type { RegimentCard } from "./strategy/cards";
 import type { ArmyRegimentSnapshot, RegimentClass } from "@colony/shared/protocol";
@@ -176,9 +96,8 @@ import { ORDER_COLORS, ORDER_LABEL, OrderMarkers } from "./strategy/orders";
 import { BAND_COLORS, enemyBannerLabel, IntelOverlay, strengthBand } from "./strategy/intel";
 import type { ObjectiveMarker, Threat } from "./strategy/intel";
 import type { EnemyRegimentSnapshot } from "@colony/shared/protocol";
-import { TIME_SCALES } from "@colony/shared/protocol";
 import {
-  MAX_CHUNKS_PER_REQUEST, MinimapClass, decodeByteRuns, decodeMaskRuns, minimapCellClass, minimapClassOf,
+  MAX_CHUNKS_PER_REQUEST, decodeByteRuns,
 } from "@colony/shared/streaming";
 
 import { type ToolCategory, TOOL_CATEGORIES, TOOLS } from "./tools";
@@ -197,30 +116,43 @@ import {
 } from "./unitVisuals";
 import {
   TILE_SPRITE_FILES, TILE_OPTIONAL_ART, SITE_KEEP_RUIN_ART, SITE_TENT_ART, SITE_RUBBLE_ART, KEEP_SCAFFOLD_ART,
-  QUEST_MARKER_IMAGES, SITE_VARIANT_ART_NAMES, TILE_OPTIONAL_ALT_ART, WALL_PIECE_SETS, type WallPieceSet,
-  wallPieceUrl, type GateArtState, gateArtUrl, moatPieceUrl, MOAT_DIGGING_URL, type DrawbridgeArtState,
-  drawbridgeArtUrl, MOAT_ART_URLS, WALL_ART_URLS, WALL_DAMAGED_PERMILLE, WALL_ART_PX_PER_TILE, TILE_STANDIN_TINT,
-  TILE_ANIM, FIRE_FLAME_WIDTH, SOOT_TINT, FIRE_SMOKE_MS, MAX_FIRE_OVERLAYS, FARM_STAGE_ART, TILE_LEVEL_ART,
-  WAGON_ART_URLS, WAGON_STANDIN_TINT, WAGON_HEIGHT, WAGON_DANGER_COLORS, BLACKSMITH_FORGE_URLS,
-  BLACKSMITH_FORGE_FRAME_MS, TOWN_CENTER_LEVEL_FIT, TOWN_CENTER_MARKER_URL, CONSTRUCTION_ALPHA, CONSTRUCTION_TINT,
-  DEER_FALLEN_URL, DEER_FALLEN_MS, GRAVESTONE_URLS, GRAVESTONE_HEIGHT, WILDLIFE, DEER_WALK_URLS, DEER_GRAZE_URLS,
-  WILDLIFE_ART, WILDLIFE_OPTIONAL_URLS, WILDLIFE_FRAME_MS, WILDLIFE_RUN_FRAME_MS, BLOOD_URLS, BLOOD_HIT_VARIANTS,
-  BLOOD_DEATH_VARIANTS, BLOOD_HIT_SIZE, BLOOD_DEATH_SIZE, BLOOD_HIT_CHANCE, BLOOD_ALPHA, BLOOD_MAX, FX_URLS,
-  FX_ANIM_URLS, BOULDER_URLS, BOULDER_IMPACT_URLS, WOUND_URLS, WOUND_LARGE_URLS, WOUND_THRESHOLDS,
-  COLONIST_WOUND_SIZE, MOB_WOUND_SIZE_FACTOR, WOUND_LARGE_KINDS, TILE_SPRITE_FILL_TILE, ROAD_AUTOTILE,
-  COBBLE_STRAIGHT, COBBLE_FILL, ROAD_ART_URLS, HUNGER_SIGIL_URLS, HUNGER_AURA_URLS, HUNGER_LABEL_COLORS,
-  HUNGER_SIGIL_SIZE, HUNGER_AURA_WIDTH, MARKED_MOB_SCALE, mobRenderScale, BOSS_LABEL_COLORS, BOSS_HP_BAR_SCALE,
-  BATTERED_HP_FRACTION, BATTERED_TINT, BATTERED_POSE_URLS, BATTERED_TINT_KINDS, HERO_VISUAL_KIND, REGIMENT_ICON_KIND,
-  HERO_TINT, SUMMON_TINT, TILE_SPRITE_SIZE_FACTOR, BUILDING_VISUAL_SCALE, TILE_SPRITE_MAX_WIDTH_TILES,
-  TILE_SPRITE_MAX_HEIGHT_TILES, TOWN_CENTER_WIDTH_TILES, TOWN_CENTER_ANCHOR, type EntityVisual, COLONIST_KINDS,
-  COLONIST_SPRITE_HEIGHT, PLAYER_SPRITE_HEIGHT, HUMAN_CHAR_PX, NATURE_DECOR_ONE_IN, NATURE_DECOR, tileHash01, PLAYER_RECOLOR_FRAG,
-  hexToHue,
+  SITE_VARIANT_ART_NAMES, TILE_OPTIONAL_ALT_ART, WALL_PIECE_SETS, type WallPieceSet, wallPieceUrl, type GateArtState,
+  gateArtUrl, moatPieceUrl, MOAT_DIGGING_URL, type DrawbridgeArtState, drawbridgeArtUrl, MOAT_ART_URLS,
+  WALL_ART_URLS, WALL_DAMAGED_PERMILLE, WALL_ART_PX_PER_TILE, TILE_STANDIN_TINT, TILE_ANIM, FIRE_FLAME_WIDTH,
+  SOOT_TINT, FIRE_SMOKE_MS, MAX_FIRE_OVERLAYS, FARM_STAGE_ART, TILE_LEVEL_ART, WAGON_ART_URLS, WAGON_STANDIN_TINT,
+  WAGON_HEIGHT, WAGON_DANGER_COLORS, BLACKSMITH_FORGE_URLS, BLACKSMITH_FORGE_FRAME_MS, TOWN_CENTER_LEVEL_FIT,
+  TOWN_CENTER_MARKER_URL, CONSTRUCTION_ALPHA, CONSTRUCTION_TINT, DEER_FALLEN_URL, DEER_FALLEN_MS, GRAVESTONE_URLS,
+  GRAVESTONE_HEIGHT, WILDLIFE, DEER_WALK_URLS, DEER_GRAZE_URLS, WILDLIFE_ART, WILDLIFE_OPTIONAL_URLS,
+  WILDLIFE_FRAME_MS, WILDLIFE_RUN_FRAME_MS, BLOOD_URLS, BLOOD_HIT_VARIANTS, BLOOD_DEATH_VARIANTS, BLOOD_HIT_SIZE,
+  BLOOD_DEATH_SIZE, BLOOD_HIT_CHANCE, BLOOD_ALPHA, BLOOD_MAX, FX_URLS, FX_ANIM_URLS, BOULDER_URLS,
+  BOULDER_IMPACT_URLS, WOUND_URLS, WOUND_LARGE_URLS, WOUND_THRESHOLDS, COLONIST_WOUND_SIZE, MOB_WOUND_SIZE_FACTOR,
+  WOUND_LARGE_KINDS, TILE_SPRITE_FILL_TILE, ROAD_AUTOTILE, COBBLE_STRAIGHT, COBBLE_FILL, ROAD_ART_URLS,
+  HUNGER_SIGIL_URLS, HUNGER_AURA_URLS, HUNGER_LABEL_COLORS, HUNGER_SIGIL_SIZE, HUNGER_AURA_WIDTH, MARKED_MOB_SCALE,
+  mobRenderScale, BOSS_LABEL_COLORS, BOSS_HP_BAR_SCALE, BATTERED_HP_FRACTION, BATTERED_TINT, BATTERED_POSE_URLS,
+  BATTERED_TINT_KINDS, HERO_VISUAL_KIND, REGIMENT_ICON_KIND, HERO_TINT, SUMMON_TINT, TILE_SPRITE_SIZE_FACTOR,
+  BUILDING_VISUAL_SCALE, TILE_SPRITE_MAX_WIDTH_TILES, TILE_SPRITE_MAX_HEIGHT_TILES, TOWN_CENTER_WIDTH_TILES,
+  TOWN_CENTER_ANCHOR, type EntityVisual, COLONIST_KINDS, COLONIST_SPRITE_HEIGHT, PLAYER_SPRITE_HEIGHT, HUMAN_CHAR_PX,
+  NATURE_DECOR_ONE_IN, NATURE_DECOR, tileHash01, PLAYER_RECOLOR_FRAG, hexToHue,
 } from "./worldVisuals";
 import {
-  sound, WORK_SOUND_INTERVAL_MS, CRAFT_VOLUME_NON_SMITH, MOB_GROWL_RADIUS_TILES, MOB_GROWL_CHANCE,
-  HORSE_MOVING_MIN_SPEED, HORSE_RATE_MIN, HORSE_RATE_MAX, HORSE_TELEPORT_SPEED, HORSE_WHINNY_IDLE_MS,
-  HORSE_WHINNY_CHANCE, AMBIENT_SCAN_MS, AMBIENT_TILE_LOOPS, DAWN_BELL_DELAY_S, PLACEMENT_CONFIRM_MS, workSoundKey,
+  sound,
 } from "./soundTriggers";
+import type {
+  AnimSet, FacingMap, MobVariant, AnimMode, AnimState, SiteView, FireOverlay, CritterKind, Critter, WildlifeSet,
+  ActiveEffect, ArmedOrder, StrategySetting, LeftPress, OrderPress,
+} from "./game/types";
+import { setupHudLayout } from "./game/hudLayout";
+import { createSavePanel } from "./game/savePanel";
+import { createGameOver } from "./game/gameOver";
+import { createHudStatus } from "./game/hudStatus";
+import { createSoundHooks } from "./game/soundHooks";
+import { createFightArrows } from "./game/fightArrows";
+import { createMinimap } from "./game/minimap";
+import { createHeroSheet } from "./game/heroSheet";
+import { createSpellBar } from "./game/spellBar";
+import { createHudPanels } from "./game/hudPanels";
+import { createTimeControls } from "./game/timeControls";
+import { createBuildingPanel } from "./game/buildingPanel";
 
 const SERVER_URL = import.meta.env.VITE_SERVER_URL || "ws://localhost:8080";
 // The same server answers plain HTTP: GET /saves lists the save slots (the menu has no socket yet).
@@ -500,17 +432,6 @@ async function main() {
   const BATTERED_POSE_TEXTURES = new Map<string, Texture>(
     Object.entries(BATTERED_POSE_URLS).flatMap(([kind, url]) => (loadedTextures[url] ? [[kind, loadedTextures[url]] as const] : []))
   );
-  // Frames within one set come from one source sheet, so they share a pixel scale: one constant
-  // `scale` per set (sized from the first walk frame) keeps the body the same size while weapons
-  // swing out, instead of re-fitting every frame's canvas to a fixed height.
-  interface AnimSet {
-    walk: Texture[];
-    action: Texture[];
-    // Optional carry-home walk (hunter/forager); falls back to `walk`.
-    carry?: Texture[];
-    scale: number;
-    refHeight: number;
-  }
   // `renderSize` is the first walk frame's rendered height, or its longer side with `fitLongerSide`.
   function opaqueWidthPx(tex: Texture): number {
     try {
@@ -557,7 +478,6 @@ async function main() {
   // >0.5px threshold used for walk-vs-idle elsewhere) avoids flicker from sub-pixel jitter while
   // genuinely stationary; moving purely vertically keeps the last facing instead of snapping back
   // to a default.
-  type FacingMap = Map<string, { lastX: number; facingRight: boolean }>;
   const colonistFacing: FacingMap = new Map();
   const mobFacing: FacingMap = new Map();
   const playerFacing: FacingMap = new Map();
@@ -716,14 +636,6 @@ async function main() {
   const BLACKSMITH_FORGE_TEXTURES = BLACKSMITH_FORGE_URLS.every((u) => optionalTextures[u])
     ? BLACKSMITH_FORGE_URLS.map((u) => optionalTextures[u])
     : undefined;
-  interface MobVariant {
-    idle: Texture;
-    idleScale: number;
-    anim: AnimSet | null;
-    // Ogre Warlord only: a standing pose shown instead of walk frame 0, and the roar frames.
-    idlePose?: Texture;
-    roar?: Texture[];
-  }
   const MOB_VARIANTS = Object.fromEntries(
     Object.entries(MOB_VARIANT_URLS).map(([kind, variants]) => {
       const size = MOB_VISUALS[kind as MobKind].radius * MOB_SPRITE_SIZE_PER_RADIUS;
@@ -792,14 +704,6 @@ async function main() {
     : null;
   // Ticks (snapshots, ~20/s) each animation frame holds before advancing.
   const ANIM_TICKS_PER_FRAME = 4;
-  type AnimMode = "walk" | "action" | "carry" | null;
-  interface AnimState {
-    mode: AnimMode;
-    frame: number;
-    ticksInFrame: number;
-    lastX: number;
-    lastY: number;
-  }
   // Advances `anim` one snapshot tick; returns the frame to show, or null for the static pose.
   function stepAnim(anim: AnimState, set: AnimSet, mode: AnimMode): Texture | null {
     if (mode !== anim.mode) {
@@ -1022,12 +926,6 @@ async function main() {
   let buildingLevels = new Map<number, number>();
   // Blacksmith tile indices forging right now (snapshot `forgeBusy`).
   let forgeBusy = new Set<number>();
-  interface SiteView {
-    target: number;
-    progress: number;
-    upgrade: boolean;
-    builders: number;
-  }
   let constructionSites = new Map<number, SiteView>();
   // Damaged buildings (snapshot `damagedBuildings`): tile index -> HP permille. See syncDamagedBuildings.
   let damagedBuildings = new Map<number, number>();
@@ -1256,13 +1154,6 @@ async function main() {
   // building, at most MAX_FIRE_OVERLAYS) and animated by the shared tile clock below.
   function fireTier(permille: number): number {
     return permille < 250 ? 3 : permille < 500 ? 2 : permille < 750 ? 1 : 0;
-  }
-  interface FireOverlay {
-    flame: Sprite;
-    bar: Graphics;
-    tier: number;
-    phase: number;
-    nextSmokeAt: number;
   }
   const fireOverlays = new Map<number, FireOverlay>();
   const firePool: FireOverlay[] = [];
@@ -1948,24 +1839,6 @@ async function main() {
   // Frogs sit and hop around swamp and water edges; crows perch anywhere and flap off to a new perch. Each critter only ever targets a tile
   // that's Empty right now, so it doesn't stroll into a building that already exists; one ticker
   // moves all of them and one shared clock picks their animation frames.
-  type CritterKind = keyof typeof WILDLIFE;
-  interface Critter {
-    kind: CritterKind;
-    sprite: Sprite;
-    homeX: number;
-    homeY: number;
-    x: number;
-    y: number;
-    fromX: number;
-    fromY: number;
-    toX: number;
-    toY: number;
-    moving: boolean;
-    moveMs: number;
-    elapsedMs: number;
-    restMs: number;
-    phase: number;
-  }
   const WILDLIFE_TEXTURES = {
     crow: WILDLIFE.crow.frames.map((u) => loadedTextures[u]),
     frog: WILDLIFE.frog.frames.map((u) => loadedTextures[u]),
@@ -2092,12 +1965,6 @@ async function main() {
   });
 
   // ---- Server wildlife (huntable game; see WILDLIFE_ART) ----
-  interface WildlifeSet {
-    walk: Texture[];
-    idle: Texture[];
-    run: Texture[];
-    tint: number;
-  }
   const deerWalkTextures = DEER_WALK_URLS.map((u) => loadedTextures[u]);
   const deerGrazeTextures = DEER_GRAZE_URLS.map((u) => loadedTextures[u]);
   const loadedAll = (urls: string[]) => urls.length > 0 && urls.every((u) => optionalTextures[u]);
@@ -3170,15 +3037,6 @@ async function main() {
     for (const m of snapshot){upsertMob(m);const e=mobSprites.get(m.id)!;e.groundX=m.x;e.groundY=m.y+(MOB_VISUALS[m.kind]??MOB_VISUALS.goblin).radius;}
   }
 
-  // Client-only, short-lived combat VFX. `update` gets progress 0..1 each frame; `onEnd` can chain
-  // a follow-up effect (an arrow's impact spark).
-  interface ActiveEffect {
-    sprite: Sprite;
-    startedAt: number;
-    durationMs: number;
-    update: (sprite: Sprite, t: number) => void;
-    onEnd?: () => void;
-  }
   const activeEffects: ActiveEffect[] = [];
   // Rendered size (px, longest side) of each effect sprite in world space.
   const FX_SIZE = { slash: 22, spark: 14, poof: 30, arrow: 18, shamanBolt: 12 };
@@ -3676,798 +3534,34 @@ async function main() {
       for (let y = y0; y < y0 + h; y += sm.f) for (let x = x0; x < x0 + w; x += sm.f) paintMinimapTile(y * worldTilesX + x);
     }
   }
-
-  // ---- Fog-of-war minimap (DOM canvas, bottom-right; the main view is never fogged) ----
-  // Static layer: one pixel per tile in an offscreen canvas, rebuilt whole only on `welcome` and
-  // patched per tile on tileUpdate / explored. Each snapshot just blits it and draws the live dots
-  // and camera rect on top, so nothing repaints the whole map per frame.
-  const minimapEl = document.getElementById("minimap") as HTMLCanvasElement;
-  minimapEl.addEventListener("contextmenu", (e) => e.preventDefault());
-  const minimapCtx = minimapEl.getContext("2d")!;
-  const minimapStatic = document.createElement("canvas");
-  const minimapStaticCtx = minimapStatic.getContext("2d")!;
-  let minimapImage: ImageData | null = null;
-  let minimapStaticDirty = false;
+  const minimapApi = createMinimap({
+    strategyCam, chunkOfTile, strategicMapSprite, worldLayer, app, RELATION_TIER_COLOR, FORT_FLAG_COLOR,
+    get worldTilesX() { return worldTilesX; }, get worldTilesY() { return worldTilesY; },
+    get siteOwners() { return siteOwners; }, get tiles() { return tiles; }, get biomes() { return biomes; },
+    get streamed() { return streamed; }, get chunkLoaded() { return chunkLoaded; },
+    get tileSize() { return tileSize; },
+    get strategicMapDirty() { return strategicMapDirty; }, set strategicMapDirty(v) { strategicMapDirty = v; },
+    get myId() { return myId; }, get camZoom() { return camZoom; }, get fortMarkers() { return fortMarkers; },
+    get clanColors() { return clanColors; }, get myClan() { return myClan; },
+    get siteRelations() { return siteRelations; }, get latestTownCenters() { return latestTownCenters; },
+    get latestQuests() { return latestQuests; }, get latestHearths() { return latestHearths; },
+    get castleRuinTile() { return castleRuinTile; }, get drawFightPings() { return drawFightPings; },
+  });
+  const { paintMinimapTile, resetMinimap, drawMinimap, markExplored, liveVisionSources, minimapTileAt, minimapEl } = minimapApi;
   // The strategic map sprite's texture needs a re-upload from minimapStatic (done only in the Map band).
   let strategicMapDirty = false;
-  let explored = new Uint8Array(0);
-  const MINIMAP_TARGET_CSS_PX = 180;
-  // Both integers, so tile -> pixel stays exact: CSS px per tile, and backing px per CSS px.
-  let minimapCssPerTile = 1;
-  let minimapDpr = 1;
-  // Compact / expanded: a big world's minimap used to be the whole map at >= 1 px per tile (512 px on a 512 map). Now it is a
-  // MM_COMPACT_CSS window around the player at 1 px per tile (about 11 x 11 chunks) with a button to expand to the whole map,
-  // shrunk to fit the screen. The strategy view always shows the whole map (its click-to-jump needs it). Maps that already fit
-  // the compact window have no button.
-  const MM_COMPACT_CSS = 176;
-  let mmExpanded = false;
-  try { mmExpanded = localStorage.getItem("colony-minimap-expanded") === "1"; } catch { /* storage unavailable */ }
-  let mmFull = true; // the canvas currently shows the whole world
-  let mmBaseCss = 1; // CSS px per tile of the whole-world view (before the screen-fit cap)
-  const minimapToggleEl = document.getElementById("minimap-toggle") as HTMLButtonElement | null;
-  // Top-left of the visible window, in backing px of the map-space the drawing code works in (0, 0 when the whole map shows).
-  let mmOx = 0;
-  let mmOy = 0;
-  function minimapFullCss(): number {
-    const world = Math.max(worldTilesX, worldTilesY, 1);
-    const cap = Math.max(MM_COMPACT_CSS, Math.min(window.innerWidth * 0.3, window.innerHeight * 0.5, 380));
-    return Math.min(mmBaseCss, cap / world);
-  }
-  function minimapCanToggle(): boolean {
-    return Math.max(worldTilesX, worldTilesY) * mmBaseCss > MM_COMPACT_CSS * 1.15;
-  }
-  function minimapWantsFull(): boolean {
-    return !minimapCanToggle() || mmExpanded || strategyCam.inStrategy;
-  }
-  function applyMinimapLayout() {
-    mmFull = minimapWantsFull();
-    minimapDpr = Math.max(1, Math.round(window.devicePixelRatio || 1));
-    minimapCssPerTile = mmFull ? minimapFullCss() : 1;
-    const cssW = mmFull ? worldTilesX * minimapCssPerTile : Math.min(MM_COMPACT_CSS, worldTilesX * minimapCssPerTile);
-    const cssH = mmFull ? worldTilesY * minimapCssPerTile : Math.min(MM_COMPACT_CSS, worldTilesY * minimapCssPerTile);
-    minimapEl.width = Math.max(1, Math.ceil(cssW * minimapDpr));
-    minimapEl.height = Math.max(1, Math.ceil(cssH * minimapDpr));
-    minimapEl.style.width = `${cssW}px`;
-    minimapEl.style.height = `${cssH}px`;
-    if (minimapToggleEl) {
-      minimapToggleEl.hidden = !minimapCanToggle() || strategyCam.inStrategy;
-      minimapToggleEl.textContent = mmExpanded ? "\u2921" : "\u2922";
-      minimapToggleEl.title = mmExpanded ? "Shrink the minimap to the area around you" : "Expand the minimap to the whole map";
-      minimapToggleEl.setAttribute("aria-label", minimapToggleEl.title);
-    }
-  }
-  minimapToggleEl?.addEventListener("click", (e) => {
-    e.stopPropagation();
-    mmExpanded = !mmExpanded;
-    try { localStorage.setItem("colony-minimap-expanded", mmExpanded ? "1" : "0"); } catch { /* storage unavailable */ }
-    applyMinimapLayout();
+  const fightArrowsApi = createFightArrows({
+    currentInput, app, worldLayer, playerSprites, strategyCam, get pushEventToast() { return pushEventToast; },
+    get fightPeek() { return fightPeek; }, set fightPeek(v) { fightPeek = v; },
+    get fightPeekCam() { return fightPeekCam; }, set fightPeekCam(v) { fightPeekCam = v; },
+    get tileSize() { return tileSize; }, get camZoom() { return camZoom; }, get myId() { return myId; },
   });
-  minimapToggleEl?.addEventListener("pointerdown", (e) => e.stopPropagation());
-  window.addEventListener("resize", () => { if (minimapImage) applyMinimapLayout(); });
-  // The world tile under a pointer on the minimap (accounts for the compact window's offset).
-  function minimapTileAt(clientX: number, clientY: number): { x: number; y: number } | null {
-    const r = minimapEl.getBoundingClientRect();
-    if (r.width <= 0 || r.height <= 0) return null;
-    const sBack = minimapCssPerTile * minimapDpr;
-    return { x: (mmOx + ((clientX - r.left) / r.width) * minimapEl.width) / sBack, y: (mmOy + ((clientY - r.top) / r.height) * minimapEl.height) / sBack };
-  }
-
-  const MINIMAP_UNEXPLORED = 0x140d07;
-  const MINIMAP_BIOME: Record<number, number> = {
-    [Biome.Plains]: 0x6b7a3c,
-    [Biome.Hills]: 0x8a7650,
-    [Biome.Swamp]: 0x4c5a44,
-  };
-  const MINIMAP_WATER = 0x3d5f73;
-  const MINIMAP_MOAT = 0x2f4f5f;
-  const MINIMAP_TREE = 0x3c5428;
-  const MINIMAP_ROCK = 0x8d8a80;
-  const MINIMAP_IRON = 0x7d5644;
-  // Deep mines: deposit markers (coal near-black, copper orange, tin pale blue-grey).
-  const MINIMAP_COAL = 0x1e1c22;
-  const MINIMAP_COPPER = 0xd07a3a;
-  const MINIMAP_TIN = 0xb8c8d8;
-  // Industry extras: limestone off-white, gold yellow, lead slate.
-  const MINIMAP_LIMESTONE = 0xe8e2cc;
-  const MINIMAP_GOLD = 0xe8c030;
-  const MINIMAP_LEAD = 0x5a6070;
-  const MINIMAP_WALL = 0xb8ad98;
-  const MINIMAP_ROAD = 0xa8875a;
-  const MINIMAP_BUILDING = 0xe0b468;
-  const MINIMAP_RUIN = 0xa0322a;
-  const MINIMAP_CAMP = 0xd2731a;
-  const MINIMAP_ABBEY = 0xf0e6cc;
-  const MINIMAP_RUIN_TILES = new Set<number>([
-    TileType.RuinWall1, TileType.RuinWall2, TileType.RuinArch, TileType.RuinStatue, TileType.RuinRubble, TileType.Rubble,
-  ]);
-  const MINIMAP_CAMP_TILES = new Set<number>([
-    TileType.PropCampfire, TileType.PropCart, TileType.PropBarrel, TileType.PropCrate, TileType.PropFence,
-  ]);
-  const MINIMAP_ABBEY_TILES = new Set<number>([TileType.AbbeyHall, TileType.PropCross, TileType.PropLanternPost]);
-
-  function minimapTileColor(index: number): number {
-    if (!explored[index]) return MINIMAP_UNEXPLORED;
-    // Forts phase A: an NPC fort's walls / buildings.
-    if (siteOwners.has(index)) return MINIMAP_RUIN;
-    const tile = tiles[index] ?? TileType.Empty;
-    switch (tile) {
-      case TileType.Empty:
-        return MINIMAP_BIOME[biomes[index] ?? Biome.Plains] ?? MINIMAP_BIOME[Biome.Plains];
-      case TileType.Water:
-        return MINIMAP_WATER;
-      case TileType.Tree:
-      case TileType.FruitTree:
-      case TileType.FruitTreePicked:
-        return MINIMAP_TREE;
-      // Bushes and mushroom patches are ground cover: drawn as the biome under them.
-      case TileType.BerryBush:
-      case TileType.BerryBushPicked:
-      case TileType.MushroomPatch:
-      case TileType.MushroomPatchPicked:
-        return MINIMAP_BIOME[biomes[index] ?? Biome.Plains] ?? MINIMAP_BIOME[Biome.Plains];
-      case TileType.Rock:
-        return MINIMAP_ROCK;
-      case TileType.IronOre:
-        return MINIMAP_IRON;
-      case TileType.Wall:
-      case TileType.StoneWall:
-      case TileType.Gate:
-      case TileType.FenceGate:
-      case TileType.RiverBridge:
-      case TileType.Drawbridge:
-        return MINIMAP_WALL;
-      case TileType.Moat:
-        return MINIMAP_MOAT;
-      case TileType.Road:
-      case TileType.CobbleRoad:
-        return MINIMAP_ROAD;
-    }
-    if (MINIMAP_RUIN_TILES.has(tile)) return MINIMAP_RUIN;
-    if (MINIMAP_CAMP_TILES.has(tile)) return MINIMAP_CAMP;
-    if (MINIMAP_ABBEY_TILES.has(tile)) return MINIMAP_ABBEY;
-    // Every other tile is something the colony built (the Town Center also gets its own marker).
-    return MINIMAP_BUILDING;
-  }
-
-  const MINIMAP_CLASS_COLOR: Record<number, number> = {
-    [MinimapClass.Plains]: MINIMAP_BIOME[Biome.Plains], [MinimapClass.Hills]: MINIMAP_BIOME[Biome.Hills],
-    [MinimapClass.Swamp]: MINIMAP_BIOME[Biome.Swamp], [MinimapClass.Water]: MINIMAP_WATER, [MinimapClass.Moat]: MINIMAP_MOAT,
-    [MinimapClass.Tree]: MINIMAP_TREE, [MinimapClass.Rock]: MINIMAP_ROCK, [MinimapClass.Iron]: MINIMAP_IRON,
-    [MinimapClass.Wall]: MINIMAP_WALL, [MinimapClass.Road]: MINIMAP_ROAD, [MinimapClass.Building]: MINIMAP_BUILDING,
-    [MinimapClass.Ruin]: MINIMAP_RUIN, [MinimapClass.Camp]: MINIMAP_CAMP, [MinimapClass.Abbey]: MINIMAP_ABBEY,
-    [MinimapClass.Coal]: MINIMAP_COAL, [MinimapClass.Copper]: MINIMAP_COPPER, [MinimapClass.Tin]: MINIMAP_TIN,
-    [MinimapClass.Limestone]: MINIMAP_LIMESTONE, [MinimapClass.Gold]: MINIMAP_GOLD, [MinimapClass.Lead]: MINIMAP_LEAD,
-  };
-  // World streaming phase 4: one minimap pixel per f x f cell. A loaded chunk's cell is recomputed from its
-  // tiles; elsewhere a structure arriving by tileUpdate overrides the welcome's summary.
-  function paintMinimapCell(index: number) {
-    const sm = streamed!;
-    const tx = index % worldTilesX;
-    const ty = Math.floor(index / worldTilesX);
-    const cx = Math.floor(tx / sm.f);
-    const cy = Math.floor(ty / sm.f);
-    const cell = cy * sm.cw + cx;
-    if (chunkLoaded[chunkOfTile(tx, ty)]) {
-      sm.cells[cell] = minimapCellClass(tiles, biomes, worldTilesX, worldTilesY, cx, cy, sm.f, (i) => siteOwners.has(i));
-    } else {
-      const k = minimapClassOf(tiles[index] ?? 0, biomes[index] ?? 0, siteOwners.has(index));
-      if (k >= MinimapClass.Wall) sm.cells[cell] = k;
-    }
-    if (explored[index]) sm.cellSeen[cell] = 1;
-    paintMinimapPixel(cell, sm.cellSeen[cell] ? MINIMAP_CLASS_COLOR[sm.cells[cell]] : MINIMAP_UNEXPLORED);
-  }
-  function paintMinimapPixel(pixel: number, color: number) {
-    const o = pixel * 4;
-    minimapImage!.data[o] = color >> 16;
-    minimapImage!.data[o + 1] = (color >> 8) & 0xff;
-    minimapImage!.data[o + 2] = color & 0xff;
-    minimapImage!.data[o + 3] = 255;
-    minimapStaticDirty = true;
-  }
-
-  function paintMinimapTile(index: number) {
-    if (!minimapImage) return;
-    if (streamed) return paintMinimapCell(index);
-    const color = minimapTileColor(index);
-    const o = index * 4;
-    minimapImage.data[o] = color >> 16;
-    minimapImage.data[o + 1] = (color >> 8) & 0xff;
-    minimapImage.data[o + 2] = color & 0xff;
-    minimapImage.data[o + 3] = 255;
-    minimapStaticDirty = true;
-  }
-
-  // `welcome` (join or restart): unpack the bitset and rebuild the whole static layer once.
-  function resetMinimap(packedExplored: string) {
-    const count = worldTilesX * worldTilesY;
-    if (streamed) {
-      explored = decodeMaskRuns(packedExplored, count);
-    } else {
-      const bytes = atob(packedExplored);
-      explored = new Uint8Array(count);
-      for (let i = 0; i < count; i++) explored[i] = (bytes.charCodeAt(i >> 3) >> (i & 7)) & 1;
-    }
-    // World streaming phase 4: a streamed world's minimap is one CSS px per summary cell (1 / f px per tile).
-    mmBaseCss = streamed ? 1 / streamed.f : Math.max(1, Math.round(MINIMAP_TARGET_CSS_PX / Math.max(worldTilesX, worldTilesY)));
-    applyMinimapLayout();
-    if (streamed) {
-      const sm = streamed;
-      for (let i = 0; i < count; i++) if (explored[i]) sm.cellSeen[Math.floor(Math.floor(i / worldTilesX) / sm.f) * sm.cw + Math.floor((i % worldTilesX) / sm.f)] = 1;
-      minimapStatic.width = sm.cw;
-      minimapStatic.height = sm.ch;
-      minimapImage = minimapStaticCtx.createImageData(sm.cw, sm.ch);
-      for (let c = 0; c < sm.cw * sm.ch; c++) paintMinimapPixel(c, sm.cellSeen[c] ? MINIMAP_CLASS_COLOR[sm.cells[c]] : MINIMAP_UNEXPLORED);
-    } else {
-      minimapStatic.width = worldTilesX;
-      minimapStatic.height = worldTilesY;
-      minimapImage = minimapStaticCtx.createImageData(worldTilesX, worldTilesY);
-      for (let i = 0; i < count; i++) paintMinimapTile(i);
-    }
-    // The canvas was resized: a fresh texture for the strategic map sprite.
-    if (strategicMapSprite.texture !== Texture.EMPTY) strategicMapSprite.texture.destroy(true);
-    strategicMapSprite.texture = new Texture({ source: new CanvasSource({ resource: minimapStatic, scaleMode: "nearest" }) });
-    strategicMapSprite.scale.set(tileSize * (streamed?.f ?? 1));
-    strategicMapDirty = true;
-  }
-
-  function markExplored(indices: number[]) {
-    for (const i of indices) {
-      if (i < 0 || i >= explored.length || explored[i]) continue;
-      explored[i] = 1;
-      paintMinimapTile(i);
-    }
-  }
-
-  // Live view right now: players and the colony's own colonists (not the Abbey's clergy), with the
-  // server's vision radii (minimap enemy dots and the strategy fog share it).
-  function liveVisionSources(players: PlayerSnapshot[], colonists: ColonistSnapshot[]): VisionSource[] {
-    const tileOf = (worldPx: number) => Math.floor(worldPx / tileSize);
-    const sources: VisionSource[] = [];
-    for (const p of players) sources.push({ x: tileOf(p.x), y: tileOf(p.y), r: VISION_RADIUS_PLAYER });
-    for (const c of colonists) {
-      if (tiles[c.postY * worldTilesX + c.postX] === TileType.AbbeyHall) continue;
-      sources.push({ x: tileOf(c.x), y: tileOf(c.y), r: VISION_RADIUS_COLONIST });
-    }
-    return sources;
-  }
-
-  function cssColor(color: number): string {
-    return `#${color.toString(16).padStart(6, "0")}`;
-  }
-
-  function drawMinimap(players: PlayerSnapshot[], colonists: ColonistSnapshot[], mobs: MobSnapshot[]) {
-    if (!minimapImage) return;
-    if (minimapStaticDirty) {
-      minimapStaticCtx.putImageData(minimapImage, 0, 0);
-      minimapStaticDirty = false;
-      strategicMapDirty = true;
-    }
-    if (minimapWantsFull() !== mmFull) applyMinimapLayout();
-    const ctx = minimapCtx;
-    const s = minimapCssPerTile * minimapDpr; // backing px per tile
-    const u = minimapDpr; // backing px per CSS px
-    const toMap = (worldPx: number) => (worldPx / tileSize) * s;
-    const tileOf = (worldPx: number) => Math.floor(worldPx / tileSize);
-    // Compact window: centred on the player (or the camera when there is none), kept inside the map. Everything below draws in
-    // whole-map space; the translate moves the window onto the canvas.
-    mmOx = 0;
-    mmOy = 0;
-    if (!mmFull) {
-      const focus = players.find((p) => p.id === myId);
-      const fx = focus ? toMap(focus.x) : toMap(-worldLayer.position.x / camZoom + app.screen.width / camZoom / 2);
-      const fy = focus ? toMap(focus.y) : toMap(-worldLayer.position.y / camZoom + app.screen.height / camZoom / 2);
-      mmOx = Math.round(Math.max(0, Math.min(worldTilesX * s - minimapEl.width, fx - minimapEl.width / 2)));
-      mmOy = Math.round(Math.max(0, Math.min(worldTilesY * s - minimapEl.height, fy - minimapEl.height / 2)));
-    }
-    ctx.setTransform(1, 0, 0, 1, 0, 0);
-    ctx.clearRect(0, 0, minimapEl.width, minimapEl.height);
-    ctx.save();
-    ctx.translate(-mmOx, -mmOy);
-    ctx.imageSmoothingEnabled = false;
-    {
-      // Only the visible part of the static layer (one pixel per tile, or one per summary cell when streamed).
-      const per = minimapStatic.width / worldTilesX; // static px per tile
-      const sx = (mmOx / s) * per;
-      const sy = (mmOy / s) * per;
-      const sw = Math.min(minimapStatic.width - sx, (minimapEl.width / s) * per);
-      const sh = Math.min(minimapStatic.height - sy, (minimapEl.height / s) * per);
-      if (sw > 0 && sh > 0) ctx.drawImage(minimapStatic, sx, sy, sw, sh, mmOx, mmOy, (sw / per) * s, (sh / per) * s);
-    }
-
-    // Forts phase B: a flag on each explored fort's keep (faction colour; grey = razed, clan colour = captured).
-    for (const f of fortMarkers) {
-      const fx = (f.keepX + 0.5) * s;
-      const fy = (f.keepY + 0.5) * s;
-      const color = f.captured
-        ? `#${(clanColors.get(f.capturedBy ?? 0) ?? 0x3a7bd5).toString(16).padStart(6, "0")}`
-        : f.cleared ? "#8a8a8a" : f.hostile ? "#c0392b"
-        : f.vassalOf !== undefined && f.vassalOf !== myClan ? "#a0743a"
-        : f.faction === "human" && f.num !== undefined && siteRelations.has(f.num) ? RELATION_TIER_COLOR[siteRelations.get(f.num)!.tier]
-        : FORT_FLAG_COLOR[f.faction];
-      // Forts phase C: a human settlement's flag has a green edge (white = neutral, red = hostile).
-      ctx.fillStyle = f.faction === "human" && !f.captured && !f.cleared ? "#2e8b3a" : "#1a1008";
-      ctx.fillRect(fx - 0.5 * u, fy - 7 * u, 1.5 * u, 9 * u);
-      ctx.fillRect(fx + u - 0.5 * u, fy - 7.5 * u, 7 * u, 5 * u);
-      ctx.fillStyle = color;
-      ctx.fillRect(fx + u, fy - 7 * u, 6 * u, 4 * u);
-      // Forts phase F: a crown over this clan's vassals.
-      if (f.vassalOf !== undefined && f.vassalOf === myClan && !f.cleared && !f.captured) {
-        ctx.fillStyle = "#f1c40f";
-        ctx.fillRect(fx + u, fy - 9.5 * u, 6 * u, 1.5 * u);
-        for (const dx of [1, 3.5, 6]) ctx.fillRect(fx + dx * u - 0.5 * u, fy - 11 * u, u, 1.5 * u);
-      }
-    }
-    for (const { x: tcX, y: tcY } of latestTownCenters) {
-      const size = 7 * u;
-      const cx = (tcX + 0.5) * s;
-      const cy = (tcY + 0.5) * s;
-      ctx.fillStyle = "#2e1a0c";
-      ctx.fillRect(cx - size / 2 - u, cy - size / 2 - u, size + 2 * u, size + 2 * u);
-      ctx.fillStyle = "#7a1f1a";
-      ctx.fillRect(cx - size / 2, cy - size / 2, size, size);
-      ctx.fillStyle = "#f1c40f";
-      ctx.fillRect(cx - 1.5 * u, cy - 1.5 * u, 3 * u, 3 * u);
-    }
-
-    // Forts phase D2: a quest marker (gold diamond; green once accepted) on each open quest's target tile.
-    for (const q of latestQuests) {
-      const qx = (q.x + 0.5) * s;
-      const qy = (q.y + 0.5) * s;
-      const r = 4.5 * u;
-      // Batch 2 (SPRITES.md #81): the quest seal icon once it has loaded, else the drawn diamond.
-      const seal = q.accepted ? QUEST_MARKER_IMAGES.active : QUEST_MARKER_IMAGES.fresh;
-      if (seal.complete && seal.naturalWidth > 0) {
-        ctx.drawImage(seal, qx - 2.2 * r, qy - 2.2 * r, 4.4 * r, 4.4 * r);
-        continue;
-      }
-      ctx.beginPath();
-      ctx.moveTo(qx, qy - r - u);
-      ctx.lineTo(qx + r + u, qy);
-      ctx.lineTo(qx, qy + r + u);
-      ctx.lineTo(qx - r - u, qy);
-      ctx.closePath();
-      ctx.fillStyle = "#1a0f06";
-      ctx.fill();
-      ctx.beginPath();
-      ctx.moveTo(qx, qy - r);
-      ctx.lineTo(qx + r, qy);
-      ctx.lineTo(qx, qy + r);
-      ctx.lineTo(qx - r, qy);
-      ctx.closePath();
-      ctx.fillStyle = q.accepted ? "#5fd35a" : "#f1c40f";
-      ctx.fill();
-    }
-
-    const adventureMarker=adventureMapMarker();if(adventureMarker){const x=(adventureMarker.x+.5)*s,y=(adventureMarker.y+.5)*s;ctx.beginPath();ctx.arc(x,y,5*u,0,Math.PI*2);ctx.fillStyle='#8a448b';ctx.fill();ctx.lineWidth=2*u;ctx.strokeStyle='#fff1b8';ctx.stroke();}
-
-    // Camp hearths, once explored: a small ember dot with a dark rim on the camp's centre.
-    for (const index of latestHearths) {
-      if (!explored[index]) continue;
-      const cx = ((index % worldTilesX) + 0.5) * s;
-      const cy = (Math.floor(index / worldTilesX) + 0.5) * s;
-      const r = 2.5 * u;
-      ctx.fillStyle = "#1a0f06";
-      ctx.fillRect(cx - r - u, cy - r - u, 2 * (r + u), 2 * (r + u));
-      ctx.fillStyle = "#ff7a1a";
-      ctx.fillRect(cx - r, cy - r, 2 * r, 2 * r);
-    }
-
-    // The Castle Ruin, once its centre tile is explored: its 9x9 walls outlined, a red keep in the middle.
-    if (castleRuinTile && explored[castleRuinTile.y * worldTilesX + castleRuinTile.x]) {
-      const half = 4.5 * s;
-      const cx = (castleRuinTile.x + 0.5) * s;
-      const cy = (castleRuinTile.y + 0.5) * s;
-      ctx.lineWidth = 3 * u;
-      ctx.strokeStyle = "#1a0f06";
-      ctx.strokeRect(cx - half, cy - half, half * 2, half * 2);
-      ctx.lineWidth = 1.5 * u;
-      ctx.strokeStyle = "#d8cfbf";
-      ctx.strokeRect(cx - half, cy - half, half * 2, half * 2);
-      const keep = 5 * u;
-      ctx.fillStyle = "#1a0f06";
-      ctx.fillRect(cx - keep / 2 - u, cy - keep / 2 - u, keep + 2 * u, keep + 2 * u);
-      ctx.fillStyle = "#a8321e";
-      ctx.fillRect(cx - keep / 2, cy - keep / 2, keep, keep);
-    }
-
-    // Live view right now: players and the colony's own colonists (not the Abbey's clergy), with
-    // the server's vision radii. Mobs outside it aren't drawn, even on explored ground.
-    const sources = liveVisionSources(players, colonists).map((v) => ({ x: v.x, y: v.y, r2: v.r * v.r }));
-
-    ctx.fillStyle = "#f3da98";
-    for (const c of colonists) {
-      if (!explored[tileOf(c.y) * worldTilesX + tileOf(c.x)]) continue;
-      ctx.fillRect(Math.round(toMap(c.x) - u), Math.round(toMap(c.y) - u), 2 * u, 2 * u);
-    }
-    // Forts phase E: own trader wagons on the road, a bigger gold dot with a dark rim.
-    for (const c of colonists) {
-      if (!c.wagon || c.wagon.leg === "home" || (c.clan ?? 0) !== myClan) continue;
-      const r = 2.5 * u;
-      ctx.fillStyle = "#1a0f06";
-      ctx.fillRect(toMap(c.x) - r - u, toMap(c.y) - r - u, 2 * (r + u), 2 * (r + u));
-      ctx.fillStyle = "#f1c40f";
-      ctx.fillRect(toMap(c.x) - r, toMap(c.y) - r, 2 * r, 2 * r);
-    }
-    ctx.fillStyle = "#f3da98";
-
-    for (const m of mobs) {
-      const mx = tileOf(m.x);
-      const my = tileOf(m.y);
-      const seen = sources.some((src) => (src.x - mx) ** 2 + (src.y - my) ** 2 <= src.r2);
-      if (!seen) continue;
-      const x = Math.round(toMap(m.x) - 1.5 * u);
-      const y = Math.round(toMap(m.y) - 1.5 * u);
-      ctx.fillStyle = "#1a0505";
-      ctx.fillRect(x - u, y - u, 5 * u, 5 * u);
-      ctx.fillStyle = "#ff3b2a";
-      ctx.fillRect(x, y, 3 * u, 3 * u);
-    }
-
-    for (const p of players) {
-      if (p.id === myId) continue;
-      ctx.beginPath();
-      ctx.arc(toMap(p.x), toMap(p.y), 3 * u, 0, Math.PI * 2);
-      ctx.fillStyle = cssColor(p.color);
-      ctx.fill();
-      ctx.lineWidth = u;
-      ctx.strokeStyle = "#1a0f06";
-      ctx.stroke();
-    }
-
-    const me = players.find((p) => p.id === myId);
-    if (me) {
-      ctx.beginPath();
-      ctx.arc(toMap(me.x), toMap(me.y), 4 * u, 0, Math.PI * 2);
-      ctx.lineWidth = 3.5 * u;
-      ctx.strokeStyle = "#1a0f06";
-      ctx.stroke();
-      ctx.lineWidth = 1.75 * u;
-      ctx.strokeStyle = "#ffffff";
-      ctx.stroke();
-    }
-
-    // Main camera viewport (worldLayer is scaled by camZoom and offset to the camera focus).
-    const viewX = toMap(-worldLayer.position.x / camZoom);
-    const viewY = toMap(-worldLayer.position.y / camZoom);
-    const viewW = toMap(app.screen.width / camZoom);
-    const viewH = toMap(app.screen.height / camZoom);
-    ctx.lineWidth = u;
-    ctx.strokeStyle = "rgba(251, 236, 200, 0.85)";
-    ctx.strokeRect(Math.round(viewX) + u / 2, Math.round(viewY) + u / 2, Math.round(viewW) - u, Math.round(viewH) - u);
-    drawFightPings(ctx, s, u);
-    ctx.restore();
-  }
-
-  // ---- Off-screen fight notifiers (ROADMAP "Off-screen fight notifiers — landed 2026-10-23") ----
-  // The snapshot's per-player `fights` (server-clustered) become one DOM arrow each, clamped to the
-  // screen rim by placeEdgeArrow and hidden while the fight is on screen; a fight the server drops fades
-  // out over FIGHT_ARROW_FADE_MS. Clicking an arrow pans the camera there for FIGHT_PEEK_MS (any
-  // movement key returns it to the player). The minimap pings every listed fight, and the first time a
-  // fight begins off-screen a toast names it (at most one per FIGHT_TOAST_THROTTLE_MS).
-  const fightArrowLayer = document.getElementById("fight-arrows")!;
-  interface FightArrow {
-    fight: FightSnapshot;
-    el: HTMLButtonElement;
-    chevron: HTMLElement;
-    title: HTMLElement;
-    sub: HTMLElement;
-    goneAt: number;
-  }
-  const fightArrows = new Map<number, FightArrow>();
-  const FIGHT_ARROW_FADE_MS = 600;
-  // Kept clear of the top button row / toasts and the bottom command bar.
-  const FIGHT_ARROW_INSETS = { top: 70, right: 40, bottom: 56, left: 40 };
-  const FIGHT_LABEL_OFFSET_PX = 34;
-  const FIGHT_TOAST_THROTTLE_MS = 20000;
-  const FIGHT_PEEK_MS = 4000;
-  const FIGHT_PEEK_EASE = 0.18;
-  let latestFights: FightSnapshot[] = [];
-  const announcedFightIds = new Set<number>();
-  let lastFightToastAt = -Infinity;
+  const { fightPeekFocus, drawFightPings, clearFightArrows, syncFights, fightIsOnScreen, fightWorldPos } = fightArrowsApi;
   let fightPeek: { x: number; y: number; until: number } | null = null;
   // The eased camera focus while peeking or easing back (null = locked on the player).
   let fightPeekCam: { x: number; y: number } | null = null;
-
-  function fightPeekFocus(playerX: number, playerY: number): { x: number; y: number } {
-    if (fightPeek) {
-      const input = currentInput();
-      if (performance.now() > fightPeek.until || input.dx !== 0 || input.dy !== 0) fightPeek = null;
-    }
-    if (!fightPeek && !fightPeekCam) return { x: playerX, y: playerY };
-    const cam = fightPeekCam ?? { x: playerX, y: playerY };
-    const tx = fightPeek ? fightPeek.x : playerX;
-    const ty = fightPeek ? fightPeek.y : playerY;
-    cam.x += (tx - cam.x) * FIGHT_PEEK_EASE;
-    cam.y += (ty - cam.y) * FIGHT_PEEK_EASE;
-    fightPeekCam = cam;
-    if (!fightPeek && Math.hypot(cam.x - playerX, cam.y - playerY) < 2) {
-      fightPeekCam = null;
-      return { x: playerX, y: playerY };
-    }
-    return cam;
-  }
-
-  function fightWorldPos(f: FightSnapshot): { x: number; y: number } {
-    return { x: (f.x + 0.5) * tileSize, y: (f.y + 0.5) * tileSize };
-  }
-
-  function fightTitle(f: FightSnapshot): string {
-    return f.buildings && !f.units && !f.you ? "Under attack" : f.label;
-  }
-
-  function fightIsOnScreen(f: FightSnapshot): boolean {
-    const w = fightWorldPos(f);
-    return placeEdgeArrow(
-      app.screen.width, app.screen.height,
-      worldLayer.position.x + w.x * camZoom, worldLayer.position.y + w.y * camZoom, FIGHT_ARROW_INSETS
-    ).onScreen;
-  }
-
-  // Direction and distance in tiles from the local player (the camera centre if there is none).
-  function fightBearing(f: FightSnapshot): { dir: string; tiles: number } {
-    const me = myId ? playerSprites.get(myId) : undefined;
-    const ox = me ? me.sprite.position.x / tileSize : (app.screen.width / 2 - worldLayer.position.x) / camZoom / tileSize;
-    const oy = me ? me.sprite.position.y / tileSize : (app.screen.height / 2 - worldLayer.position.y) / camZoom / tileSize;
-    const dx = f.x + 0.5 - ox;
-    const dy = f.y + 0.5 - oy;
-    return { dir: compassDirection(dx, dy), tiles: Math.round(Math.hypot(dx, dy)) };
-  }
-
-  function createFightArrow(f: FightSnapshot): FightArrow {
-    const el = document.createElement("button");
-    el.type = "button";
-    el.className = "fight-arrow";
-    const chevron = document.createElement("span");
-    chevron.className = "fight-chevron";
-    const label = document.createElement("span");
-    label.className = "fight-label";
-    const title = document.createElement("span");
-    const sub = document.createElement("small");
-    label.append(title, sub);
-    el.append(chevron, label);
-    el.addEventListener("pointerdown", (e) => e.stopPropagation());
-    el.addEventListener("click", (e) => {
-      e.stopPropagation();
-      const arrow = fightArrows.get(f.id);
-      const target = fightWorldPos(arrow ? arrow.fight : f);
-      if (strategyCam.inStrategy) strategyCam.jumpTo(target.x, target.y);
-      else fightPeek = { x: target.x, y: target.y, until: performance.now() + FIGHT_PEEK_MS };
-      el.blur();
-    });
-    fightArrowLayer.append(el);
-    return { fight: f, el, chevron, title, sub, goneAt: 0 };
-  }
-
-  function clearFightArrows() {
-    for (const a of fightArrows.values()) a.el.remove();
-    fightArrows.clear();
-    latestFights = [];
-    announcedFightIds.clear();
-    fightPeek = null;
-    fightPeekCam = null;
-  }
-
-  function syncFights(fights: FightSnapshot[] | undefined) {
-    latestFights = fights ?? [];
-    const now = performance.now();
-    const seen = new Set<number>();
-    for (const f of latestFights) {
-      seen.add(f.id);
-      let arrow = fightArrows.get(f.id);
-      if (!arrow) {
-        arrow = createFightArrow(f);
-        fightArrows.set(f.id, arrow);
-      }
-      arrow.fight = f;
-      arrow.goneAt = 0;
-      arrow.el.className = `fight-arrow fight-i${f.intensity}`;
-      arrow.el.title = `${f.label}: ${f.combatants} fighting${f.you ? " (you)" : ""} - click to look`;
-      if (!announcedFightIds.has(f.id)) {
-        announcedFightIds.add(f.id);
-        if (now - lastFightToastAt >= FIGHT_TOAST_THROTTLE_MS && !fightIsOnScreen(f)) {
-          lastFightToastAt = now;
-          const { dir, tiles } = fightBearing(f);
-          pushEventToast("raid", `${fightTitle(f)} to the ${dir} (${tiles} tiles)`);
-        }
-      }
-    }
-    for (const [id, arrow] of fightArrows) {
-      if (!seen.has(id) && arrow.goneAt === 0) arrow.goneAt = now;
-    }
-  }
-
-  app.ticker.add(() => {
-    if (fightArrows.size === 0) return;
-    const now = performance.now();
-    for (const [id, a] of fightArrows) {
-      const gone = a.goneAt ? now - a.goneAt : 0;
-      if (gone >= FIGHT_ARROW_FADE_MS) {
-        a.el.remove();
-        fightArrows.delete(id);
-        continue;
-      }
-      const w = fightWorldPos(a.fight);
-      const p = placeEdgeArrow(
-        app.screen.width, app.screen.height,
-        worldLayer.position.x + w.x * camZoom, worldLayer.position.y + w.y * camZoom, FIGHT_ARROW_INSETS
-      );
-      a.el.hidden = p.onScreen;
-      if (p.onScreen) continue;
-      a.el.style.transform = `translate(${p.x.toFixed(1)}px, ${p.y.toFixed(1)}px)`;
-      a.chevron.style.transform = `rotate(${p.angle.toFixed(3)}rad)`;
-      // The label sits just inside the rim, opposite the point.
-      const label = a.title.parentElement!;
-      label.style.left = `${(-Math.cos(p.angle) * FIGHT_LABEL_OFFSET_PX * 1.6).toFixed(1)}px`;
-      label.style.top = `${(-Math.sin(p.angle) * FIGHT_LABEL_OFFSET_PX).toFixed(1)}px`;
-      const pulse = 0.8 + 0.2 * Math.sin(now / (a.fight.intensity >= 3 ? 110 : a.fight.intensity === 2 ? 160 : 220));
-      a.el.style.opacity = (fightArrowAlpha(a.fight.quiet, FIGHT_WINDOW_SECONDS, gone, FIGHT_ARROW_FADE_MS) * pulse).toFixed(3);
-      const { dir, tiles } = fightBearing(a.fight);
-      const title = `${fightTitle(a.fight)} · ${dir}`;
-      const sub = `${tiles} tiles${a.fight.you ? " · you" : ""}`;
-      if (a.title.textContent !== title) a.title.textContent = title;
-      if (a.sub.textContent !== sub) a.sub.textContent = sub;
-    }
-  });
-
-  // Expanding rings on the minimap at every listed fight (on or off screen), faster and wider the
-  // fiercer it is. Called at the end of drawMinimap, in its backing-pixel space.
-  function drawFightPings(ctx: CanvasRenderingContext2D, s: number, u: number) {
-    if (latestFights.length === 0) return;
-    const now = performance.now();
-    for (const f of latestFights) {
-      const cx = (f.x + 0.5) * s;
-      const cy = (f.y + 0.5) * s;
-      const period = f.intensity >= 3 ? 700 : f.intensity === 2 ? 950 : 1200;
-      const phase = ((now + f.id * 137) % period) / period;
-      const fade = Math.max(0.25, Math.min(1, FIGHT_WINDOW_SECONDS - f.quiet));
-      ctx.beginPath();
-      ctx.arc(cx, cy, (3 + phase * (5 + 2 * f.intensity)) * u, 0, Math.PI * 2);
-      ctx.lineWidth = 1.5 * u;
-      ctx.strokeStyle = `rgba(255, 70, 40, ${((1 - phase) * fade).toFixed(3)})`;
-      ctx.stroke();
-      ctx.fillStyle = "#1a0505";
-      ctx.fillRect(cx - 2 * u, cy - 2 * u, 4 * u, 4 * u);
-      ctx.fillStyle = f.you || f.units || f.buildings ? "#ff3b2a" : "#f1c40f";
-      ctx.fillRect(cx - u, cy - u, 2 * u, 2 * u);
-    }
-  }
-
-  // Core stats (wood/iron/rock/gold/pop/time/happiness/army/selected) used to live here as a
-  // floating canvas HUD; they're now DOM elements pinned to the top of #economy-panel, merged
-  // into the same single menu as the goods/market panel. See the DOM refs set up below.
-
-  const pausedBanner = new Text({
-    text: "PAUSED",
-    style: { fill: 0xffffff, fontSize: 48, fontWeight: "bold" },
-  });
-  pausedBanner.anchor.set(0.5);
-  pausedBanner.visible = false;
-  // Stardew phase 5b: the weather overlay (screen space, over the world, under the banner and the DOM HUD).
-  const WEATHER_OVERLAY_PREF = "colony.weatherOverlay";
-  const weatherUi = setupWeatherOverlay(() => app.screen);
-  try {
-    weatherUi.setEnabled(localStorage.getItem(WEATHER_OVERLAY_PREF) !== "0");
-  } catch {
-    // Storage blocked: on.
-  }
-  app.stage.addChild(weatherUi.layer);
-  app.ticker.add((ticker) => weatherUi.update(ticker.deltaMS));
-  const calendarEl = {
-    seasonIcon: document.getElementById("cal-season-icon") as HTMLImageElement | null,
-    weatherIcon: document.getElementById("cal-weather-icon") as HTMLImageElement | null,
-    date: document.getElementById("stat-date"),
-    weather: document.getElementById("stat-weather"),
-  };
-  for (const img of [calendarEl.seasonIcon, calendarEl.weatherIcon]) img?.addEventListener("error", () => (img.hidden = true));
-  let shownCalendar = "";
-  function refreshCalendar(cal: CalendarSnapshot | undefined) {
-    if (!cal) return;
-    applySeason(cal.season);
-    weatherUi.set(cal.weather);
-    const key = `${cal.year}/${cal.season}/${cal.day}/${cal.weather}`;
-    if (key === shownCalendar) return;
-    shownCalendar = key;
-    const season = SEASONS[cal.season];
-    if (calendarEl.date) calendarEl.date.textContent = calendarLabel(cal);
-    if (calendarEl.weather) calendarEl.weather.textContent = WEATHER_LABEL[cal.weather];
-    if (calendarEl.seasonIcon) {
-      calendarEl.seasonIcon.hidden = false;
-      calendarEl.seasonIcon.src = `/sprites/icons/season_${season}.png`;
-    }
-    // Every weather state has its own sprite.
-    if (calendarEl.weatherIcon) {
-      calendarEl.weatherIcon.hidden = false;
-      calendarEl.weatherIcon.src = `/sprites/icons/weather_${cal.weather}.png`;
-    }
-  }
-  // Food days (shared/src/food.ts): how long grain + meat + fruit last at the dawn meal; shown with seasons off too.
-  const foodEl = document.getElementById("stat-food")!;
-  let shownFood = "";
-  function refreshFood(f: FoodSnapshot | undefined) {
-    const key = JSON.stringify(f ?? null);
-    if (key === shownFood) return;
-    shownFood = key;
-    if (!f) return;
-    const level = foodLevel(f.days);
-    const arrow = f.trend > 0 ? " \u25B2" : f.trend < 0 ? " \u25BC" : "";
-    foodEl.textContent = f.days === null ? "Food: nobody to feed" : `Food: ${f.days} day${f.days === 1 ? "" : "s"} (${f.perDay}/day)${arrow}`;
-    foodEl.classList.toggle("low", level === "low");
-    foodEl.classList.toggle("critical", level === "critical");
-    foodEl.title = `${f.stock} grain, meat and fruit in store; the dawn meal eats ${f.perDay}. ${f.trend >= 0 ? "+" : ""}${f.trend} since the last dawn meal.`;
-  }
-  // Winter (shared/src/winter.ts): days of fuel at the homes' burn, people needing warm clothes, and the autumn /
-  // winter "Winter needs" warning. Hidden with seasons off (no `winter` field).
-  const winterRowEl = document.getElementById("stat-winter")!;
-  const fuelEl = document.getElementById("stat-fuel")!;
-  const clothesEl = document.getElementById("stat-clothes")!;
-  const winterWarnEl = document.getElementById("stat-winter-warn")!;
-  const goalPrepEl = document.getElementById("goal-prep")!;
-  const goalPrepTitleEl = document.getElementById("goal-prep-title")!;
-  const goalPrepDetailEl = document.getElementById("goal-prep-detail")!;
-  let shownWinter = "";
-  function refreshWinter(w: WinterSnapshot | undefined) {
-    const key = JSON.stringify(w ?? null);
-    if (key === shownWinter) return;
-    shownWinter = key;
-    winterRowEl.hidden = !w;
-    winterWarnEl.hidden = !w?.warning;
-    goalPrepEl.hidden = !w?.prep;
-    if (w?.prep) {
-      const p = w.prep;
-      goalPrepTitleEl.textContent = "Prepare for winter";
-      goalPrepDetailEl.textContent = `Fuel ${p.fuelDays} / ${p.target} days${p.needClothes > 0 ? `, ${p.needClothes} need warm clothes` : ", all dressed"} (reward: ${p.reward})`;
-    }
-    if (!w) return;
-    const days = w.days === null ? "no homes to heat" : `${w.days} day${w.days === 1 ? "" : "s"} (${w.burn}/day)`;
-    fuelEl.textContent = `Fuel: ${days}${w.cold && w.coldHomes > 0 ? `, ${w.coldHomes} cold home${w.coldHomes === 1 ? "" : "s"}` : ""}`;
-    fuelEl.classList.toggle("low", (w.days !== null && w.days < FUEL_LOW_DAYS) || (w.cold && w.coldHomes > 0));
-    fuelEl.title = `${w.heat} heat in store (wood 1, coal / charcoal 2 each); ${w.homes} home${w.homes === 1 ? "" : "s"} burn ${w.burn} a winter day`;
-    clothesEl.textContent = w.needClothes > 0 ? `Need clothes: ${w.needClothes}` : "Dressed for winter";
-    clothesEl.classList.toggle("low", w.needClothes > 0 && w.cold);
-    clothesEl.title = `${w.people - w.needClothes} of ${w.people} warmly dressed; ${w.garments} garment${w.garments === 1 ? "" : "s"} in store`;
-    winterWarnEl.textContent = w.warning ?? "";
-  }
-  // Agriculture extras (shared/src/agri.ts): how fast raw food spoils after the stores' protection, sick people and the
-  // sourdough starter. Hidden with seasons off (no `agri` field).
-  const agriRowEl = document.getElementById("stat-agri")!;
-  const spoilEl = document.getElementById("stat-spoil")!;
-  const sickEl = document.getElementById("stat-sick")!;
-  // Dusk raid forecast: one HUD line under the clock, and a toast the first time a given raid is announced.
-  const raidForecastEl = document.createElement("div");
-  raidForecastEl.id = "raid-forecast";
-  raidForecastEl.style.cssText = "position:fixed;top:44px;left:50%;transform:translateX(-50%);padding:2px 10px;background:rgba(40,12,12,.8);color:#f3c9a8;border:1px solid #7a2a22;border-radius:4px;font:12px sans-serif;z-index:20;pointer-events:none";
-  raidForecastEl.hidden = true;
-  document.body.appendChild(raidForecastEl);
-  let shownRaidForecast = "";
-  function refreshRaidForecast(f: RaidForecast | undefined) {
-    const text = f ? raidForecastText(f) : "";
-    if (text === shownRaidForecast) return;
-    if (text && !shownRaidForecast) pushEventToast("raid", text);
-    shownRaidForecast = text;
-    raidForecastEl.textContent = text;
-    raidForecastEl.hidden = !text;
-  }
-  let shownAgri = "";
-  function refreshAgri(a: AgriSnapshot | undefined) {
-    const key = JSON.stringify(a ?? null);
-    if (key === shownAgri) return;
-    shownAgri = key;
-    agriRowEl.hidden = !a;
-    if (!a) return;
-    const pct = (n: number) => `${Math.round(n * 1000) / 10}%`;
-    spoilEl.textContent = `Raw food spoils ${pct(a.raw)}/day`;
-    spoilEl.classList.toggle("low", a.raw >= 0.04);
-    const keeps = [a.cellarLevel > 0 ? `Cellar L${a.cellarLevel} -${pct(a.cellar)}` : "no Cellar", a.pots > 0 ? `pots -${pct(a.pots)}` : "no pots", a.storeroom > 0 ? `storerooms -${pct(a.storeroom)}` : "no storeroom"];
-    spoilEl.title = `Per day: raw ${pct(a.raw)}, fresh ${pct(a.fresh)}, dry ${pct(a.dry)} (${keeps.join(", ")}); ${a.spoiled} food went off at the last dawn`;
-    const starter = a.starter === "none" ? "" : a.starter === "kept" ? "; sourdough starter kept" : `; starter untended ${a.starter} day${a.starter === 1 ? "" : "s"}`;
-    sickEl.textContent = a.sick > 0 ? `Sick: ${a.sick}` : "Healthy";
-    sickEl.classList.toggle("low", a.sick > 0 || typeof a.starter === "number");
-    sickEl.title = `${a.sick} of ${a.people} sick from bad food${starter}`;
-  }
-  app.stage.addChild(pausedBanner);
-
-  app.ticker.add(() => {
-    pausedBanner.position.set(app.screen.width / 2, app.screen.height / 2);
+  const { weatherUi, WEATHER_OVERLAY_PREF, pausedBanner, refreshCalendar, refreshFood, refreshWinter, refreshAgri, refreshRaidForecast } = createHudStatus({
+    app, applySeason, get pushEventToast() { return pushEventToast; },
   });
 
   // ---- Economy panel (DOM): goods stockpile + Market / Gold Shop, left side ----
@@ -4895,1091 +3989,28 @@ async function main() {
     });
     showFormationMarker(plan, destX, destY, (queue.length - 1) * step);
   }
-
-  // ---- Sound triggers driven by snapshots ----
-  // colonist id -> its current work sound and when it next plays.
-  const workSoundTimers = new Map<string, { key: string; next: number }>();
-  const growledMobs = new Set<string>();
-  let lastMyHp: number | null = null;
-  let lastMyPos: { x: number; y: number; at: number } | null = null;
-  let horseIdleSince = performance.now();
-  let horseMoving = false;
-  let lastAmbientScan = 0;
-  // tile index -> {tile, at}: setTile requests we sent, so their tileUpdate can sound as ours.
-  const pendingPlacements = new Map<number, { tile: number; at: number }>();
-
-  function resetSoundState() {
-    soundSuppressed = true;
-    workSoundTimers.clear();
-    growledMobs.clear();
-    lastMyHp = null;
-    lastMyPos = null;
-    pendingPlacements.clear();
-  }
-
-  function soundOnSnapshot(snap: Extract<ServerMessage, { type: "snapshot" }>) {
-    sound.tileSize = tileSize;
-    sound.setMusicMode(snap.isNight ? "night" : "day");
-    const now = performance.now();
-    const me = snap.players.find((p) => p.id === myId);
-    if (me) {
-      sound.setListener(me.x, me.y);
-      if (lastMyHp !== null && me.hp < lastMyHp && !soundSuppressed) sound.play("player_hurt");
-      lastMyHp = me.hp;
-
-      let speed = 0;
-      if (lastMyPos && now > lastMyPos.at) {
-        speed = Math.hypot(me.x - lastMyPos.x, me.y - lastMyPos.y) / ((now - lastMyPos.at) / 1000);
-        if (speed > HORSE_TELEPORT_SPEED) speed = 0;
-      }
-      // Snapshots can arrive bunched; only resample the speed every ~80 ms.
-      if (!lastMyPos || now - lastMyPos.at >= 80) {
-        lastMyPos = { x: me.x, y: me.y, at: now };
-        const moving = speed > HORSE_MOVING_MIN_SPEED && !snap.isPaused;
-        if (moving && !horseMoving && now - horseIdleSince > HORSE_WHINNY_IDLE_MS && Math.random() < HORSE_WHINNY_CHANCE) {
-          sound.play("horse_whinny");
-        }
-        if (!moving && horseMoving) horseIdleSince = now;
-        horseMoving = moving;
-        const rate = Math.max(HORSE_RATE_MIN, Math.min(HORSE_RATE_MAX, speed / PLAYER_SPEED));
-        sound.setLoop("horse", "horse_gallop", moving ? 1 : 0, rate);
-      }
-
-      if (now - lastAmbientScan >= AMBIENT_SCAN_MS) {
-        lastAmbientScan = now;
-        const r = SOUND_SILENT_RADIUS_TILES;
-        const ptx = Math.floor(me.x / tileSize);
-        const pty = Math.floor(me.y / tileSize);
-        for (const loop of AMBIENT_TILE_LOOPS) {
-          let best = Infinity;
-          for (let ty = Math.max(0, pty - r); ty <= Math.min(worldTilesY - 1, pty + r); ty++) {
-            for (let tx = Math.max(0, ptx - r); tx <= Math.min(worldTilesX - 1, ptx + r); tx++) {
-              if (tiles[ty * worldTilesX + tx] !== loop.tile) continue;
-              best = Math.min(best, Math.hypot(tx * tileSize + tileSize / 2 - me.x, ty * tileSize + tileSize / 2 - me.y));
-            }
-          }
-          const level = best === Infinity ? 0 : proximityGain(best, 0, tileSize);
-          sound.setLoop(loop.id, loop.key, level);
-        }
-      }
-    }
-
-    // Workers: one sound per work cycle each, phase-staggered so a whole village doesn't hit in sync.
-    // Paused: the simulation is frozen, so nobody's working.
-    const seen = new Set<string>();
-    for (const c of snap.isPaused ? [] : snap.colonists) {
-      seen.add(c.id);
-      const key = workSoundKey(c);
-      if (!key) {
-        workSoundTimers.delete(c.id);
-        continue;
-      }
-      const interval = WORK_SOUND_INTERVAL_MS[key] ?? 2000;
-      const timer = workSoundTimers.get(c.id);
-      if (!timer || timer.key !== key) {
-        workSoundTimers.set(c.id, { key, next: now + Math.random() * interval * 0.5 });
-        continue;
-      }
-      if (now < timer.next) continue;
-      timer.next = now + interval;
-      const volume =
-        key === "craft_hammer" && tiles[c.postY * worldTilesX + c.postX] !== TileType.Blacksmith
-          ? CRAFT_VOLUME_NON_SMITH
-          : 1;
-      sound.play(key, { x: c.x, y: c.y, volume });
-    }
-    for (const id of Array.from(workSoundTimers.keys())) if (!seen.has(id)) workSoundTimers.delete(id);
-
-    // Mobs: maybe a growl the first time each comes within range (the per-key cooldown in sound.ts
-    // keeps a whole wave from growling at once).
-    const mobIds = new Set<string>();
-    const growlRangePx = MOB_GROWL_RADIUS_TILES * tileSize;
-    for (const m of snap.mobs) {
-      mobIds.add(m.id);
-      if (growledMobs.has(m.id) || !me) continue;
-      if (Math.hypot(m.x - me.x, m.y - me.y) > growlRangePx) continue;
-      growledMobs.add(m.id);
-      if (!soundSuppressed && Math.random() < MOB_GROWL_CHANCE) sound.play("monster_growl", { x: m.x, y: m.y });
-    }
-    for (const id of Array.from(growledMobs)) if (!mobIds.has(id)) growledMobs.delete(id);
-    soundSuppressed = false;
-  }
-
-  function soundOnEvent(category: GameEventCategory, text: string) {
-    if (category === "night") sound.play("night_sting", { priority: true });
-    // Phase 6: one of the player's regiments breaks (wavering / rally toasts stay silent).
-    else if (category === "morale" && text.endsWith("routing!")) sound.play("night_sting", { priority: true });
-    else if (category === "dawn") {
-      sound.play("dawn_chime", { priority: true });
-      sound.play("church_bell", { priority: true, delay: DAWN_BELL_DELAY_S });
-    } else if (category === "upgrade" || category === "milestone") sound.play("build_upgrade", { priority: true });
-  }
-
-  function soundOnTileUpdate(tileX: number, tileY: number, tile: number) {
-    const index = tileY * worldTilesX + tileX;
-    const prev = tiles[index] ?? TileType.Empty;
-    if (prev === TileType.ConstructionSite && tile !== TileType.Empty && tile !== TileType.ConstructionSite) {
-      // A construction finished (anyone's): the build sparkle and the placement thud.
-      pendingPlacements.delete(index);
-      const c = tileCenter(tileX, tileY);
-      spawnFxAnim("build", c.x, c.y + tileSize / 2, 700);
-      sound.play("build_place", { x: c.x, y: c.y });
-      return;
-    }
-    const pending = pendingPlacements.get(index);
-    if (!pending) return;
-    // Our placement became a construction site: the sound waits for its completion.
-    if (tile === TileType.ConstructionSite) {
-      pendingPlacements.delete(index);
-      return;
-    }
-    pendingPlacements.delete(index);
-    if (performance.now() - pending.at > PLACEMENT_CONFIRM_MS || tile === TileType.Empty) return;
-    const c = tileCenter(tileX, tileY);
-    // Our placement landed: on bare ground it's a build; on an existing building that turned into a
-    // different tile (House -> Big House, barracks -> castle) it's an upgrade.
-    spawnFxAnim(prev !== TileType.Empty && prev !== tile ? "upgrade" : "build", c.x, c.y + tileSize / 2, 700);
-    if (pending.tile !== tile) return;
-    sound.play("build_place", { x: c.x, y: c.y });
-  }
-
-  // In-place level-ups (huts, workshops, mines, ...) keep their tile, so no tileUpdate arrives; the
-  // server's "upgrade" event confirms one instead. Play the upgrade effect at our most recent pending
-  // placement of a building onto the same building.
-  function fxOnUpgradeEvent() {
-    let best: { index: number; at: number } | null = null;
-    const now = performance.now();
-    for (const [index, pending] of pendingPlacements) {
-      if (now - pending.at > PLACEMENT_CONFIRM_MS || tiles[index] !== pending.tile) continue;
-      if (!best || pending.at > best.at) best = { index, at: pending.at };
-    }
-    if (!best) return;
-    pendingPlacements.delete(best.index);
-    const c = tileCenter(best.index % worldTilesX, Math.floor(best.index / worldTilesX));
-    spawnFxAnim("upgrade", c.x, c.y + tileSize / 2, 700);
-  }
-
-  // ---- Building info panel (left-click a building; see the pointerup handler) ----
-  // Buildings that open the panel. Walls, trees, rocks and forage keep the old left-click (break).
-  const INFO_TILES = new Set<number>([
-    TileType.TownCenter, TileType.House, TileType.BigHouse, TileType.HouseLevel2, TileType.BarnPost,
-    TileType.LumberjackPost, TileType.FarmPlot, TileType.KnightPost, TileType.CastleLevel2, TileType.CastleLevel3,
-    TileType.ArcherPost, TileType.Tower, TileType.IronMinePost, TileType.RockMinePost, TileType.ChurchPost,
-    TileType.Pasture, TileType.PigPasture, TileType.Orchard, TileType.WoolFarm, TileType.CottonFarm, TileType.TailorShop,
-    TileType.Blacksmith, TileType.LuxuryWorkshop, TileType.Market, TileType.GoldShop, TileType.Brewery,
-    TileType.Tavern, TileType.MilitiaPost, TileType.MilitiaCamp2, TileType.MilitiaCamp3, TileType.WardStone,
-    TileType.HunterHut, TileType.ForagerHut, TileType.BuildersGuild, TileType.ConstructionSite,
-    TileType.Gate, TileType.FenceGate, TileType.Drawbridge, TileType.Stables, TileType.SiegeWorkshop, TileType.Keep,
-    TileType.SiteKeep, TileType.RuinedKeep, TileType.Tent, TileType.CharcoalBurner, TileType.Bloomery, TileType.Mill, TileType.Bakery,
-    TileType.ClayPit, TileType.Kiln, TileType.ChickenCoop, TileType.LivestockBarn, TileType.PigSty, TileType.SheepPen,
-    TileType.CoalMine, TileType.CopperMine, TileType.TinMine,
-    TileType.SaltWorks, TileType.Smokehouse, TileType.Dairy, TileType.Cellar,
-    TileType.Foundry, TileType.StampMill, TileType.LimeQuarry, TileType.GoldMine, TileType.LeadMine, TileType.Glassworks, TileType.Mint,
-    ...NEW_STRUCTURE_TILES,
-  ]);
-  const buildingPanelEl = document.getElementById("building-panel")!;
-  const bpNameEl = document.getElementById("bp-name")!;
-  const bpLevelEl = document.getElementById("bp-level")!;
-  const bpStaffingEl = document.getElementById("bp-staffing")!;
-  const bpHpEl = document.getElementById("bp-hp")!;
-  const bpConstructionEl = document.getElementById("bp-construction")!;
-  const bpBonusesEl = document.getElementById("bp-bonuses")!;
-  const bpUpgradeRowEl = document.getElementById("bp-upgrade-row")!;
-  const bpUpgradeBtn = document.getElementById("bp-upgrade") as HTMLButtonElement;
-  const bpUpgradeCostEl = document.getElementById("bp-upgrade-cost")!;
-  const bpRepairRowEl = document.getElementById("bp-repair-row")!;
-  const bpRepairBtn = document.getElementById("bp-repair") as HTMLButtonElement;
-  const bpRepairCostEl = document.getElementById("bp-repair-cost")!;
-  // Walls & gates: the gate's lock (click cycles auto -> open -> closed).
-  const bpGateRowEl = document.getElementById("bp-gate-row")!;
-  const bpGateBtn = document.getElementById("bp-gate-lock") as HTMLButtonElement;
-  const bpGateStateEl = document.getElementById("bp-gate-state")!;
-  const GATE_LOCK_NEXT: Record<GateLock, GateLock> = { auto: "open", open: "closed", closed: "auto" };
-  const GATE_LOCK_LABEL: Record<GateLock, string> = { auto: "Auto", open: "Locked open", closed: "Locked closed" };
-  let shownGateLock: GateLock = "auto";
-  // Modular building phase 1: a blueprint's Priority / Cancel buttons (siteOrder).
-  const bpBlueprintRowEl = document.createElement("div");
-  bpBlueprintRowEl.style.cssText = "display: none; align-items: center; gap: 8px; margin-top: 8px;";
-  const bpPriorityBtn = document.createElement("button");
-  const bpCancelBtn = document.createElement("button");
-  bpPriorityBtn.className = bpCancelBtn.className = "econ-btn";
-  bpBlueprintRowEl.append(bpPriorityBtn, bpCancelBtn);
-  bpGateRowEl.after(bpBlueprintRowEl);
-  // Modular building phase 2: the Room section (role, stats, score, effects, tips) for anything inside a room.
-  const bpRoomEl = document.createElement("div");
-  bpRoomEl.style.cssText = "display: none; margin-top: 8px; border-top: 1px solid rgba(255,255,255,0.15); padding-top: 6px;";
-  bpBonusesEl.before(bpRoomEl);
-  const ROOM_STAT_TIPS: Record<string, string> = {
-    Size: "Tiles for its role (a bedroom wants 6 per bed, a kitchen / workshop 12, a hall 30)",
-    Beauty: "Furniture (rugs, statues, lamps), wood / stone floors; bare ground is ugly",
-    Cleanliness: "Dirt from people walking through and blood; swept clean over time; damaged walls count as rubble",
-    Warmth: "Hearths, lamps and ovens / forges; a stone roof helps, windows lose heat; one hearth warms 16 tiles best",
-  };
-  function renderRoom(room: BuildingInfo["room"]) {
-    bpRoomEl.style.display = room ? "block" : "none";
-    if (!room) return;
-    const head = document.createElement("div");
-    head.className = "menu-section";
-    const badge = roomRoleIconUrl(room.role);
-    if (badge) head.append(iconImg(badge, 18, room.roleLabel), " ");
-    head.append(`Room: ${room.roleLabel}, ${room.tier} (${room.score}/100)`);
-    head.title = "Score = 15% size + 35% beauty + 25% cleanliness + 25% warmth";
-    const stats = document.createElement("div");
-    stats.style.cssText = "display: grid; grid-template-columns: auto 1fr auto; gap: 2px 6px; align-items: center; font-size: 12px;";
-    for (const [label, v] of [["Size", room.size], ["Beauty", room.beauty], ["Cleanliness", room.cleanliness], ["Warmth", room.warmth]] as const) {
-      const name = document.createElement("span");
-      name.append(iconImg(ROOM_STAT_ICON[label], 14), " ", label);
-      name.title = ROOM_STAT_TIPS[label];
-      const bar = document.createElement("div");
-      bar.style.cssText = "height: 6px; background: rgba(255,255,255,0.12); border-radius: 3px; overflow: hidden;";
-      bar.title = ROOM_STAT_TIPS[label];
-      const fill = document.createElement("div");
-      fill.style.cssText = `height: 100%; width: ${v}%; background: ${v >= 70 ? "#7fc97f" : v >= 40 ? "#e0c060" : "#e07060"};`;
-      bar.append(fill);
-      const num = document.createElement("span");
-      num.textContent = String(v);
-      stats.append(name, bar, num);
-    }
-    const list = (items: string[], color: string) => {
-      const ul = document.createElement("ul");
-      ul.style.cssText = `margin: 4px 0 0 0; padding-left: 16px; font-size: 12px; color: ${color};`;
-      for (const t of items) {
-        const li = document.createElement("li");
-        li.textContent = t;
-        ul.append(li);
-      }
-      return ul;
-    };
-    const contents = document.createElement("div");
-    contents.style.cssText = "font-size: 12px; opacity: 0.8; margin-top: 4px;";
-    contents.textContent = `Contents: ${room.contents}`;
-    bpRoomEl.replaceChildren(head, stats, contents, list(room.effects, "#bfe3bf"), ...(room.tips.length ? [list(room.tips.map((t) => `Tip: ${t}`), "#f0d890")] : []));
-  }
-  for (const [btn, action] of [[bpPriorityBtn, "priority"], [bpCancelBtn, "cancel"]] as const) {
-    btn.addEventListener("click", () => {
-      btn.blur();
-      if (!infoTile) return;
-      sendMessage({ type: "siteOrder", tileX: infoTile.tx, tileY: infoTile.ty, action });
-      window.setTimeout(requestBuildingInfo, 150);
-    });
-  }
-  // Cavalry & siege: the Siege Workshop's two build buttons (queueSiege) and its status line.
-  const bpSiegeRowEl = document.getElementById("bp-siege-row")!;
-  const bpSiegeStateEl = document.getElementById("bp-siege-state")!;
-  const bpSiegeBtns = new Map<SiegeKind, HTMLButtonElement>(
-    SIEGE_KINDS.map((kind) => [kind, document.getElementById(`bp-siege-${kind}`) as HTMLButtonElement])
-  );
-  // Village life phase 3: a unit building's Train unit button (trainUnit) and its troops / reason line.
-  const bpTrainRowEl = document.getElementById("bp-train-row")!;
-  const bpTrainBtn = document.getElementById("bp-train") as HTMLButtonElement;
-  const bpTrainStateEl = document.getElementById("bp-train-state")!;
-  // Village life phase 4: a Town Center's Call to arms / Stand down button (callVillagers) and its levy line.
-  const bpLevyRowEl = document.getElementById("bp-levy-row")!;
-  const bpLevyBtn = document.getElementById("bp-levy") as HTMLButtonElement;
-  const bpLevyStateEl = document.getElementById("bp-levy-state")!;
-  // Deep mines: an own mine's status and the "Send soldiers in" button (mineAssault).
-  const bpMineRowEl = document.getElementById("bp-mine-row")!;
-  const bpMineBtn = document.getElementById("bp-mine-assault") as HTMLButtonElement;
-  const bpMineStateEl = document.getElementById("bp-mine-state")!;
-  // Mines: the next depth's nest risk before the upgrade digs it; a risky dig takes a second click to confirm.
-  const bpMineRiskEl = document.getElementById("bp-mine-risk")!;
-  let mineDigPreview: { level: number; chance: number; risk: string } | null = null;
-  let mineDigArmedUntil = 0;
-  let shownLevyOnField = 0;
-  // Armour & weapons: the Blacksmith's two forge buttons (queueForge) and its queue line.
-  const bpForgeRowEl = document.getElementById("bp-forge-row")!;
-  const bpForgeStateEl = document.getElementById("bp-forge-state")!;
-  // Forge autocraft: on / off toggle, target - / + (setForgeAuto), and its status line.
-  const bpForgeAutoBtn = document.getElementById("bp-forge-auto") as HTMLButtonElement;
-  const bpForgeAutoLessBtn = document.getElementById("bp-forge-auto-less") as HTMLButtonElement;
-  const bpForgeAutoMoreBtn = document.getElementById("bp-forge-auto-more") as HTMLButtonElement;
-  const bpForgeAutoStateEl = document.getElementById("bp-forge-auto-state")!;
-  let shownForgeAuto: { on: boolean; target: number } = { on: false, target: 4 };
-  const bpForgeBtns = new Map<EquipSlot, HTMLButtonElement>(
-    (["armour", "weapon"] as EquipSlot[]).map((slot) => [slot, document.getElementById(`bp-forge-${slot}`) as HTMLButtonElement])
-  );
-  // Hero phase 3: the Keep's three recruit buttons (recruitHero) and its hero roster line.
-  const bpHeroesRowEl = document.getElementById("bp-heroes-row")!;
-  const bpHeroesStateEl = document.getElementById("bp-heroes-state")!;
-  const bpHeroBtns = new Map<HeroClass, HTMLButtonElement>(
-    HERO_CLASSES.map((cls) => [cls, document.getElementById(`bp-hero-${cls}`) as HTMLButtonElement])
-  );
-  const bpSpellsRowEl = document.getElementById("bp-spells-row")!;
-  // Forts phase B: a razed fort's RuinedKeep: Rebuild (rebuildKeep) and its cost / reason.
-  const bpKeepRowEl = document.getElementById("bp-keep-row")!;
-  const bpKeepBtn = document.getElementById("bp-keep-rebuild") as HTMLButtonElement;
-  const bpKeepStateEl = document.getElementById("bp-keep-state")!;
-  let bpSpellsKey = "";
-  // Forts phase D: a human settlement's Trade button and the trade panel (fed by the same buildingInfo
-  // refresh while open; closes with the building panel).
-  // Forts phase E: the Trading Post's trader wagon (status, escort, destinations, send / recall / auto).
-  const bpWagonRowEl = document.getElementById("bp-wagon-row")!;
-  const bpWagonStatusEl = document.getElementById("bp-wagon-status")!;
-  const bpWagonEscortEl = document.getElementById("bp-wagon-escort")!;
-  const bpWagonDestEl = document.getElementById("bp-wagon-dest") as HTMLSelectElement;
-  const bpWagonSendBtn = document.getElementById("bp-wagon-send") as HTMLButtonElement;
-  const bpWagonRecallBtn = document.getElementById("bp-wagon-recall") as HTMLButtonElement;
-  const bpWagonAutoBtn = document.getElementById("bp-wagon-auto") as HTMLButtonElement;
-  const bpWagonDestsEl = document.getElementById("bp-wagon-dests")!;
-  let bpWagonAuto = true;
-  let bpWagonDestKey = "";
-  // Batch 2 (SPRITES.md #67 / #80): a small optional icon (/sprites/ui-<icon>.png) ahead of a panel line's
-  // text; the img is made once per icon and removes itself if the file is missing, leaving just the text.
-  function setIconText(el: HTMLElement, icon: string, text: string) {
-    if (el.dataset.icon !== icon) {
-      el.dataset.icon = icon;
-      const img = document.createElement("img");
-      img.className = "ui-ico";
-      img.alt = "";
-      img.src = `/sprites/ui-${icon}.png`;
-      img.onerror = () => img.remove();
-      el.replaceChildren(img, document.createTextNode(text));
-    } else if (el.lastChild!.textContent !== text) el.lastChild!.textContent = text;
-  }
-  const relIcon = (tier: keyof typeof RELATION_TIER_NAMES) => `rel${Object.keys(RELATION_TIER_NAMES).indexOf(tier)}`;
-  const ESCORT_LABEL: Partial<Record<ColonistKind, string>> = { militia: "Militia", spearman: "Spearman", pikeman: "Pikeman", cavalry: "Cavalry" };
-  function renderTradingPost(tp: BuildingInfo["tradingPost"]) {
-    bpWagonRowEl.hidden = !tp;
-    if (!tp) return;
-    const w = tp.wagon;
-    setIconText(bpWagonStatusEl, w && w.hp < w.maxHp ? "tradeAlert" : "tradeRoute", `${w ? `Wagon HP ${w.hp}/${w.maxHp} · ` : ""}${tp.status}`);
-    bpWagonEscortEl.textContent = `Escort: ${tp.escorts.map((e) => `${ESCORT_LABEL[e.kind] ?? e.kind}${e.alive ? "" : " (fallen)"}`).join(", ")}`;
-    const key = tp.destinations.map((d) => `${d.id}:${d.ok}`).join("|");
-    if (key !== bpWagonDestKey) {
-      bpWagonDestKey = key;
-      const keep = bpWagonDestEl.value;
-      bpWagonDestEl.replaceChildren(
-        new Option("Auto (best)", "auto"),
-        ...tp.destinations.filter((d) => d.ok).map((d) => new Option(d.name, d.id))
-      );
-      bpWagonDestEl.value = Array.from(bpWagonDestEl.options).some((o) => o.value === keep) ? keep : "auto";
-    }
-    bpWagonSendBtn.disabled = !tp.canSend;
-    bpWagonSendBtn.title = tp.sendReason;
-    bpWagonRecallBtn.disabled = !tp.canRecall;
-    bpWagonAuto = tp.auto;
-    bpWagonAutoBtn.textContent = `Auto-send: ${tp.auto ? "On" : "Off"}`;
-    bpWagonDestsEl.replaceChildren(
-      ...(tp.destinations.length > 0 ? tp.destinations : [null]).map((d) => {
-        const li = document.createElement("li");
-        if (!d) {
-          li.textContent = "No destinations yet: befriend a settlement (Friendly) or found another Town Center";
-          return li;
-        }
-        const own = d.kind === "own" ? " (own, half value)" : "";
-        li.textContent = d.ok
-          ? `${d.name}${own}: ${d.dist} tiles, ${d.danger ?? "road not scouted"}, ~${d.profit} gold`
-          : `${d.name}${own}: ${d.reason}`;
-        if (!d.ok) li.className = "off";
-        return li;
-      })
-    );
-  }
-  bpWagonSendBtn.addEventListener("click", () => {
-    bpWagonSendBtn.blur();
-    if (!infoTile) return;
-    sendMessage({ type: "wagonCommand", tileX: infoTile.tx, tileY: infoTile.ty, cmd: "sendNow", dest: bpWagonDestEl.value || "auto" });
-    window.setTimeout(requestBuildingInfo, 150);
+  const { resetSoundState, soundOnSnapshot, soundOnTileUpdate, fxOnUpgradeEvent, soundOnEvent, pendingPlacements } = createSoundHooks({
+    tileCenter, spawnFxAnim,
+    get soundSuppressed() { return soundSuppressed; }, set soundSuppressed(v) { soundSuppressed = v; },
+    get tileSize() { return tileSize; }, get myId() { return myId; }, get worldTilesY() { return worldTilesY; },
+    get worldTilesX() { return worldTilesX; }, get tiles() { return tiles; },
   });
-  bpWagonRecallBtn.addEventListener("click", () => {
-    bpWagonRecallBtn.blur();
-    if (!infoTile) return;
-    sendMessage({ type: "wagonCommand", tileX: infoTile.tx, tileY: infoTile.ty, cmd: "recall" });
-    window.setTimeout(requestBuildingInfo, 150);
+  const buildingPanelApi = createBuildingPanel({
+    sendMessage, strategyCam, worldLayer, app, interiorRef, get selectedIds() { return selectedIds; },
+    get pushEventToast() { return pushEventToast; },
+    get fightPeek() { return fightPeek; }, set fightPeek(v) { fightPeek = v; }, get tileSize() { return tileSize; },
+    get questCycleTicks() { return questCycleTicks; }, get latestQuests() { return latestQuests; },
+    get questSeen() { return questSeen; }, get bpTrainBatchBtns() { return bpTrainBatchBtns; },
+    get bpTrainCancelBtn() { return bpTrainCancelBtn; },
   });
-  bpWagonAutoBtn.addEventListener("click", () => {
-    bpWagonAutoBtn.blur();
-    if (!infoTile) return;
-    sendMessage({ type: "wagonCommand", tileX: infoTile.tx, tileY: infoTile.ty, cmd: "auto", value: !bpWagonAuto });
-    window.setTimeout(requestBuildingInfo, 150);
-  });
-  // Forts phase F: a vassal's block (power, Call to arms / Dismiss, Demand tribute, the tribute ledger).
-  const bpVassalRowEl = document.getElementById("bp-vassal-row")!;
-  const bpVassalPowerEl = document.getElementById("bp-vassal-power")!;
-  const bpVassalCallBtn = document.getElementById("bp-vassal-call") as HTMLButtonElement;
-  const bpVassalDismissBtn = document.getElementById("bp-vassal-dismiss") as HTMLButtonElement;
-  const bpVassalLevyEl = document.getElementById("bp-vassal-levy")!;
-  const bpVassalTaxBtn = document.getElementById("bp-vassal-tax") as HTMLButtonElement;
-  const bpVassalTaxStateEl = document.getElementById("bp-vassal-tax-state")!;
-  const bpVassalLedgerEl = document.getElementById("bp-vassal-ledger")!;
-  let bpVassalTax = false;
-  function renderVassal(v: BuildingInfo["vassal"]) {
-    bpVassalRowEl.hidden = !v;
-    if (!v) return;
-    setIconText(bpVassalPowerEl, "vassal", `Your vassal. Power: yours ${v.clanPower}, theirs ${v.sitePower} (they break free if stronger than you)`);
-    bpVassalCallBtn.disabled = !v.canCall;
-    bpVassalCallBtn.title = v.canCall ? `${v.levySize} levies join you for a day${strategyCam.inStrategy && selectedIds.size > 0 ? " and follow your selected army" : " and follow you"}` : v.callReason;
-    bpVassalDismissBtn.hidden = v.levyOnField === 0 || v.levyReturning;
-    setIconText(bpVassalLevyEl, "callToArms", `Levy: ${v.levyStatus}${v.canCall ? ` (${v.levySize} would march)` : ""}`);
-    bpVassalTax = v.tax;
-    bpVassalTaxBtn.textContent = `Demand tribute: ${v.tax ? "On" : "Off"}`;
-    bpVassalTaxBtn.disabled = !v.tax && !v.canTax;
-    bpVassalTaxBtn.title = v.canTax || v.tax ? "Take a share of their stock and purse every 2 days (costs relation)" : v.taxReason;
-    bpVassalTaxStateEl.textContent = v.canTax ? `Estimate: ${v.estimate}` : v.taxReason;
-    setIconText(bpVassalLedgerEl, "tribute", `Tribute: last ${v.lastTax} · next ${v.nextTax} · total ${v.taxGoldTotal} gold`);
-  }
-  bpVassalCallBtn.addEventListener("click", () => {
-    bpVassalCallBtn.blur();
-    if (!infoTile) return;
-    // Strategy mode: the levy joins the selected army (follows its first unit); otherwise it follows the player.
-    const follow = strategyCam.inStrategy && selectedIds.size > 0 ? [...selectedIds][0] : undefined;
-    sendMessage({ type: "callToArms", tileX: infoTile.tx, tileY: infoTile.ty, ...(follow ? { followId: follow } : {}) });
-    window.setTimeout(requestBuildingInfo, 150);
-  });
-  bpVassalDismissBtn.addEventListener("click", () => {
-    bpVassalDismissBtn.blur();
-    if (!infoTile) return;
-    sendMessage({ type: "callToArms", tileX: infoTile.tx, tileY: infoTile.ty, dismiss: true });
-    window.setTimeout(requestBuildingInfo, 150);
-  });
-  bpVassalTaxBtn.addEventListener("click", () => {
-    bpVassalTaxBtn.blur();
-    if (!infoTile) return;
-    sendMessage({ type: "setTax", tileX: infoTile.tx, tileY: infoTile.ty, on: !bpVassalTax });
-    window.setTimeout(requestBuildingInfo, 150);
-  });
-  const bpTradeRowEl = document.getElementById("bp-trade-row")!;
-  const bpTradeBtn = document.getElementById("bp-trade-open") as HTMLButtonElement;
-  const bpTradeStateEl = document.getElementById("bp-trade-state")!;
-  const tradePanelEl = document.getElementById("trade-panel")!;
-  const tpNameEl = document.getElementById("tp-name")!;
-  const tpRelationEl = document.getElementById("tp-relation")!;
-  const tpReasonEl = document.getElementById("tp-reason")!;
-  const tpFootEl = document.getElementById("tp-foot")!;
-  const tpBodyEl = document.querySelector("#tp-goods tbody")!;
-  const TRADE_GOOD_LABEL: Record<TradeGood, string> = {
-    grain: "Grain", meat: "Meat", fruit: "Fruit", wool: "Wool", wood: "Wood", rock: "Rock", iron: "Iron", clothes: "Cloth", tools: "Tools",
-  };
-  let tradeOpen = false;
-  let tradeKey = "";
-  function sendTrade(good: TradeGood, qty: number, side: "buy" | "sell") {
-    if (!infoTile) return;
-    sendMessage({ type: "tradeWithSite", tileX: infoTile.tx, tileY: infoTile.ty, good, qty, side });
-    window.setTimeout(requestBuildingInfo, 150);
-  }
-  function renderTrade(trade: BuildingInfo["trade"]) {
-    tradePanelEl.hidden = !tradeOpen || !trade;
-    if (!trade || !tradeOpen) return;
-    tpNameEl.textContent = `Trade: ${trade.siteName}`;
-    const pct = Math.round((1 - trade.discount) * 100);
-    setIconText(tpRelationEl, relIcon(trade.tier), `${RELATION_TIER_NAMES[trade.tier]} (relation ${trade.relation})${pct > 0 ? ` · ${pct}% better prices` : ""} · their purse ${trade.gold} gold`);
-    tpReasonEl.textContent = trade.reason;
-    tpReasonEl.hidden = trade.reason === "";
-    // Rebuild the rows only when something changed (the panel refreshes every second; keeps clicks landing).
-    const key = JSON.stringify(trade);
-    if (key === tradeKey) return;
-    tradeKey = key;
-    const btn = (label: string, enabled: boolean, title: string, on: () => void) => {
-      const b = document.createElement("button");
-      b.className = "econ-btn";
-      b.textContent = label;
-      b.disabled = !enabled;
-      b.title = title;
-      b.addEventListener("click", () => {
-        b.blur();
-        on();
-      });
-      return b;
-    };
-    tpBodyEl.replaceChildren(
-      ...trade.goods.map((g) => {
-        const tr = document.createElement("tr");
-        const cell = (...kids: (string | HTMLElement)[]) => {
-          const td = document.createElement("td");
-          td.append(...kids);
-          tr.append(td);
-        };
-        const canBuy = trade.canTrade && g.buyLeft > 0;
-        const canSell = trade.canTrade && g.sellLeft > 0;
-        cell(TRADE_GOOD_LABEL[g.good]);
-        cell(`${g.stock}/${g.cap}`);
-        cell(g.buy.toFixed(2));
-        cell(
-          btn("+1", canBuy, `Buy 1 (${g.buyLeft} more today)`, () => sendTrade(g.good, 1, "buy")),
-          btn("+10", canBuy, `Buy 10 (${g.buyLeft} more today)`, () => sendTrade(g.good, 10, "buy"))
-        );
-        cell(g.sell.toFixed(2));
-        cell(
-          btn("-1", canSell, `Sell 1 (${g.sellLeft} more today)`, () => sendTrade(g.good, 1, "sell")),
-          btn("-10", canSell, `Sell 10 (${g.sellLeft} more today)`, () => sendTrade(g.good, 10, "sell"))
-        );
-        return tr;
-      })
-    );
-    tpFootEl.textContent = "Prices rise as you buy and fall as you sell the same good on one day. Each trade earns a little relation (up to 6 a day).";
-  }
+  const { requestBuildingInfo, bpTrainBtn, adventureUi, renderQuests, chronicleUi, workUi, renderBuildingInfo, closeBuildingInfo, INFO_TILES, openBuildingInfo } = buildingPanelApi;
   // Forts phase D2: settlement quests (snapshot `quests`, the clan's open ones): the top-bar Quests button,
   // the parchment Quests panel (accept / abandon / deliver) and minimap markers (drawMinimap).
   let latestQuests: QuestSnapshot[] = [];
   let questCycleTicks = TICK_RATE * 375;
-  let questKey = "";
   let questSeen = new Set<number>();
-  const questPanelEl = document.getElementById("quest-panel")!;
-  const questListEl = document.getElementById("qp-list")!;
-  const questEmptyEl = document.getElementById("qp-empty")!;
-  const questsBtn = document.getElementById("quests-btn") as HTMLButtonElement;
-  const adventureUi=setupAdventureJournal({send:sendMessage,focus:(x,y)=>{
-    if(interiorRef.ui?.active())return pushEventToast('build','Leave the interior to view the world map.');
-    fightPeek={x:(x+.5)*tileSize,y:(y+.5)*tileSize,until:performance.now()+6000};
-  }});
-  const adventureBeacon=new Graphics();adventureBeacon.zIndex=1e8;worldLayer.addChild(adventureBeacon);
-  app.ticker.add(()=>{const m=adventureMapMarker();adventureBeacon.clear();if(!m||interiorRef.ui?.active())return;const x=(m.x+.5)*tileSize,y=(m.y+.5)*tileSize,r=8+Math.sin(performance.now()/230)*2;adventureBeacon.poly([x,y-r-16,x+r,y-16,x,y+r-16,x-r,y-16]).stroke({width:2,color:0xffe5a3});adventureBeacon.moveTo(x,y-7).lineTo(x,y+4).stroke({width:2,color:0xffe5a3});});
-  function questTimeLeft(ticks: number): string {
-    if (ticks >= questCycleTicks / 2) return `${(ticks / questCycleTicks).toFixed(1)} days left`;
-    const secs = Math.ceil(ticks / TICK_RATE);
-    return `${Math.floor(secs / 60)}:${String(secs % 60).padStart(2, "0")} left`;
-  }
-  function questMeta(q: QuestSnapshot): string {
-    const progress = q.need !== undefined ? ` · slain ${q.progress ?? 0} / ${q.need}` : "";
-    return `Reward ${q.reward} gold, relation +${q.relation} · ${q.accepted ? `fail -${q.penalty}` : `ignore -${q.penalty}`}${progress}`;
-  }
-  function renderQuests() {
-    const open = !questPanelEl.hidden;
-    if (open) for (const q of latestQuests) questSeen.add(q.id);
-    const unseen = latestQuests.some((q) => !q.accepted && !questSeen.has(q.id));
-    questsBtn.textContent = latestQuests.length > 0 ? `Quests (${latestQuests.length})` : "Quests";
-    questsBtn.classList.toggle("has-new", unseen);
-    if (!open) return;
-    questEmptyEl.hidden = latestQuests.length > 0;
-    const key = JSON.stringify(latestQuests.map((q) => ({ ...q, ticksLeft: 0 })));
-    if (key !== questKey) {
-      questKey = key;
-      questListEl.replaceChildren(
-        ...latestQuests.map((q) => {
-          const el = document.createElement("div");
-          el.className = `qp-quest${q.accepted ? " accepted" : ""}`;
-          el.dataset.questId = String(q.id);
-          const name = document.createElement("div");
-          name.className = "qp-name has-icon";
-          // Batch 2 (SPRITES.md #81): new / accepted quest seal; without the file the CSS "!" / tick shows.
-          const seal = document.createElement("img");
-          seal.className = "ui-ico";
-          seal.alt = "";
-          seal.src = q.accepted ? "/sprites/ui-questActive.png" : "/sprites/ui-questNew.png";
-          seal.onerror = () => {
-            seal.remove();
-            name.classList.remove("has-icon");
-          };
-          name.append(seal, q.title);
-          const text = document.createElement("div");
-          text.className = "qp-text";
-          text.textContent = q.text;
-          const meta = document.createElement("div");
-          meta.className = "qp-meta";
-          setIconText(meta, "reward", questMeta(q));
-          const time = document.createElement("div");
-          time.className = "qp-meta qp-time";
-          const btns = document.createElement("div");
-          btns.className = "qp-btns";
-          const btn = (label: string, title: string, type: "acceptQuest" | "abandonQuest" | "deliverQuest") => {
-            const b = document.createElement("button");
-            b.className = "econ-btn";
-            b.textContent = label;
-            b.title = title;
-            b.addEventListener("click", () => {
-              b.blur();
-              sendMessage({ type, questId: q.id });
-            });
-            return b;
-          };
-          if (!q.accepted) btns.append(btn("Accept", "Take on this quest", "acceptQuest"));
-          else {
-            if (q.kind === "deliver") btns.append(btn("Deliver", `Hand over ${q.qty} from your stock (stand near ${q.siteName}'s walls)`, "deliverQuest"));
-            btns.append(btn("Abandon", `Give up (relation -${q.penalty})`, "abandonQuest"));
-          }
-          el.append(name, text, meta, time, btns);
-          return el;
-        })
-      );
-    }
-    for (const el of Array.from(questListEl.querySelectorAll<HTMLElement>(".qp-quest"))) {
-      const q = latestQuests.find((o) => String(o.id) === el.dataset.questId);
-      const t = el.querySelector(".qp-time");
-      if (q && t) t.textContent = `${q.siteName} · ${questTimeLeft(q.ticksLeft)}`;
-    }
-  }
-  function setQuestPanelOpen(open: boolean) {
-    questPanelEl.hidden = !open;
-    questKey = "";
-    renderQuests();
-  }
-  questsBtn.addEventListener("click", () => {
-    questsBtn.blur();
-    setQuestPanelOpen(questPanelEl.hidden);
-  });
-
-  // ---- Modular building phase 4: the Work tab (job priorities) and the person card (client/src/work.ts) ----
-  const workUi = setupWork({ send: (m) => sendMessage(m), button: document.getElementById("work-btn") as HTMLButtonElement });
-
-  const chronicleUi = setupChronicle({ send: (m) => sendMessage(m), pushEventToast: (c, t) => pushEventToast(c, t) });
-  document.getElementById("qp-close")!.addEventListener("click", () => setQuestPanelOpen(false));
-  window.addEventListener("keydown", (e) => {
-    if (e.key === "Escape" && !questPanelEl.hidden) setQuestPanelOpen(false);
-  });
-
-  bpTradeBtn.addEventListener("click", () => {
-    bpTradeBtn.blur();
-    tradeOpen = !tradeOpen;
-    requestBuildingInfo();
-  });
-  document.getElementById("tp-close")!.addEventListener("click", () => {
-    tradeOpen = false;
-    tradePanelEl.hidden = true;
-  });
-  // Tile the panel shows; re-requested every second while open so numbers stay live.
-  let infoTile: { tx: number; ty: number } | null = null;
-  const BUILDING_INFO_REFRESH_MS = 1000;
-
-  function requestBuildingInfo() {
-    if (infoTile) sendMessage({ type: "buildingInfo", tileX: infoTile.tx, tileY: infoTile.ty });
-  }
-  function openBuildingInfo(tx: number, ty: number) {
-    if (infoTile?.tx !== tx || infoTile?.ty !== ty) bpWorkCandsOpen = false;
-    infoTile = { tx, ty };
-    tradeOpen = false;
-    requestBuildingInfo();
-  }
-  function closeBuildingInfo() {
-    infoTile = null;
-    buildingPanelEl.hidden = true;
-    tradeOpen = false;
-    tradePanelEl.hidden = true;
-  }
-  // Gap closure G3: the building's workers (Unassign) and an "Assign worker" list of free villagers.
-  const bpWorkRowEl = document.getElementById("bp-work-row")!;
-  const bpWorkListEl = document.getElementById("bp-work-list")!;
-  const bpWorkAssignBtn = document.getElementById("bp-work-assign") as HTMLButtonElement;
-  const bpWorkCandsEl = document.getElementById("bp-work-cands")!;
-  let bpWorkCandsOpen = false;
-  let bpWorkSig = "";
-  const skillText = (n: number) => (n > 0 ? `skill ${n}` : "no skill needed");
-  function workAction(msg: ClientMessage) {
-    sendMessage(msg);
-    window.setTimeout(requestBuildingInfo, 150);
-  }
-  bpWorkAssignBtn.addEventListener("click", () => {
-    bpWorkAssignBtn.blur();
-    bpWorkCandsOpen = !bpWorkCandsOpen;
-    bpWorkSig = "";
-    requestBuildingInfo();
-  });
-  function renderWorkPosts(posts: BuildingInfo["posts"]) {
-    bpWorkRowEl.hidden = !posts;
-    if (!posts || !infoTile) {
-      bpWorkCandsOpen = false;
-      bpWorkSig = "";
-      return;
-    }
-    // Refreshed once a second: only rebuild on a change (keeps the hovered button).
-    const sig = JSON.stringify([posts, bpWorkCandsOpen, infoTile]);
-    if (sig === bpWorkSig) return;
-    bpWorkSig = sig;
-    const { tx, ty } = infoTile;
-    const line = (text: string, title: string, btn?: [string, () => void]) => {
-      const div = document.createElement("div");
-      div.className = "bpw-line";
-      const span = document.createElement("span");
-      span.textContent = text;
-      span.title = title;
-      div.append(span);
-      if (btn) {
-        const b = document.createElement("button");
-        b.className = "econ-btn";
-        b.textContent = btn[0];
-        b.addEventListener("click", btn[1]);
-        div.append(b);
-      }
-      return div;
-    };
-    bpWorkListEl.replaceChildren(
-      ...posts.workers.map((w) =>
-        line(
-          `${w.pinned ? "⚑ " : ""}${w.name}: ${posts.role}, ${skillText(w.skill)}${w.pinned ? " (assigned)" : ""}`,
-          w.pinned ? "Assigned by hand: stays until unassigned or its work type is set off" : "Placed by work priorities (gives way to a hand-assigned worker)",
-          ["Unassign", () => workAction({ type: "unassignWorker", id: w.id })]
-        )
-      ),
-      ...(posts.open > 0 ? [line(`${posts.open} open post${posts.open === 1 ? "" : "s"} (${posts.role})`, "Filled by work priorities, or assign someone by hand")] : [])
-    );
-    bpWorkAssignBtn.disabled = !posts.canAssign || posts.candidates.length === 0;
-    bpWorkAssignBtn.title = !posts.canAssign
-      ? "Every worker here is assigned by hand: unassign one first"
-      : posts.candidates.length === 0
-        ? `No free adult villager with ${WORK_LABEL[posts.work]} on`
-        : "Pick a free villager: pinned to this post until unassigned (beats work priorities)";
-    bpWorkAssignBtn.textContent = bpWorkCandsOpen ? "Assign worker ▴" : "Assign worker ▾";
-    bpWorkCandsEl.hidden = !bpWorkCandsOpen || bpWorkAssignBtn.disabled;
-    bpWorkCandsEl.replaceChildren(
-      ...posts.candidates.map((c) =>
-        line(`${c.name}: ${WORK_LABEL[posts.work]} ${skillText(c.skill)} · ${c.job}`, "Free villager", [
-          "Assign",
-          () => {
-            bpWorkCandsOpen = false;
-            workAction({ type: "assignWorker", id: c.id, tileX: tx, tileY: ty });
-          },
-        ])
-      )
-    );
-  }
-  function renderBuildingInfo(info: BuildingInfo) {
-    bpNameEl.textContent = info.name;
-    renderWorkPosts(info.posts);
-    bpLevelEl.textContent = info.maxLevel > 1 ? `Lv ${info.level}/${info.maxLevel}` : "";
-    bpStaffingEl.textContent = info.staffing;
-    bpHpEl.hidden = info.hp === null;
-    if (info.hp !== null) bpHpEl.textContent = `HP ${info.hp}/${info.maxHp}`;
-    bpConstructionEl.hidden = info.construction === null;
-    if (info.construction !== null) {
-      const label = info.tile === TileType.ConstructionSite ? "Under construction" : "Upgrading";
-      bpConstructionEl.textContent = `${label}: ${Math.round(info.construction * 100)}%`;
-    }
-    const lines = [...info.bonuses, ...(info.mine?.lines ?? []), ...(info.progression ?? [])];
-    const items = lines.length > 0 ? lines : ["None yet"];
-    bpBonusesEl.replaceChildren(
-      ...items.map((text) => {
-        const li = document.createElement("li");
-        li.textContent = text;
-        return li;
-      })
-    );
-    bpUpgradeRowEl.hidden = info.upgrade === null;
-    if (info.upgrade) {
-      bpUpgradeBtn.disabled = !info.upgrade.enabled;
-      bpUpgradeCostEl.textContent = info.upgrade.reason ? `${info.upgrade.cost} (${info.upgrade.reason})` : info.upgrade.cost;
-    }
-    const pv = info.upgrade ? info.mine?.preview : undefined;
-    mineDigPreview = pv ? { level: pv.level, chance: pv.chance, risk: pv.risk } : null;
-    bpMineRiskEl.hidden = !pv;
-    if (pv) {
-      bpMineRiskEl.dataset.risk = pv.risk;
-      const head = document.createElement("div");
-      head.className = "risk-head";
-      head.textContent = `Digging to level ${pv.level}: nest risk ${MINE_RISK_LABEL[pv.risk]} (${Math.round(pv.chance * 100)}%), ${pv.danger.toLowerCase()} nest`;
-      const ul = document.createElement("ul");
-      ul.replaceChildren(...pv.lines.map((t) => Object.assign(document.createElement("li"), { textContent: t })));
-      bpMineRiskEl.replaceChildren(head, ul);
-    }
-    const armed = !!mineDigPreview && mineDigPreview.chance > 0 && performance.now() < mineDigArmedUntil;
-    bpUpgradeBtn.textContent = armed ? `Confirm: dig to level ${mineDigPreview!.level}` : "Upgrade";
-    bpUpgradeBtn.title = mineDigPreview && mineDigPreview.chance > 0 ? "Digging deeper may break into a nest: read the risk below, then click again to confirm" : "";
-    bpRepairRowEl.hidden = info.repair === null;
-    if (info.repair) {
-      bpRepairBtn.disabled = !info.repair.enabled;
-      bpRepairCostEl.textContent = info.repair.reason ? `${info.repair.cost} (${info.repair.reason})` : info.repair.cost;
-    }
-    bpKeepRowEl.hidden = !info.keep;
-    if (info.keep) {
-      bpKeepBtn.disabled = !info.keep.enabled;
-      bpKeepStateEl.textContent = info.keep.reason ? `${info.keep.cost} (${info.keep.reason})` : info.keep.cost;
-    }
-    renderTradingPost(info.tradingPost);
-    renderVassal(info.vassal);
-    bpTradeRowEl.hidden = !info.trade;
-    if (info.trade) {
-      bpTradeBtn.textContent = tradeOpen ? "Close trade" : "Trade";
-      setIconText(bpTradeStateEl, info.trade.canTrade ? relIcon(info.trade.tier) : "relation", info.trade.canTrade ? `${RELATION_TIER_NAMES[info.trade.tier]} prices` : info.trade.reason);
-    } else tradeOpen = false;
-    renderTrade(info.trade);
-    renderRoom(info.room);
-    bpBlueprintRowEl.style.display = info.blueprint ? "flex" : "none";
-    if (info.blueprint) {
-      bpPriorityBtn.textContent = info.blueprint.priority ? "Priority: on" : "Priority: off";
-      bpPriorityBtn.title = "Builders take priority blueprints first";
-      bpCancelBtn.textContent = `Cancel (refund ${info.blueprint.refund})`;
-    }
-    bpGateRowEl.hidden = !info.gate;
-    if (info.gate) {
-      shownGateLock = info.gate.lock;
-      bpGateBtn.textContent = `Lock: ${GATE_LOCK_LABEL[info.gate.lock]}`;
-      bpGateStateEl.textContent = info.gate.overrun ? "Overrun!" : info.gate.open ? "Open" : "Closed";
-    }
-    bpMineRowEl.hidden = !info.mine || info.mine.status !== "infested";
-    if (info.mine) {
-      const a = info.mine.assault;
-      bpMineBtn.disabled = a.reason !== "";
-      bpMineBtn.textContent = `Send soldiers in (${a.soldiers})`;
-      bpMineBtn.title = a.reason || "The soldiers near the mine go in and fight the monsters (some may fall)";
-      bpMineStateEl.textContent = a.reason || `${info.mine.monsters} monster${info.mine.monsters === 1 ? "" : "s"} inside`;
-    }
-    bpLevyRowEl.hidden = !info.levy;
-    if (info.levy) {
-      const l = info.levy;
-      shownLevyOnField = l.onField;
-      bpLevyBtn.disabled = l.onField === 0 && l.reason !== "";
-      bpLevyBtn.textContent = l.onField > 0 ? `Stand down (${l.onField})` : `Call to arms (${l.ready} villagers)`;
-      bpLevyBtn.title = l.onField > 0 ? "Send the levy back to work now" : l.reason || "Civilians fight as militia for half a day, then go back to work";
-      bpLevyStateEl.textContent = l.onField > 0 ? `${l.onField} levies on the field, ${Math.ceil(l.ticksLeft / 20)} s left` : l.reason || `${l.ready} adult civilians would take up spears`;
-    }
-    bpTrainRowEl.hidden = !info.train;
-    if (info.train) {
-      const t = info.train;
-      const name = t.kind.replace(/[A-Z]/g, (ch) => " " + ch.toLowerCase());
-      bpTrainBtn.disabled = t.reason !== "";
-      // Basic militia need no gear: unarmed (weaker, no armour) unless a T1 weapon + armour are in stock.
-      const gear = t.gearOptional ? (t.geared ? "takes T1 weapon + armour" : "unarmed: no gear in stock") : `T${t.level} weapon + armour`;
-      bpTrainBtn.textContent = `Train ${name} (${gear}, ${t.days} day${t.days === 1 ? "" : "s"})`;
-      bpTrainBtn.title =
-        t.reason ||
-        (t.gearOptional
-          ? "Takes one free adult civilian. Basic militia train without gear; with a T1 weapon + armour in stock they take them (unarmed militia hit softer and have no armour)"
-          : `Takes one free adult civilian and a T${t.level} weapon + armour`);
-      // Batch training: x5 / x10 / Max queue several at once (each a free adult + gear up front); Cancel sends the
-      // last-queued trainee home with a refund.
-      const max = t.max ?? (t.reason ? 0 : 1);
-      for (const [n, b] of bpTrainBatchBtns) {
-        b.disabled = t.reason !== "" || (n === "max" ? max < 1 : max < n);
-        b.textContent = n === "max" ? `Max (${max})` : `x${n}`;
-        b.title = t.reason || (n === "max" ? `Train ${max} now (as many as room, free adults and gear allow)` : `Train ${n} at once`);
-      }
-      bpTrainCancelBtn.disabled = t.training === 0;
-      const queue = t.queue ?? [];
-      const busy = queue.filter((q) => !q.waiting).map((q) => `${q.name} ${Math.round(q.progress * 100)}%`);
-      const waiting = t.waiting ?? 0;
-      bpTrainStateEl.textContent =
-        `Troops ${t.troops}/${t.cap}` +
-        (t.training ? ` · ${t.training - waiting} training${t.slots ? ` (${t.slots} at a time)` : ""}${waiting ? `, ${waiting} waiting` : ""}` : "") +
-        (busy.length ? ` · ${busy.slice(0, 6).join(", ")}${busy.length > 6 ? ", ..." : ""}` : "") +
-        (t.reason ? ` · ${t.reason}` : "");
-    }
-    bpSiegeRowEl.hidden = !info.siege;
-    if (info.siege) {
-      for (const opt of info.siege.options) {
-        const btn = bpSiegeBtns.get(opt.kind);
-        if (!btn) continue;
-        btn.disabled = !opt.enabled;
-        btn.textContent = `Build ${opt.label} (${opt.cost})`;
-        btn.title = opt.reason;
-      }
-      const reason = info.siege.options.find((o) => !o.enabled)?.reason ?? "";
-      bpSiegeStateEl.textContent = info.siege.building
-        ? `Building: ${info.siege.building === "batteringRam" ? "Battering Ram" : "Catapult"} ${Math.round((info.siege.progress ?? 0) * 100)}%`
-        : `Engines ${info.siege.units}/${info.siege.cap}${reason ? ` · ${reason}` : ""}`;
-    }
-    bpForgeRowEl.hidden = !info.forge;
-    if (info.forge) {
-      for (const opt of info.forge.options) {
-        const btn = bpForgeBtns.get(opt.slot);
-        if (!btn) continue;
-        btn.disabled = !opt.enabled;
-        btn.textContent = `${opt.label} (${opt.cost})`;
-        btn.title = opt.reason;
-      }
-      const f = info.forge;
-      const reason = f.options.find((o) => !o.enabled)?.reason ?? "";
-      const head = f.queue[0];
-      // A long queue (cap 20) reads as counts per slot / tier: "then Armour T2 x5, Weapon T2 x3".
-      const rest = new Map<string, number>();
-      for (const q of f.queue.slice(1)) {
-        const k = `${q.slot === "armour" ? "Armour" : "Weapon"} T${q.tier}`;
-        rest.set(k, (rest.get(k) ?? 0) + 1);
-      }
-      const then = rest.size > 0 ? ` · then ${Array.from(rest, ([k, n]) => `${k} x${n}`).join(", ")}` : "";
-      bpForgeStateEl.textContent = head
-        ? `Forging: ${head.slot === "armour" ? "Armour" : "Weapon"} T${head.tier} ${Math.round((f.progress ?? 0) * 100)}% · queue ${f.queue.length}/${f.cap}${then}${reason ? ` · ${reason}` : ""}`
-        : `Forges tier ${f.tier} · queue 0/${f.cap}${reason ? ` · ${reason}` : ""}`;
-      const auto = f.auto;
-      bpForgeAutoBtn.hidden = bpForgeAutoLessBtn.hidden = bpForgeAutoMoreBtn.hidden = bpForgeAutoStateEl.hidden = !auto;
-      if (auto) {
-        shownForgeAuto = { on: auto.on, target: auto.target };
-        bpForgeAutoBtn.textContent = `Autocraft: ${auto.on ? "On" : "Off"}`;
-        bpForgeAutoBtn.classList.toggle("active", auto.on);
-        bpForgeAutoStateEl.textContent = `Autocraft target ${auto.target} armour + ${auto.target} weapons T${f.tier} (keeps ${auto.reserve} iron / wood)${auto.on ? ` · ${auto.status}` : ""}`;
-      }
-    }
-    bpHeroesRowEl.hidden = !info.heroes;
-    if (info.heroes) {
-      const h = info.heroes;
-      for (const opt of h.options) {
-        const btn = bpHeroBtns.get(opt.heroClass);
-        if (!btn) continue;
-        btn.disabled = !opt.enabled;
-        btn.textContent = `Recruit ${opt.label} (${opt.cost})`;
-        btn.title = opt.reason;
-      }
-      const reason = h.options.find((o) => !o.enabled)?.reason ?? "";
-      const roster = h.roster.map((r) => `${r.name} (${HERO_CLASS_LABEL[r.heroClass]} Lv ${r.level}) - ${r.status}`).join("\n");
-      bpHeroesStateEl.textContent = `Heroes ${h.count}/${h.cap}${reason ? ` · ${reason}` : ""}${roster ? `\n${roster}` : ""}`;
-    }
-    // Hero phase 4: a Church teaches the two basic spells to the player for colony gold.
-    bpSpellsRowEl.hidden = !info.spellShop;
-    if (info.spellShop) {
-      const key = JSON.stringify(info.spellShop);
-      if (key !== bpSpellsKey) {
-        bpSpellsKey = key;
-        bpSpellsRowEl.replaceChildren(
-          ...info.spellShop.map((opt) => {
-            const btn = document.createElement("button");
-            btn.className = "econ-btn";
-            btn.disabled = !opt.enabled;
-            btn.textContent = `Learn ${opt.label} (${opt.gold} gold)`;
-            btn.title = opt.reason || SPELLS[opt.spellId].text.replace("{power}", String(SPELLS[opt.spellId].power));
-            btn.addEventListener("click", () => {
-              btn.blur();
-              if (!infoTile) return;
-              sendMessage({ type: "learnSpell", spellId: opt.spellId, tileX: infoTile.tx, tileY: infoTile.ty });
-              window.setTimeout(requestBuildingInfo, 150);
-            });
-            return btn;
-          })
-        );
-      }
-    }
-    animalPanel.render(info.animals);
-    let stableLinks=document.getElementById('army-stables');
-    if(!stableLinks){stableLinks=document.createElement('section');stableLinks.id='army-stables';buildingPanelEl.append(stableLinks);}
-    stableLinks.replaceChildren();stableLinks.hidden=info.armyStables===undefined||info.tile===TileType.Stables;
-    if(info.armyStables){
-      const heading=document.createElement('h4');heading.textContent='Horses & stables';stableLinks.append(heading);
-      if(!info.armyStables.length)stableLinks.append('Build Stables to buy and keep riding horses.');
-      for(const stable of info.armyStables){const button=document.createElement('button');button.className='cmd-btn';button.textContent=`Buy horses at Stables (${stable.x}, ${stable.y})`;button.onclick=()=>openBuildingInfo(stable.x,stable.y);stableLinks.append(button);}
-    }
-    buildingPanelEl.hidden = false;
-  }
-  const animalPanel = createAnimalPanel({ anchor: bpSpellsRowEl, send: (m) => sendMessage(m as never), tile: () => infoTile, refresh: () => requestBuildingInfo() });
-  for (const [cls, btn] of bpHeroBtns) {
-    btn.addEventListener("click", () => {
-      btn.blur();
-      if (!infoTile) return;
-      sendMessage({ type: "recruitHero", tx: infoTile.tx, ty: infoTile.ty, class: cls });
-      window.setTimeout(requestBuildingInfo, 150);
-    });
-  }
-  bpMineBtn.addEventListener("click", () => {
-    bpMineBtn.blur();
-    if (!infoTile) return;
-    sendMessage({ type: "mineAssault", tileX: infoTile.tx, tileY: infoTile.ty });
-    window.setTimeout(requestBuildingInfo, 150);
-  });
-  bpLevyBtn.addEventListener("click", () => {
-    bpLevyBtn.blur();
-    if (!infoTile) return;
-    sendMessage({ type: "callVillagers", tileX: infoTile.tx, tileY: infoTile.ty, ...(shownLevyOnField > 0 ? { dismiss: true } : {}) });
-    window.setTimeout(requestBuildingInfo, 150);
-  });
-  bpTrainBtn.addEventListener("click", () => {
-    bpTrainBtn.blur();
-    if (!infoTile) return;
-    sendMessage({ type: "trainUnit", tileX: infoTile.tx, tileY: infoTile.ty });
-    window.setTimeout(requestBuildingInfo, 150);
-  });
-  for (const [slot, btn] of bpForgeBtns) {
-    btn.addEventListener("click", () => {
-      btn.blur();
-      if (!infoTile) return;
-      sendMessage({ type: "queueForge", tileX: infoTile.tx, tileY: infoTile.ty, slot });
-      window.setTimeout(requestBuildingInfo, 150);
-    });
-  }
-  const sendForgeAuto = (on: boolean, target: number) => {
-    if (!infoTile) return;
-    sendMessage({ type: "setForgeAuto", tileX: infoTile.tx, tileY: infoTile.ty, on, target: Math.max(1, Math.min(20, target)) });
-    window.setTimeout(requestBuildingInfo, 150);
-  };
-  bpForgeAutoBtn.addEventListener("click", () => {
-    bpForgeAutoBtn.blur();
-    sendForgeAuto(!shownForgeAuto.on, shownForgeAuto.target);
-  });
-  bpForgeAutoLessBtn.addEventListener("click", () => {
-    bpForgeAutoLessBtn.blur();
-    sendForgeAuto(true, shownForgeAuto.target - 1);
-  });
-  bpForgeAutoMoreBtn.addEventListener("click", () => {
-    bpForgeAutoMoreBtn.blur();
-    sendForgeAuto(true, shownForgeAuto.target + 1);
-  });
-  bpKeepBtn.addEventListener("click", () => {
-    bpKeepBtn.blur();
-    if (!infoTile) return;
-    sendMessage({ type: "rebuildKeep", tileX: infoTile.tx, tileY: infoTile.ty });
-    window.setTimeout(requestBuildingInfo, 150);
-  });
-  bpGateBtn.addEventListener("click", () => {
-    bpGateBtn.blur();
-    if (!infoTile) return;
-    sendMessage({ type: "setGateLock", tileX: infoTile.tx, tileY: infoTile.ty, lock: GATE_LOCK_NEXT[shownGateLock] });
-    window.setTimeout(requestBuildingInfo, 150);
-  });
-  for (const [kind, btn] of bpSiegeBtns) {
-    btn.addEventListener("click", () => {
-      btn.blur();
-      if (!infoTile) return;
-      sendMessage({ type: "queueSiege", tileX: infoTile.tx, tileY: infoTile.ty, kind });
-      window.setTimeout(requestBuildingInfo, 150);
-    });
-  }
-  bpUpgradeBtn.addEventListener("click", () => {
-    bpUpgradeBtn.blur();
-    if (!infoTile) return;
-    // A mine whose next depth may hold a nest: the first click arms (shows the risk), the second within 6 s digs.
-    if (mineDigPreview && mineDigPreview.chance > 0 && performance.now() >= mineDigArmedUntil) {
-      mineDigArmedUntil = performance.now() + 6000;
-      bpUpgradeBtn.textContent = `Confirm: dig to level ${mineDigPreview.level}`;
-      bpMineRiskEl.scrollIntoView({ block: "nearest" });
-      window.setTimeout(() => {
-        if (performance.now() >= mineDigArmedUntil) bpUpgradeBtn.textContent = "Upgrade";
-      }, 6100);
-      return;
-    }
-    mineDigArmedUntil = 0;
-    sendMessage({ type: "upgradeBuilding", tileX: infoTile.tx, tileY: infoTile.ty });
-    window.setTimeout(requestBuildingInfo, 150);
-  });
-  bpRepairBtn.addEventListener("click", () => {
-    bpRepairBtn.blur();
-    if (!infoTile) return;
-    sendMessage({ type: "repairBuilding", tileX: infoTile.tx, tileY: infoTile.ty });
-    window.setTimeout(requestBuildingInfo, 150);
-  });
-  document.getElementById("bp-close")!.addEventListener("click", (e) => {
-    (e.currentTarget as HTMLButtonElement).blur();
-    closeBuildingInfo();
-  });
-  window.setInterval(() => {
-    if (infoTile && !buildingPanelEl.hidden) requestBuildingInfo();
-  }, BUILDING_INFO_REFRESH_MS);
-
-  // ---- Builders counter and game over ----
-  const statBuildersEl = document.getElementById("stat-builders")!;
-  const statRespawnEl = document.getElementById("stat-respawn")!;
-  function refreshBuilderCount(colonists: ColonistSnapshot[], isNight: boolean) {
-    let total = 0;
-    let working = 0;
-    for (const c of colonists) {
-      if (c.kind !== "builder") continue;
-      total++;
-      if (!isNight && (c.state === "building" || c.state === "carrying" || c.state === "repairing" || c.state === "toRepair")) working++;
-    }
-    statBuildersEl.textContent = `Builders  ${working}/${total} working`;
-  }
-  const gameOverEl = document.getElementById("game-over")!;
-  // Village life phase 5: a dead rider with `heirs` picks one (heir picker); dead without heirs is game over.
-  const heirPickerEl = document.getElementById("heir-picker")!;
-  const heirListEl = document.getElementById("heir-list")!;
-  let heirListKey = "";
-  function refreshGameOver(me: PlayerSnapshot | undefined) {
-    const heirs = me?.dead ? me.heirs ?? [] : [];
-    gameOverEl.hidden = !(me?.dead && heirs.length === 0);
-    heirPickerEl.hidden = heirs.length === 0;
-    const key = JSON.stringify(heirs);
-    if (key === heirListKey) return;
-    heirListKey = key;
-    heirListEl.replaceChildren(
-      ...heirs.map((h) => {
-        const b = document.createElement("button");
-        b.className = "menu-btn secondary heir-btn";
-        const role = h.kind.replace(/[A-Z]/g, (ch) => " " + ch.toLowerCase());
-        b.textContent = h.id === "church" ? h.name : `${h.name}: ${role}${h.heroLevel ? `, level ${h.heroLevel}` : ""}${h.ageDays !== undefined ? `, ${h.ageDays} days old` : ""}`;
-        b.addEventListener("click", () => {
-          b.blur();
-          sendMessage({ type: "chooseHeir", id: h.id });
-        });
-        return b;
-      })
-    );
-  }
-  document.getElementById("game-over-restart")!.addEventListener("click", (e) => {
-    (e.currentTarget as HTMLButtonElement).blur();
-    sendMessage({ type: "restart", difficulty: menuPrefs.preferredDifficulty, worldSize: menuPrefs.preferredWorldSize, creative: creativeUi.on, solo: menuPrefs.preferredSolo && !creativeUi.on });
+  const { refreshGameOver, refreshBuilderCount, statRespawnEl } = createGameOver({
+    sendMessage, creativeUi,
   });
 
   // ---- Networking ----
@@ -6000,8 +4031,8 @@ async function main() {
     b.className = "econ-btn";
     b.addEventListener("click", () => {
       b.blur();
-      if (!infoTile) return;
-      sendMessage({ type: "trainUnit", tileX: infoTile.tx, tileY: infoTile.ty, count: n });
+      if (!buildingPanelApi.infoTile) return;
+      sendMessage({ type: "trainUnit", tileX: buildingPanelApi.infoTile.tx, tileY: buildingPanelApi.infoTile.ty, count: n });
       window.setTimeout(requestBuildingInfo, 150);
     });
     return [n, b];
@@ -6012,8 +4043,8 @@ async function main() {
   bpTrainCancelBtn.title = "Send the last-queued trainee home (waiting ones first): the adult and the gear come back";
   bpTrainCancelBtn.addEventListener("click", () => {
     bpTrainCancelBtn.blur();
-    if (!infoTile) return;
-    sendMessage({ type: "trainUnit", tileX: infoTile.tx, tileY: infoTile.ty, cancel: true });
+    if (!buildingPanelApi.infoTile) return;
+    sendMessage({ type: "trainUnit", tileX: buildingPanelApi.infoTile.tx, tileY: buildingPanelApi.infoTile.ty, cancel: true });
     window.setTimeout(requestBuildingInfo, 150);
   });
   bpTrainBtn.after(...bpTrainBatchBtns.map(([, b]) => b), bpTrainCancelBtn);
@@ -6035,976 +4066,38 @@ async function main() {
     onBackToMenu: () => location.reload(),
   });
   let loadingSnapshotSeen = false;
-
-  const pauseBtn = document.getElementById("pause-btn") as HTMLButtonElement;
-  const restartBtn = document.getElementById("restart-btn") as HTMLButtonElement;
-
-  pauseBtn.addEventListener("click", () => {
-    if (socket.readyState === socket.OPEN) {
-      socket.send(JSON.stringify({ type: "pause" }));
-    }
-    pauseBtn.blur();
+  const timeControlsApi = createTimeControls({
+    socket, pausedBanner, creativeUi, get myId() { return myId; },
   });
-
-  // ---- Strategy mode phase 5: global time controls. Pause and speed are the server's, for everyone (no
-  // handshake: whoever changes them last wins); the status line says who it was. Shift+Space pauses /
-  // resumes, Shift+[ / Shift+] step the speed down / up (plain [ ] stay build hotkeys).
-  const timeControlsEl = document.getElementById("time-controls")!;
-  const timeStatusEl = document.getElementById("time-status")!;
-  let currentTimeScale = 1;
-  let currentPaused = false;
+  const { pauseBtn, syncTimeControls } = timeControlsApi;
   const townPets=createTownPets(tileSpriteLayer,(x,y)=>groundDepth(x,y,worldTilesX,tileSize));
   app.ticker.add(ticker=>{
     const me=latestPlayersForSpells.find(p=>p.id===myId);
-    townPets.update(fortMarkers,worldTilesX,tileSize,ticker.deltaMS/1000,currentPaused,!interiorRef.ui?.active()&&!strategyCam.inStrategy,me?.x??0,me?.y??0);
+    townPets.update(fortMarkers,worldTilesX,tileSize,ticker.deltaMS/1000,timeControlsApi.currentPaused,!interiorRef.ui?.active()&&!strategyCam.inStrategy,me?.x??0,me?.y??0);
   });
-  function sendTimeScale(scale: number) {
-    if (socket.readyState === socket.OPEN) socket.send(JSON.stringify({ type: "setTimeScale", scale }));
-  }
-  for (const b of Array.from(timeControlsEl.querySelectorAll<HTMLButtonElement>("button[data-scale]"))) {
-    b.addEventListener("click", () => {
-      b.blur();
-      sendTimeScale(Number(b.dataset.scale));
-    });
-  }
-  window.addEventListener("keydown", (e) => {
-    if (!e.shiftKey || e.ctrlKey || e.altKey || e.metaKey) return;
-    if (e.code === "Space") {
-      e.preventDefault();
-      if (!e.repeat && socket.readyState === socket.OPEN) socket.send(JSON.stringify({ type: "pause", paused: !currentPaused }));
-      return;
-    }
-    const step = e.code === "BracketLeft" ? -1 : e.code === "BracketRight" ? 1 : 0;
-    if (!step) return;
-    e.preventDefault();
-    if (e.repeat) return;
-    const scales = TIME_SCALES as readonly number[];
-    const i = Math.max(0, scales.indexOf(currentTimeScale));
-    const next = scales[Math.max(0, Math.min(scales.length - 1, i + step))];
-    if (next !== currentTimeScale) sendTimeScale(next);
+  const hudPanelsApi = createHudPanels({
+    setGoodCount, toolButtonEls,
+    get lastGoalIndex() { return lastGoalIndex; }, set lastGoalIndex(v) { lastGoalIndex = v; },
+    get myId() { return myId; }, get tileSize() { return tileSize; },
   });
-
-  function whoLabel(id: string | undefined, players: PlayerSnapshot[]): string {
-    if (!id) return "";
-    if (id === myId) return "you";
-    const i = players.findIndex((p) => p.id === id);
-    return i >= 0 ? `Player ${i + 1}` : "a player who left";
-  }
-
-  function syncTimeControls(paused: boolean, pausedBy: string | undefined, scale: number, scaleBy: string | undefined, players: PlayerSnapshot[]) {
-    currentPaused = paused;
-    currentTimeScale = scale;
-    for (const b of Array.from(timeControlsEl.querySelectorAll<HTMLButtonElement>("button[data-scale]"))) {
-      b.classList.toggle("active", Number(b.dataset.scale) === scale);
-    }
-    const speed = scale === 1 ? "" : `${scale === 0.25 ? "¼" : scale === 0.5 ? "½" : `${scale}x`} speed`;
-    const parts: string[] = [];
-    if (paused) parts.push(`Paused${pausedBy ? ` by ${whoLabel(pausedBy, players)}` : ""}`);
-    if (speed) parts.push(`${speed}${scaleBy ? ` (set by ${whoLabel(scaleBy, players)})` : ""}`);
-    const text = parts.join(" · ");
-    timeStatusEl.hidden = text === "";
-    if (timeStatusEl.textContent !== text) timeStatusEl.textContent = text;
-    const banner = paused && pausedBy ? `PAUSED by ${whoLabel(pausedBy, players)}` : "PAUSED";
-    if (pausedBanner.text !== banner) pausedBanner.text = banner;
-  }
-
-  restartBtn.addEventListener("click", () => {
-    restartBtn.blur();
-    if (!window.confirm("Restart the world for everyone connected?")) return;
-    if (socket.readyState === socket.OPEN) {
-      socket.send(JSON.stringify({ type: "restart", difficulty: menuPrefs.preferredDifficulty, worldSize: menuPrefs.preferredWorldSize, creative: creativeUi.on, solo: menuPrefs.preferredSolo && !creativeUi.on }));
-    }
+  const { pushEventToast, refreshEquipmentLine, refreshSettlementPanel, syncGoal, syncBossBar, syncPlayerBar } = hudPanelsApi;
+  const heroSheetApi = createHeroSheet({
+    sendMessage, get renderSpellBar() { return renderSpellBar; }, heroToolsRef, get latestColonists() { return latestColonists; },
+    get selectedIds() { return selectedIds; },
+    get spellCdAt() { return spellCdAt; }, set spellCdAt(v) { spellCdAt = v; },
   });
-
-  const eventFeedEl = document.getElementById("event-feed")!;
-  const TOAST_SHOW_MS = 5000;
-  const TOAST_FADE_MS = 600;
-  const TOAST_DROP_MS = 200;
-  const MAX_TOASTS = 5;
-
-  function removeToast(toast: HTMLElement, cls: "fading" | "dropped", fadeMs: number) {
-    if (toast.classList.contains("dropped") || toast.classList.contains("fading")) return;
-    toast.classList.add(cls);
-    window.setTimeout(() => toast.remove(), fadeMs);
-  }
-
-  // ---- Armour & weapons: "Armour T1/T2/T3: 2/0/1 · Weapons: 3/1/0" (amber when a slot is empty) ----
-  const statEquipmentEl = document.getElementById("stat-equipment")!;
-  let equipmentLineKey = "";
-  function refreshEquipmentLine(eq: EquipmentStock | undefined) {
-    statEquipmentEl.hidden = !eq;
-    if (!eq) return;
-    for (let t = 1; t <= 3; t++) {
-      setGoodCount(`gear:weapon:${t}`, eq.weapon[t - 1] ?? 0);
-      setGoodCount(`gear:armour:${t}`, eq.armour[t - 1] ?? 0);
-    }
-    const key = `${eq.armour.join("/")}|${eq.weapon.join("/")}`;
-    if (key === equipmentLineKey) return;
-    equipmentLineKey = key;
-    const part = (label: string, counts: number[]) => {
-      const span = document.createElement("span");
-      span.textContent = `${label}: ${counts.join("/")}`;
-      if (counts.every((n) => n <= 0)) {
-        span.className = "equip-empty";
-        span.title = "None in stock: new soldiers muster without it";
-      }
-      return span;
-    };
-    statEquipmentEl.replaceChildren(part("Armour T1/T2/T3", eq.armour), " · ", part("Weapons", eq.weapon));
-  }
-
-  // ---- Hero phases 1-2: Character sheet (` key or the Hero button). The server sends this player's
-  // profile in a snapshot only when it changes (snapshot.profile); the sheet re-renders then, or when the
-  // colony's armoury stock changes while it's open. Placeholder icons: a coloured square with a slot
-  // glyph and a rarity border (bronze / silver / gold / purple-teal relic); a real icon (SPRITES.md #49 /
-  // #51, /sprites/<item.icon>.png) is drawn over it once that file exists.
-  const heroModal = document.getElementById("hero-modal")!;
-  const hsDoll = document.getElementById("hs-doll")!;
-  const hsInv = document.getElementById("hs-inv")!;
-  const hsStats = document.getElementById("hs-stats")!;
-  const hsArmoury = document.getElementById("hs-armoury")!;
-  const hsTip = document.getElementById("hs-tip")!;
-  let heroProfile: HeroProfileSnapshot | null = null;
-  let armouryWeapon: typeof HERO_WEAPON_KINDS[number] = "sword";
-  let armouryPart: "head"|"chest"|"offhand" = "chest";
-  // Hero phase 3: the colony's heroes (snapshot `heroes`) and the open tab ("" = the player).
-  let heroSheets: HeroSheetSnapshot[] = [];
-  let sheetTab = "";
-  const hsTabs = document.getElementById("hs-tabs")!;
-  const hsTitle = document.getElementById("hs-title")!;
-  let heroStock: EquipmentStock | undefined;
-  let heroRenderKey = "";
-  let heroHpText = "";
-  let heroMe: PlayerSnapshot | undefined;
-  const missingIcons = new Set<string>();
-  const SLOT_LABEL: Record<GearSlot, string> = {
-    head: "Head", chest: "Chest", legs: "Legs", weapon: "Weapon", offhand: "Off-hand", trinket1: "Trinket", trinket2: "Trinket",
-    spell1: "Spell", spell2: "Spell", spell3: "Spell", spell4: "Spell",
-  };
-  const SLOT_GLYPH: Record<string, string> = {
-    head: "H", chest: "C", legs: "L", offhand: "O", trinket: "T", spell: "✶", tome: "▤",
-    sword: "⚔", spear: "↑", bow: ")", staff: "|", shield: "O", helm: "H", greaves: "L", cuirass: "C", axe: "⚒", club: "!",
-  };
-  // Inventory 2026-11-26: the item's own socket kind in the tooltip (not the slot it would go to).
-  const KIND_LABEL: Record<string, string> = {
-    head: "Head", chest: "Chest", legs: "Legs", weapon: "Weapon", offhand: "Off-hand", trinket: "Trinket", spell: "Spell", tome: "Spell Tome",
-  };
-  const SLOT_FILL: Record<string, string> = {
-    head: "#5b6b7a", chest: "#6b4a2a", legs: "#4f5a3a", weapon: "#7a3a2a", offhand: "#3a4f6b", trinket: "#6b5a2a", spell: "#4a2f6b", tome: "#4a2f6b",
-  };
-  const STAT_LINES: { key: keyof ItemStats; label: string; pct: boolean; lowerIsBetter?: boolean }[] = [
-    { key: "damagePct", label: "damage", pct: true },
-    { key: "damageTakenPct", label: "damage taken", pct: true, lowerIsBetter: true },
-    { key: "maxHp", label: "max HP", pct: false },
-    { key: "moveSpeedPct", label: "move speed", pct: true },
-    { key: "attackSpeedPct", label: "attack speed", pct: true },
-    { key: "spellPowerPct", label: "spell power", pct: true },
-  ];
-  const signed = (n: number, pct: boolean) => `${n > 0 ? "+" : ""}${n}${pct ? "%" : ""}`;
-
-  function gearSlotFor(item: GearItem, prof: HeroProfileSnapshot): GearSlot | null {
-    if (item.slot === "spell" || item.slot === "tome") return null;
-    if (!sheetTab && (!PLAYER_GEAR_SLOTS.includes(item.slot as GearSlot) || (item.slot === "weapon" && !PLAYER_WEAPON_KINDS.includes(item.kind as any)) || (item.slot === "offhand" && item.kind !== "shield"))) return null;
-    if (item.slot === "trinket") return prof.equipment.trinket1 && !prof.equipment.trinket2 ? "trinket2" : "trinket1";
-    return item.slot;
-  }
-
-  function itemIcon(item: GearItem): HTMLElement {
-    const el = document.createElement("div");
-    el.className = `hs-item ${item.tier === "relic" ? "relic" : `t${item.tier}`}`;
-    el.style.background = SLOT_FILL[item.slot] ?? "#555";
-    el.textContent = SLOT_GLYPH[item.kind ?? ""] ?? SLOT_GLYPH[item.slot] ?? "?";
-    // A Spell Tome shows its spell's current icon (saved tomes may carry an older icon name).
-    const generatedIcon = gearIconUrl(item);
-    const icon = item.spellId ? SPELLS[item.spellId].icon : generatedIcon ?? item.icon;
-    if (icon && !missingIcons.has(icon)) {
-      const img = document.createElement("img");
-      img.alt = "";
-      img.src = generatedIcon ?? `/sprites/${icon}.png`;
-      img.onerror = () => {
-        missingIcons.add(icon);
-        img.remove();
-      };
-      el.append(img);
-    }
-    return el;
-  }
-
-  function showItemTip(e: MouseEvent, item: GearItem, compare: GearItem | null, hint: string, showDelta: boolean) {
-    hsTip.replaceChildren();
-    const name = document.createElement("b");
-    name.textContent = item.name;
-    const tier = document.createElement("div");
-    tier.className = "tier";
-    const kindText = item.kind && !["helm", "shield", "cuirass", "greaves"].includes(item.kind) ? ` (${item.kind})` : "";
-    tier.textContent = `${item.tier === "relic" ? "Relic" : `Tier ${item.tier}`} · ${KIND_LABEL[item.slot] ?? item.slot}${kindText}`;
-    hsTip.append(name, tier);
-    const trait=adventureTrait(item);if(trait){const d=ADVENTURE_GEAR[trait],line=document.createElement("p");line.textContent=d.benefit+" Tradeoff: "+d.cost;hsTip.append(line);}
-    for (const line of STAT_LINES) {
-      const v = item.stats[line.key] ?? 0;
-      const old = compare?.stats[line.key] ?? 0;
-      if (v === 0 && old === 0) continue;
-      const row = document.createElement("div");
-      row.textContent = `${signed(v, line.pct)} ${line.label}`;
-      if (showDelta) {
-        const d = v - old;
-        if (d !== 0) {
-          const span = document.createElement("span");
-          const better = line.lowerIsBetter ? d < 0 : d > 0;
-          span.className = better ? "up" : "down";
-          span.textContent = ` (${signed(d, line.pct)})`;
-          row.append(span);
-        }
-      }
-      hsTip.append(row);
-    }
-    if (!STAT_LINES.some((line) => (item.stats[line.key] ?? 0) !== 0)) {
-      const row = document.createElement("div");
-      row.textContent = "No stat bonuses";
-      hsTip.append(row);
-    }
-    const foot = document.createElement("div");
-    foot.className = "tier";
-    foot.textContent = compare ? `${hint} · vs ${compare.name}` : hint;
-    hsTip.append(foot);
-    hsTip.hidden = false;
-    hsTip.style.left = `${Math.min(e.clientX + 14, window.innerWidth - 270)}px`;
-    hsTip.style.top = `${Math.min(e.clientY + 14, window.innerHeight - hsTip.offsetHeight - 8)}px`;
-  }
-
-  function hideItemTip() {
-    hsTip.hidden = true;
-  }
-
-  function makeSocket(slot: GearSlot | null, item: GearItem | null, opts: { disabled?: boolean; empty?: string; onClick?: () => void; tip?: (e: MouseEvent) => void }) {
-    const el = document.createElement("div");
-    el.className = `hs-socket${opts.disabled ? " disabled" : ""}`;
-    if (slot) el.dataset.slot = slot;
-    if (item) el.append(itemIcon(item));
-    else {
-      const empty = document.createElement("span");
-      empty.className = "hs-empty";
-      empty.textContent = opts.empty ?? "";
-      el.append(empty);
-    }
-    if (opts.onClick && !opts.disabled) {
-      el.tabIndex = 0;
-      el.setAttribute("role", "button");
-      el.setAttribute("aria-label", item ? `${item.name} — ${slot ? "unequip" : "equip"}` : opts.empty ?? "Equipment slot");
-      el.addEventListener("keydown", e => { if(e.key === "Enter" || e.key === " ") { e.preventDefault(); el.click(); } });
-    }
-    if (opts.onClick && !opts.disabled) el.addEventListener("click", () => {
-      hideItemTip();
-      opts.onClick!();
-    });
-    if (opts.tip) {
-      el.addEventListener("mousemove", opts.tip);
-      el.addEventListener("mouseleave", hideItemTip);
-      // Keyboard: the tooltip beside the focused socket.
-      el.addEventListener("focus", () => {
-        const r = el.getBoundingClientRect();
-        opts.tip!(new MouseEvent("mousemove", { clientX: r.left, clientY: r.bottom - 8 }));
-      });
-      el.addEventListener("blur", hideItemTip);
-    } else if (opts.disabled) el.title = "Spells: coming soon";
-    return el;
-  }
-
-  // Inventory 2026-11-26: the Equip / Learn / Drop menu of a pack item (right click, the context-menu key, Shift+F10).
-  const invMenu = document.createElement("div");
-  invMenu.id = "hs-item-menu";
-  invMenu.setAttribute("role", "menu");
-  invMenu.hidden = true;
-  heroModal.append(invMenu);
-  let invMenuFor: HTMLElement | null = null;
-  const invNote = document.createElement("div");
-  invNote.className = "hs-inv-empty";
-  invNote.textContent = "Empty. Relics drop from bosses, mini-bosses and camps; plain gear comes from the armoury.";
-  hsInv.after(invNote);
-  function closeInvMenu(refocus = true) {
-    if (invMenu.hidden) return;
-    invMenu.hidden = true;
-    invMenu.replaceChildren();
-    if (refocus && invMenuFor?.isConnected) invMenuFor.focus();
-    invMenuFor = null;
-  }
-  function openInvMenu(anchor: HTMLElement, item: GearItem, actions: { label: string; run: () => void }[]) {
-    hideItemTip();
-    invMenu.replaceChildren();
-    const title = document.createElement("div");
-    title.className = "hs-menu-title";
-    title.textContent = item.name;
-    invMenu.append(title);
-    for (const a of [...actions, { label: "Cancel", run: () => {} }]) {
-      const b = document.createElement("button");
-      b.setAttribute("role", "menuitem");
-      b.textContent = a.label;
-      b.addEventListener("click", () => {
-        closeInvMenu(a.label === "Cancel");
-        a.run();
-      });
-      invMenu.append(b);
-    }
-    invMenuFor = anchor;
-    invMenu.hidden = false;
-    const r = anchor.getBoundingClientRect();
-    invMenu.style.left = `${Math.max(8, Math.min(r.left, window.innerWidth - invMenu.offsetWidth - 8))}px`;
-    invMenu.style.top = `${Math.min(r.bottom + 4, window.innerHeight - invMenu.offsetHeight - 8)}px`;
-    (invMenu.querySelector("button") as HTMLButtonElement | null)?.focus();
-  }
-  invMenu.addEventListener("keydown", (e) => {
-    const buttons = Array.from(invMenu.querySelectorAll("button"));
-    const i = buttons.indexOf(document.activeElement as HTMLButtonElement);
-    if (e.key === "Escape") {
-      e.stopPropagation();
-      e.preventDefault();
-      closeInvMenu();
-    } else if (e.key === "ArrowDown" || e.key === "ArrowUp") {
-      e.preventDefault();
-      buttons[(i + (e.key === "ArrowDown" ? 1 : buttons.length - 1)) % buttons.length]?.focus();
-    } else if (e.key === "Tab") closeInvMenu(false);
+  const { spellIcon, showSpellTip, hideItemTip, syncHeroProfile, setHeroSheetOpen, heroModal, itemIcon } = heroSheetApi;
+  const spellBarApi = createSpellBar({
+    heroSheetApi, spellIcon, showSpellTip, hideItemTip, app, sendMessage, pushEventToast, findNearest, worldLayer,
+    interiorRef, get spellCdAt() { return spellCdAt; }, get latestMobs() { return latestMobs; },
+    get latestColonists() { return latestColonists; },
+    get latestPlayersForSpells() { return latestPlayersForSpells; }, get myId() { return myId; },
   });
-  document.addEventListener("pointerdown", (e) => {
-    if (!invMenu.hidden && !invMenu.contains(e.target as Node)) closeInvMenu(false);
-  });
-
-  // ---- Hero phase 4: spells on the sheet (icons, tooltips) ----
-  const hsSpellbook = document.getElementById("hs-spellbook")!;
-  const hsSpellAuto = document.getElementById("hs-spell-auto") as HTMLButtonElement;
-  // The spell picked in the spell book, waiting for a slot click.
-  let pickedSpell: SpellId | null = null;
-  const TARGETING_LABEL = { enemy: "Target an enemy", ally: "Target an ally (or yourself)", ground: "Target a spot", self: "Self" };
-  // Placeholder: a coloured square with the spell's glyph; /sprites/<icon>.png (SPRITES.md #57) over it once it exists.
-  function spellIcon(id: SpellId): HTMLElement {
-    const def = SPELLS[id];
-    const el = document.createElement("div");
-    el.className = "hs-item spell";
-    el.style.background = def.color;
-    el.textContent = def.glyph;
-    if (!missingIcons.has(def.icon)) {
-      const img = document.createElement("img");
-      img.alt = "";
-      img.src = `/sprites/${def.icon}.png`;
-      img.onerror = () => {
-        missingIcons.add(def.icon);
-        img.remove();
-      };
-      el.append(img);
-    }
-    return el;
-  }
-  function spellText(id: SpellId, spellPower: number): string {
-    const def = SPELLS[id];
-    // Durations / radii in the text stay the table's; the Spellcasting line in the tooltip gives the bonus.
-    const n = (v: number) => String(Math.round(v * spellPower * 10) / 10);
-    return def.text.replace("{power}", n(def.power)).replace("{burn}", n(def.burnPerSec ?? 0));
-  }
-  function showSpellTip(e: MouseEvent, id: SpellId, spellPower: number, hint: string, castLevel = 1) {
-    const def = SPELLS[id];
-    const fx = spellcastingEffectMult(castLevel);
-    const cdSec = Math.round(spellCooldownSeconds(id, castLevel) * 10) / 10;
-    hsTip.replaceChildren();
-    const name = document.createElement("b");
-    name.textContent = def.name;
-    const meta = document.createElement("div");
-    meta.className = "tier";
-    meta.textContent = `${TARGETING_LABEL[def.targeting]} · range ${def.range} tiles · cooldown ${cdSec} s`;
-    const body = document.createElement("div");
-    const power = spellPower * fx;
-    body.textContent = spellText(id, power) + (def.power > 0 && Math.abs(power - 1) > 1e-6 ? ` (spell power x${power.toFixed(2)})` : "");
-    const skill = document.createElement("div");
-    skill.className = "tier";
-    skill.textContent = castLevel > 1
-      ? `Spellcasting L${castLevel}: +${Math.round((fx - 1) * 100)}% effect, duration and radius; cooldown ${cdSec} s (base ${spellCooldownSeconds(id, 1)} s)`
-      : "Spellcasting L1: cast spells to train it (+8% effect, -5% cooldown per level)";
-    const foot = document.createElement("div");
-    foot.className = "tier";
-    foot.textContent = hint;
-    hsTip.append(name, meta, body, skill, foot);
-    hsTip.hidden = false;
-    hsTip.style.left = `${Math.min(e.clientX + 14, window.innerWidth - 270)}px`;
-    hsTip.style.top = `${Math.min(e.clientY + 14, window.innerHeight - hsTip.offsetHeight - 8)}px`;
-  }
-
-  function renderHeroSheet(force = false) {
-    if (heroModal.hidden || !heroProfile) return;
-    // Hero phase 3: a hero tab shows that hero's sockets / stats / level over the player's shared pack.
-    const hero = sheetTab ? heroSheets.find((h) => h.id === sheetTab) : undefined;
-    if (sheetTab && !hero) sheetTab = "";
-    const pack = heroProfile;
-    const prof: HeroProfileSnapshot = hero ? { ...hero.profile, inventory: pack.inventory, inventoryCap: pack.inventoryCap } : pack;
-    const heroArg = hero ? { heroId: hero.id } : {};
-    const me = heroMe;
-    const unit = hero ? latestColonists.find((c) => c.id === hero.id) : undefined;
-    const hpText = hero
-      ? unit ? `${Math.ceil(unit.hp)} / ${unit.maxHp}` : hero.status === "recruiting" ? `${prof.stats.maxHp} (arriving)` : `fallen: back at dawn / dusk for ${hero.respawnFee} gold`
-      : me ? `${Math.ceil(me.hp)} / ${me.maxHp}` : `${prof.stats.maxHp}`;
-    const key = JSON.stringify([{ ...prof, spells: prof.spells ? { ...prof.spells, cooldowns: {} } : undefined }, heroStock, sheetTab, !!heroMe?.mounted, pickedSpell, heroSheets.map((h) => [h.id, h.name, h.status, h.profile.level])]);
-    if (!force && key === heroRenderKey) {
-      if (hpText !== heroHpText) {
-        heroHpText = hpText;
-        const hpEl = document.getElementById("hs-hp");
-        if (hpEl) hpEl.textContent = hpText;
-      }
-      return;
-    }
-    heroRenderKey = key;
-    heroHpText = hpText;
-    hideItemTip();
-    hsTitle.textContent = hero ? `${hero.name} · ${HERO_CLASS_LABEL[hero.heroClass]}` : (prof.appearance?.name ?? "Character")+(prof.title?" · "+prof.title:"");
-    document.getElementById("hero-appearance")!.hidden = true;
-    hsTabs.replaceChildren();
-    if (heroSheets.length > 0) {
-      const tab = (id: string, label: string, cls = "") => {
-        const b = document.createElement("button");
-        b.textContent = label;
-        b.className = `${id === sheetTab ? "active" : ""} ${cls}`.trim();
-        b.addEventListener("click", () => {
-          sheetTab = id;
-          renderHeroSheet(true);
-        });
-        hsTabs.append(b);
-      };
-      tab("", "Player");
-      for (const h of heroSheets.slice(0, 9)) tab(h.id, `${h.name} Lv ${h.profile.level}`, h.status === "alive" ? "" : "fallen");
-    }
-    // Paper-doll: trinket / head / trinket, weapon / chest / off-hand, - / legs / -, then 4 spell slots.
-    const layout: (GearSlot | null)[] = hero ? ["trinket1", "head", "trinket2", "weapon", "chest", "offhand", null, "legs", null] : ["head", "chest", "weapon", "offhand", "legs"];
-    hsDoll.classList.toggle("player-gear", !hero);
-    hsDoll.replaceChildren();
-    const stand=document.createElement('img');stand.src='/sprites/hero-hud/armour-stand.png';stand.className='armour-stand';stand.alt='Armour stand';hsDoll.append(stand);
-    for (const slot of layout) {
-      if (!slot) {
-        hsDoll.append(document.createElement("div"));
-        continue;
-      }
-      const item = prof.equipment[slot];
-      const gearSocket = makeSocket(slot, item, {
-          empty: SLOT_LABEL[slot],
-          onClick: item ? () => sendMessage({ type: "unequipItem", slot, ...heroArg }) : undefined,
-          tip: item ? (e) => showItemTip(e, item, null, "Click to unequip", false) : undefined,
-        });
-      gearSocket.dataset.slot=slot;
-      gearSocket.setAttribute('role','button');gearSocket.tabIndex=0;
-      gearSocket.setAttribute('aria-label',`${SLOT_LABEL[slot]}: ${item?.name ?? 'empty'}`);
-      hsDoll.append(gearSocket);
-    }
-    // Hero phase 4: the 4 spell slots. With a spell picked in the spell book below, a click puts it in the
-    // slot; otherwise a click on a filled slot empties it.
-    const book: SpellBookSnapshot = prof.spells ?? { learned: [], slots: [null, null, null, null], auto: false, cooldowns: {} };
-    const spells = document.createElement("div");
-    spells.className = "hs-spells";
-    for (let i = 0; i < SPELL_SLOT_COUNT; i++) {
-      const id = book.slots[i] ?? null;
-      const el = document.createElement("div");
-      el.className = `hs-socket${pickedSpell ? " target" : ""}`;
-      el.setAttribute('role','button');el.tabIndex=0;el.setAttribute('aria-label',`Spell slot ${i+1}${id?': '+SPELLS[id].name:''}`);
-      el.addEventListener('keydown',e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();el.click();}});
-      if (id) el.append(spellIcon(id));
-      else {
-        const empty = document.createElement("span");
-        empty.className = "hs-empty";
-        empty.textContent = `Spell ${i + 1}`;
-        el.append(empty);
-      }
-      el.addEventListener("click", () => {
-        hideItemTip();
-        if (pickedSpell) {
-          sendMessage({ type: "setSpellSlot", slot: i, spellId: pickedSpell, ...heroArg });
-          pickedSpell = null;
-        } else if (id) sendMessage({ type: "setSpellSlot", slot: i, spellId: null, ...heroArg });
-      });
-      el.addEventListener("mousemove", (e) => (id ? showSpellTip(e, id, prof.stats.spellPowerMult, pickedSpell ? `Click to put ${SPELLS[pickedSpell].name} here` : "Click to empty the slot", prof.spells?.castLevel) : pickedSpell ? showSpellTip(e, pickedSpell, prof.stats.spellPowerMult, `Click to put it in slot ${i + 1}`, prof.spells?.castLevel) : hideItemTip()));
-      el.addEventListener("mouseleave", hideItemTip);
-      spells.append(el);
-    }
-    document.getElementById("hs-spell-slots")!.replaceChildren(spells);
-
-    // Level / XP.
-    document.getElementById("hs-level")!.textContent = String(prof.level);
-    const span = prof.nextLevelXp === null ? 1 : prof.nextLevelXp - prof.levelXp;
-    const into = prof.nextLevelXp === null ? 1 : prof.xp - prof.levelXp;
-    (document.getElementById("hs-xpfill") as HTMLElement).style.width = `${Math.round(Math.min(1, into / span) * 100)}%`;
-    document.getElementById("hs-xptext")!.textContent =
-      prof.nextLevelXp === null ? `${prof.xp} XP · max level` : `${prof.xp} / ${prof.nextLevelXp} XP · +4% damage and +6${hero ? "%" : ""} HP per level`;
-
-    // Stat summary (multipliers include gear and level).
-    const s = prof.stats;
-    const mult = (v: number, lowerIsBetter = false) => {
-      const el = document.createElement("span");
-      el.textContent = `x${v.toFixed(2)}`;
-      if (Math.abs(v - 1) > 1e-6) el.className = (lowerIsBetter ? v < 1 : v > 1) ? "up" : "down";
-      return el;
-    };
-    const rows: [string, HTMLElement | string][] = [
-      ["Health", hpText],
-      ["Damage", mult(s.damageMult)],
-      ["Damage taken", mult(s.damageTakenMult, true)],
-      ["Move speed", mult(s.moveSpeedMult)],
-      ["Attack speed", mult(s.attackSpeedMult)],
-      ["Spell power", mult(s.spellPowerMult)],
-      ["Spellcasting", castText(prof.spells?.castLevel ?? 1)],
-    ];
-    function castText(lv: number): HTMLElement {
-      const el = document.createElement("span");
-      el.textContent = lv > 1 ? `L${lv} (+${Math.round((spellcastingEffectMult(lv) - 1) * 100)}% effect, -${Math.round((1 - spellcastingCooldownMult(lv)) * 100)}% cooldown)` : "L1";
-      if (lv > 1) el.className = "up";
-      return el;
-    }
-    hsStats.replaceChildren();
-    for (const [label, value] of rows) {
-      const l = document.createElement("span");
-      l.textContent = label;
-      const v = typeof value === "string" ? document.createElement("span") : value;
-      if (typeof value === "string") {
-        v.id = "hs-hp";
-        v.textContent = value;
-      }
-      hsStats.append(l, v);
-    }
-
-    // Hero phase 4: the spell book (learned spells; click one, then a slot) and a hero's Auto toggle.
-    hsSpellbook.replaceChildren();
-    if (book.learned.length === 0) {
-      const empty = document.createElement("div");
-      empty.className = "hs-inv-empty";
-      empty.textContent = "No spells yet: one every 2 levels, Spell Tomes from bosses and camps, Heal / Ward at a Church.";
-      hsSpellbook.append(empty);
-    }
-    for (const id of book.learned) {
-      const el = document.createElement("div");
-      el.className = `hs-socket${pickedSpell === id ? " picked" : ""}`;
-      el.setAttribute('role','button');el.tabIndex=0;el.setAttribute('aria-label',`Select ${SPELLS[id].name}`);
-      el.addEventListener('keydown',e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();el.click();}});
-      el.append(spellIcon(id));
-      el.addEventListener("click", () => {
-        hideItemTip();
-        pickedSpell = pickedSpell === id ? null : id;
-        renderHeroSheet(true);
-      });
-      el.addEventListener("mousemove", (e) => showSpellTip(e, id, prof.stats.spellPowerMult, pickedSpell === id ? "Now click a spell slot (click again to cancel)" : "Click, then click a spell slot", prof.spells?.castLevel));
-      el.addEventListener("mouseleave", hideItemTip);
-      hsSpellbook.append(el);
-    }
-    hsSpellAuto.hidden = !hero;
-    if (hero) {
-      hsSpellAuto.textContent = `Auto-cast: ${book.auto ? "On" : "Off"}`;
-      hsSpellAuto.classList.toggle("on", book.auto);
-      hsSpellAuto.onclick = () => sendMessage({ type: "setSpellAuto", heroId: hero.id, auto: !book.auto });
-    }
-
-    // Pack: a fixed grid of inventoryCap slots (Inventory 2026-11-26). Click / Enter equips (or learns a tome); right
-    // click, the context-menu key or Shift+F10 opens Equip / Learn / Drop; Delete drops.
-    closeInvMenu(false);
-    document.getElementById("hs-invcount")!.textContent = `(${prof.inventory.length}/${prof.inventoryCap})`;
-    hsInv.replaceChildren();
-    hsInv.setAttribute("aria-label", `Pack: ${prof.inventory.length} of ${prof.inventoryCap} slots used`);
-    const dropItem = (item: GearItem) => sendMessage({ type: "dropGear", itemId: item.id });
-    const withMenu = (sock: HTMLElement, item: GearItem, actions: { label: string; run: () => void }[]) => {
-      if (sock.tabIndex < 0) {
-        sock.tabIndex = 0;
-        sock.setAttribute("role", "button");
-        sock.setAttribute("aria-label", `${item.name}: open the item menu`);
-      }
-      sock.setAttribute("aria-haspopup", "menu");
-      const all = [...actions, { label: hero ? "Drop (from your pack)" : "Drop on the ground", run: () => dropItem(item) }];
-      sock.addEventListener("contextmenu", (e) => {
-        e.preventDefault();
-        openInvMenu(sock, item, all);
-      });
-      sock.addEventListener("keydown", (e) => {
-        if (e.key === "ContextMenu" || (e.key === "F10" && e.shiftKey)) {
-          e.preventDefault();
-          openInvMenu(sock, item, all);
-        } else if (e.key === "Delete") {
-          e.preventDefault();
-          dropItem(item);
-        } else if ((e.key === "Enter" || e.key === " ") && !actions.length) {
-          e.preventDefault();
-          openInvMenu(sock, item, all);
-        }
-      });
-      if (!actions.length) sock.addEventListener("click", () => openInvMenu(sock, item, all));
-      return sock;
-    };
-    for (const item of prof.inventory) {
-      // Hero phase 4: a Spell Tome is read ("Learn") by whoever's tab is open, and consumed.
-      if (item.slot === "tome" && item.spellId) {
-        const spellId = item.spellId;
-        const known = book.learned.includes(spellId);
-        const learn = () => sendMessage({ type: "useTome", itemId: item.id, ...heroArg });
-        hsInv.append(withMenu(
-          makeSocket(null, item, {
-            onClick: known ? undefined : learn,
-            tip: (e) => showSpellTip(e, spellId, prof.stats.spellPowerMult, known ? `${item.name}: already known${hero ? ` by ${hero.name}` : ""} · right click: drop` : `${item.name}: click to Learn${hero ? ` (${hero.name})` : ""} · right click: drop`, prof.spells?.castLevel),
-          }),
-          item, known ? [] : [{ label: "Learn", run: learn }],
-        ));
-        continue;
-      }
-      const target = gearSlotFor(item, prof);
-      const current = target ? prof.equipment[target] : null;
-      const equip = target ? () => sendMessage({ type: "equipItem", itemId: item.id, slot: target, ...heroArg }) : undefined;
-      hsInv.append(withMenu(
-        makeSocket(null, item, {
-          onClick: equip,
-          tip: (e) => showItemTip(e, item, current, `${target ? `Click / Enter: equip (${SLOT_LABEL[target]})` : "Can't be worn here"} · right click: drop`, !!target),
-        }),
-        item, equip ? [{ label: `Equip (${SLOT_LABEL[target!]})`, run: equip }] : [],
-      ));
-    }
-    for (let i = prof.inventory.length; i < prof.inventoryCap; i++) {
-      const empty = document.createElement("div");
-      empty.className = "hs-socket hs-slot-empty";
-      empty.setAttribute("aria-hidden", "true");
-      hsInv.append(empty);
-    }
-    invNote.hidden = prof.inventory.length > 0;
-
-    // Take from the armoury: one plain piece of a tier out of the colony stock (armour -> chest, weapon -> weapon).
-    hsArmoury.replaceChildren();
-    const weaponLabel=document.createElement("label"); weaponLabel.className="weapon-choice"; weaponLabel.textContent="Weapon to withdraw";
-    const weaponSelect=document.createElement("select"); weaponSelect.setAttribute("aria-label","Armoury weapon");
-    for(const kind of (hero ? HERO_WEAPON_KINDS : PLAYER_WEAPON_KINDS)) { const opt=document.createElement("option");opt.value=kind;opt.textContent=kind[0].toUpperCase()+kind.slice(1);weaponSelect.append(opt); }
-    if(!hero && !PLAYER_WEAPON_KINDS.includes(armouryWeapon as any)) armouryWeapon="sword";
-    weaponSelect.value=armouryWeapon; weaponSelect.onchange=()=>{armouryWeapon=weaponSelect.value as typeof armouryWeapon;renderHeroSheet(true);};
-    weaponLabel.append(weaponSelect);hsArmoury.append(weaponLabel);
-    const partLabel=document.createElement("label");partLabel.className="weapon-choice";partLabel.textContent="Armour to withdraw";
-    const partSelect=document.createElement("select");partSelect.setAttribute("aria-label","Armoury armour slot");
-    for(const [value,label] of [["head","Helmet"],["chest","Body armour"],["offhand","Shield"]]){const option=document.createElement("option");option.value=value;option.textContent=label;partSelect.append(option);}
-    partSelect.value=armouryPart;partSelect.onchange=()=>{armouryPart=partSelect.value as typeof armouryPart;renderHeroSheet(true);};partLabel.append(partSelect);hsArmoury.append(partLabel);
-    const full = prof.inventory.length >= prof.inventoryCap;
-    for (const slot of ["armour", "weapon"] as EquipSlot[]) {
-      for (let tier = 1; tier <= 3; tier++) {
-        const n = heroStock?.[slot][tier - 1] ?? 0;
-        const btn = document.createElement("button");
-        btn.textContent = `${slot === "armour" ? armouryPart === "head" ? "Helmet" : armouryPart === "offhand" ? "Shield" : "Body armour" : "Weapon"} T${tier} (${n})`;
-        btn.disabled = n <= 0 || full;
-        btn.title = full ? "Your pack is full" : n <= 0 ? "None in the colony's stock (forge at a Blacksmith)" : "Takes it from the stock soldiers muster with";
-        btn.addEventListener("click", () => sendMessage({ type: "takeFromArmoury", slot, tier, ...(slot === "weapon" ? {weaponKind:armouryWeapon} : {armourPart:armouryPart}), ...heroArg }));
-        hsArmoury.append(btn);
-      }
-    }
-  }
-
-  function setHeroSheetOpen(open: boolean) {
-    // Hero phase 3: opening with exactly one hero selected shows that hero's tab.
-    if (open && selectedIds.size === 1) {
-      const id = [...selectedIds][0];
-      if (heroSheets.some((h) => h.id === id)) sheetTab = id;
-    }
-    heroModal.hidden = !open;
-    hideItemTip();
-    if (open) renderHeroSheet(true);
-  }
-  document.getElementById("hero-btn")!.addEventListener("click", (e) => {
-    (e.currentTarget as HTMLButtonElement).blur();
-    setHeroSheetOpen(heroModal.hidden);
-  });
-  document.getElementById("hs-close")!.addEventListener("click", () => setHeroSheetOpen(false));
-  heroModal.addEventListener("click", (e) => {
-    if (e.target === heroModal) setHeroSheetOpen(false);
-  });
-  // ` (Backquote; C is the Church tool) toggles the sheet, Escape closes it.
-  window.addEventListener("keydown", (e) => {
-    if (e.code === "Backquote" && !e.ctrlKey && !e.altKey && !e.metaKey && !e.repeat) {
-      e.preventDefault();
-      setHeroSheetOpen(heroModal.hidden);
-    } else if (e.key === "Escape" && !heroModal.hidden) {
-      setHeroSheetOpen(false);
-    }
-  });
-
-  function syncHeroProfile(
-    profile: HeroProfileSnapshot | undefined, stock: EquipmentStock | undefined, me: PlayerSnapshot | undefined, heroes?: HeroSheetSnapshot[]
-  ) {
-    if (profile) { heroProfile = profile; heroToolsRef.ui?.refreshWeapons(); }
-    // Hero phase 4: cooldown ticks are as of this snapshot; the spell bar counts down from here.
-    if (profile?.spells) spellCdAt = performance.now();
-    if (heroes) heroSheets = heroes;
-    heroMe = me;
-    heroStock = stock;
-    renderHeroSheet();
-    renderSpellBar();
-  }
-
-  // ---- Hero phase 4: the player's spell bar (bottom centre, above the command bar) ----
-  // Hotkeys Shift+1..4 or F1..F4 (every letter, every bare digit and Ctrl / Alt + digit are taken). A
-  // targeted spell then waits for a left click: enemy = a monster, ally = a friendly unit / player (empty
-  // ground = yourself), ground = the spot; right click or Escape cancels; the same key again casts an
-  // ally spell on yourself. Cooldowns are drawn as a dark overlay with the seconds left.
-  const spellBarEl = document.getElementById("spell-bar")!;
+  const { renderSpellBar, castSlot, setSpellAim, spellAimClick } = spellBarApi;
   let spellCdAt = performance.now();
-  let spellAim: { slot: number; spell: SpellId } | null = null;
-  const spellBtns: HTMLButtonElement[] = [];
-  const SPELL_KEY_LABEL = ["⇧1", "⇧2", "⇧3", "⇧4"];
-  for (let i = 0; i < SPELL_SLOT_COUNT; i++) {
-    const b = document.createElement("button");
-    b.className = "spell-btn";
-    b.addEventListener("click", () => {
-      b.blur();
-      useSpellSlot(i);
-    });
-    b.addEventListener("pointerdown", (e) => e.stopPropagation());
-    spellBarEl.append(b);
-    spellBtns.push(b);
-  }
-  const spellRangeRing = new Graphics();
-  let spellBarKey = "";
-  function spellCooldownMs(id: SpellId): number {
-    const ticks = heroProfile?.spells?.cooldowns[id] ?? 0;
-    return Math.max(0, (ticks / TICK_RATE) * 1000 - (performance.now() - spellCdAt));
-  }
-  function renderSpellBar() {
-    const book = heroProfile?.spells;
-    spellBarEl.hidden = !book || book.learned.length === 0;
-    if (!book) return;
-    const key = JSON.stringify([book.slots, spellAim, heroProfile?.stats.spellPowerMult, book.castLevel]);
-    if (key !== spellBarKey) {
-      spellBarKey = key;
-      book.slots.forEach((id, i) => {
-        const b = spellBtns[i];
-        b.replaceChildren();
-        b.classList.toggle("aiming", spellAim?.slot === i);
-        b.disabled = !id;
-        if (id) b.append(spellIcon(id));
-        const k = document.createElement("kbd");
-        k.textContent = SPELL_KEY_LABEL[i];
-        const cd = document.createElement("div");
-        cd.className = "spell-cd";
-        b.append(k, cd);
-        b.onmousemove = id ? (e) => showSpellTip(e, id, heroProfile?.stats.spellPowerMult ?? 1, `Shift+${i + 1} or F${i + 1}`, book.castLevel) : null;
-        b.onmouseleave = hideItemTip;
-      });
-    }
-    book.slots.forEach((id, i) => {
-      const cd = spellBtns[i].querySelector<HTMLElement>(".spell-cd");
-      if (!cd) return;
-      const left = id ? spellCooldownMs(id) : 0;
-      const height=id && left > 0 ? `${Math.min(100, (left / (spellCooldownSeconds(id, book.castLevel ?? 1) * 1000)) * 100)}%` : "0%";
-      const text=left > 0 ? String(Math.ceil(left / 1000)) : "";
-      if(cd.style.height!==height)cd.style.height=height;
-      if(cd.textContent!==text)cd.textContent=text;
-    });
-  }
-  window.setInterval(renderSpellBar, 100);
-  function setSpellAim(aim: typeof spellAim) {
-    spellAim = aim;
-    app.canvas.style.cursor = aim ? "crosshair" : "";
-    spellRangeRing.clear();
-    renderSpellBar();
-  }
-  function castSlot(slot: number, target: { targetId?: string; x?: number; y?: number }) {
-    sendMessage({ type: "castSpell", slot, ...target });
-    setSpellAim(null);
-  }
-  function useSpellSlot(slot: number) {
-    const id = heroProfile?.spells?.slots[slot];
-    if (!id) return;
-    const def = SPELLS[id];
-    if (spellCooldownMs(id) > 0) {
-      pushEventToast("build", `${def.name}: ${Math.ceil(spellCooldownMs(id) / 1000)} s cooldown`);
-      return;
-    }
-    // Pressing an ally spell's key again while aiming casts it on yourself.
-    if (def.targeting === "self" || (def.targeting === "ally" && spellAim?.slot === slot)) return castSlot(slot, {});
-    setSpellAim(spellAim?.slot === slot ? null : { slot, spell: id });
-  }
-  // A left click while aiming: true when it was used for the spell.
-  function spellAimClick(x: number, y: number): boolean {
-    if (!spellAim) return false;
-    const def = SPELLS[spellAim.spell];
-    if (def.targeting === "enemy") {
-      const mob = findNearest(latestMobs.filter((m) => (m.x - x) ** 2 + (m.y - y) ** 2 <= (mobHitRadius(m.kind, mobRenderScale(m)) + 6) ** 2), x, y, Infinity);
-      if (!mob) {
-        pushEventToast("build", `${def.name}: click on an enemy (right click cancels)`);
-        return true;
-      }
-      castSlot(spellAim.slot, { targetId: mob.id });
-    } else if (def.targeting === "ally") {
-      const friends = [...latestColonists, ...(latestPlayersForSpells.filter((p) => !p.dead) as { id: string; x: number; y: number }[])];
-      const ally = findNearest(friends, x, y, UNIT_HIT_RADIUS + 4);
-      castSlot(spellAim.slot, ally && ally.id !== myId ? { targetId: ally.id } : {});
-    } else {
-      castSlot(spellAim.slot, { x, y });
-    }
-    return true;
-  }
   let latestPlayersForSpells: PlayerSnapshot[] = [];
-  app.ticker.add(() => {
-    if (!spellAim || !myId) return;
-    if(interiorRef.ui?.active()){spellRangeRing.clear();return;}
-    const me = latestPlayersForSpells.find((p) => p.id === myId);
-    spellRangeRing.clear();
-    if (!me) return;
-    spellRangeRing.circle(me.x, me.y, SPELLS[spellAim.spell].range * TILE_SIZE).stroke({ width: 2, color: 0xf2c94c, alpha: 0.6 });
-    if (spellRangeRing.parent !== worldLayer) worldLayer.addChild(spellRangeRing);
-  });
-  window.addEventListener("keydown", (e) => {
-    if (e.ctrlKey || e.altKey || e.metaKey || e.repeat) return;
-    const digit = /^Digit([1-4])$/.exec(e.code);
-    const fkey = /^F([1-4])$/.exec(e.code);
-    if (digit && e.shiftKey) {
-      e.preventDefault();
-      useSpellSlot(Number(digit[1]) - 1);
-    } else if (fkey) {
-      e.preventDefault();
-      useSpellSlot(Number(fkey[1]) - 1);
-    } else if (e.key === "Escape" && spellAim) {
-      setSpellAim(null);
-    }
-  });
-
-  // ---- Settlement population (ROADMAP "Settlement population caps"): one Colony panel row per Town
-  // Center ("Settlement 1: 9/12"), amber when full, red when over its cap; a toast (throttled per
-  // settlement) when one reaches its cap. Rows are rebuilt only when the text changes.
-  const statSettlementsEl = document.getElementById("stat-settlements")!;
-  const SETTLEMENT_FULL_TOAST_THROTTLE_MS = 60000;
-  const settlementWasFull = new Map<number, boolean>();
-  const settlementToastAt = new Map<number, number>();
-  let settlementPanelKey = "";
-  function refreshSettlementPanel(tcs: TownCenterSnapshot[]) {
-    // Grey the Keep tool until some Town Center is at level 2 (it stays selectable, the cost text says why).
-    const keepBtn = toolButtonEls.get(TileType.Keep);
-    if (keepBtn) {
-      const keepReady = tcs.some((tc) => tc.level >= 2);
-      keepBtn.style.opacity = keepReady ? "" : "0.5";
-      keepBtn.title = keepReady ? "" : "Keep needs a Town Center at level 2";
-    }
-    const rows = tcs.map((tc, i) => ({
-      n: i + 1,
-      used: tc.population ?? 0,
-      cap: tc.populationCap ?? 0,
-      known: tc.populationCap !== undefined,
-      // Barracks housing: soldiers live in their unit buildings, shown apart from the civilian count.
-      troops: tc.troops,
-      troopCap: tc.troopCap ?? 0,
-    }));
-    const key = rows.map((r) => `${r.n}:${r.used}/${r.cap}:${r.troops}/${r.troopCap}`).join("|");
-    if (key !== settlementPanelKey) {
-      settlementPanelKey = key;
-      statSettlementsEl.replaceChildren();
-      for (const r of rows) {
-        if (!r.known) continue;
-        const row = document.createElement("div");
-        row.className = "econ-row";
-        const label = document.createElement("span");
-        label.textContent = `Settlement ${r.n}`;
-        const count = document.createElement("span");
-        count.textContent = `${r.used}/${r.cap}`;
-        if (r.used > r.cap) count.className = "pop-over";
-        else if (r.used === r.cap) count.className = "pop-full";
-        row.append(label, count);
-        statSettlementsEl.append(row);
-        if (r.troops !== undefined && r.troopCap > 0) {
-          const troopRow = document.createElement("div");
-          troopRow.className = "econ-row";
-          const troopLabel = document.createElement("span");
-          troopLabel.textContent = `Settlement ${r.n} troops`;
-          troopLabel.title = "Soldiers live in their unit buildings (each houses its tier headcount + 1 per adjacent house), not in settlement population";
-          const troopCount = document.createElement("span");
-          troopCount.textContent = `${r.troops}/${r.troopCap}`;
-          troopRow.append(troopLabel, troopCount);
-          statSettlementsEl.append(troopRow);
-        }
-      }
-    }
-    const now = performance.now();
-    for (const r of rows) {
-      const full = r.known && r.cap > 0 && r.used >= r.cap;
-      if (full && !settlementWasFull.get(r.n) && now - (settlementToastAt.get(r.n) ?? -Infinity) >= SETTLEMENT_FULL_TOAST_THROTTLE_MS) {
-        settlementToastAt.set(r.n, now);
-        pushEventToast("build", `Settlement ${r.n} is at its population cap — upgrade its Town Center or build a Keep`);
-      }
-      settlementWasFull.set(r.n, full);
-    }
-  }
-
-  // Newest on top. Past MAX_TOASTS the oldest still-live toast is dropped with a quick fade, so a
-  // burst (a whole garrison dying at once) shows its latest few rather than flooding the screen.
-  function pushEventToast(category: GameEventCategory, text: string) {
-    const toast = document.createElement("div");
-    toast.className = `event-toast event-${category}`;
-    const icon = document.createElement("img");
-    icon.className = "event-icon";
-    // "raid" has no art of its own; it borrows the deserter icon (build/milestone the upgrade one, boss the death one).
-    const iconName: Partial<Record<GameEventCategory, string>> = { raid: "deserter", build: "upgrade", milestone: "upgrade", boss: "death", morale: "deserter" };
-    icon.src = `/sprites/icon-event-${iconName[category] ?? category}.png`;
-    icon.alt = "";
-    toast.append(icon, text);
-    eventFeedEl.prepend(toast);
-    const live = Array.from(eventFeedEl.children).filter(
-      (el) => !el.classList.contains("dropped") && !el.classList.contains("fading")
-    ) as HTMLElement[];
-    for (const old of live.slice(MAX_TOASTS)) removeToast(old, "dropped", TOAST_DROP_MS);
-    window.setTimeout(() => removeToast(toast, "fading", TOAST_FADE_MS), TOAST_SHOW_MS);
-  }
-
-  // ---- Goal tracker (top-right parchment card) and the Ogre Warlord's boss bar ----
-  const goalTrackerEl = document.getElementById("goal-tracker")!;
-  const goalStepEl = document.getElementById("goal-step")!;
-  const goalTitleEl = document.getElementById("goal-title")!;
-  const goalFillEl = document.getElementById("goal-progress-fill")!;
-  const goalCountEl = document.getElementById("goal-progress-text")!;
-  const GOAL_FLASH_MS = 1600;
   // -1 until the first snapshot after a welcome, so a load / restart never flashes.
   let lastGoalIndex = -1;
-  let latestGoal: GoalSnapshot | null = null;
-  let goalFlashTimer = 0;
-
-  function syncGoal(goal: GoalSnapshot | undefined) {
-    latestGoal = goal ?? null;
-    if (!goal) {
-      goalTrackerEl.hidden = true;
-      return;
-    }
-    goalTrackerEl.hidden = false;
-    const done = goal.index >= goal.total;
-    goalStepEl.textContent = done ? "Complete" : `${goal.index + 1} / ${goal.total}`;
-    goalTitleEl.textContent = goal.title;
-    goalFillEl.style.width = `${Math.round((Math.min(goal.progress, goal.target) / goal.target) * 100)}%`;
-    goalCountEl.textContent = goal.target > 1 ? `${goal.progress} / ${goal.target}` : done ? "Victory" : "";
-    goalTrackerEl.classList.toggle("goal-done", done);
-    if (lastGoalIndex !== -1 && goal.index > lastGoalIndex) {
-      goalTrackerEl.classList.remove("goal-flash");
-      void goalTrackerEl.offsetWidth; // restart the animation
-      goalTrackerEl.classList.add("goal-flash");
-      window.clearTimeout(goalFlashTimer);
-      goalFlashTimer = window.setTimeout(() => goalTrackerEl.classList.remove("goal-flash"), GOAL_FLASH_MS);
-    }
-    lastGoalIndex = goal.index;
-  }
-
-  const bossBarEl = document.getElementById("boss-bar")!;
-  const bossBarNameEl = document.getElementById("boss-bar-name")!;
-  const bossBarFillEl = document.getElementById("boss-bar-fill")!;
-  // Shown while the Ogre Warlord is within this many tiles of the local player.
-  const BOSS_BAR_RANGE_TILES = VISION_RADIUS_PLAYER * 1.5;
-
-  // The player's own health bar at the top of the screen (unit bars over sprites are hidden).
-  const playerBarEl = document.getElementById("player-bar")!;
-  const playerBarLabelEl = document.getElementById("player-bar-label")!;
-  const playerBarFillEl = document.getElementById("player-bar-fill")!;
-  function syncPlayerBar(players: PlayerSnapshot[]) {
-    const me = players.find((p) => p.id === myId);
-    playerBarEl.hidden = !me || me.dead || me.maxHp <= 0;
-    if (!me || me.dead || me.maxHp <= 0) return;
-    const frac = Math.max(0, Math.min(1, me.hp / me.maxHp));
-    playerBarLabelEl.textContent = `Health ${Math.ceil(me.hp)} / ${Math.ceil(me.maxHp)}`;
-    playerBarFillEl.style.width = `${(frac * 100).toFixed(1)}%`;
-    playerBarFillEl.className = frac <= 0.25 ? "crit" : frac <= 0.5 ? "low" : "";
-  }
-
-  function syncBossBar(mobs: MobSnapshot[], players: PlayerSnapshot[]) {
-    const me = players.find((p) => p.id === myId);
-    const warlord = mobs.find((m) => m.boss === "warlord");
-    const near =
-      !!me && !!warlord && Math.hypot(warlord.x - me.x, warlord.y - me.y) <= BOSS_BAR_RANGE_TILES * tileSize;
-    bossBarEl.hidden = !near;
-    if (!near || !warlord) return;
-    bossBarNameEl.textContent = bossTitle(warlord.kind, "warlord");
-    bossBarFillEl.style.width = `${Math.max(0, Math.min(100, (warlord.hp / warlord.maxHp) * 100)).toFixed(1)}%`;
-  }
 
   let wasNight = false;
   socket.addEventListener("message", (event) => {
@@ -7304,7 +4397,7 @@ async function main() {
     } else if (message.type === "dialogue" || message.type === "interactNone") {
       heroLifeRef.ui?.onMessage(message);
     } else if (message.type === "buildingInfo") {
-      if (!infoTile || infoTile.tx !== message.tileX || infoTile.ty !== message.tileY) return;
+      if (!buildingPanelApi.infoTile || buildingPanelApi.infoTile.tx !== message.tileX || buildingPanelApi.infoTile.ty !== message.tileY) return;
       if (message.info) renderBuildingInfo(message.info);
       else closeBuildingInfo();
     } else if (message.type === "creativeResult") {
@@ -7320,72 +4413,9 @@ async function main() {
     }
     } finally { if(message.type==="snapshot")perf.phase("snapshot apply",snapshotStart); }
   });
-
-  // Quick-save button: saves to the slot you last saved to (Slot 1 the first time), no dialog.
-  function getLastSaveSlot(): SaveSlot {
-    try {
-      const v = localStorage.getItem("sworn.lastSaveSlot");
-      if (v === "slot1" || v === "slot2" || v === "slot3") return v;
-    } catch {
-      /* ignore */
-    }
-    return "slot1";
-  }
-  function setLastSaveSlot(slot: SaveSlot) {
-    try {
-      localStorage.setItem("sworn.lastSaveSlot", slot);
-    } catch {
-      /* ignore */
-    }
-  }
-  document.getElementById("save-btn")!.addEventListener("click", () => {
-    sendMessage({ type: "saveGame", slot: getLastSaveSlot() });
+  const { renderSavePanel } = createSavePanel({
+    sendMessage, creativeUi,
   });
-
-  // In-game Save Game section (top of the Settings modal): 3 manual slots, plus Load for every save.
-  let latestSaves: SaveInfo[] = [];
-  function renderSavePanel(saves: SaveInfo[]) {
-    latestSaves = saves;
-    const bySlot = new Map(saves.map((sv) => [sv.slot, sv]));
-    renderSaveRows(
-      document.getElementById("save-slot-list")!,
-      // Creative mode: a creative game saves only to its own slot.
-      ((creativeUi.on ? ["creative"] : ["slot1", "slot2", "slot3"]) as SaveSlot[]).map((slot) => ({
-        slot,
-        info: bySlot.get(slot),
-        buttons: [
-          {
-            label: "Save",
-            onClick: () => {
-              const existing = latestSaves.find((sv) => sv.slot === slot);
-              if (existing && !window.confirm(`Overwrite ${saveSlotLabel(slot)} (${describeSave(existing)})?`)) return;
-              setLastSaveSlot(slot);
-              sendMessage({ type: "saveGame", slot });
-            },
-          },
-        ],
-      }))
-    );
-    renderSaveRows(
-      document.getElementById("save-load-list")!,
-      saves.map((sv) => ({
-        slot: sv.slot,
-        info: sv,
-        buttons: [
-          {
-            label: "Load",
-            secondary: true,
-            onClick: () => {
-              if (!window.confirm(`Load ${saveSlotLabel(sv.slot)} for everyone connected? Unsaved progress is lost.`)) return;
-              sendMessage({ type: "loadGame", slot: sv.slot });
-              document.getElementById("settings-modal")!.hidden = true;
-            },
-          },
-        ],
-      })),
-      "No saves yet"
-    );
-  }
   // Refresh the list whenever the Settings modal opens (another player may have saved meanwhile).
   document.getElementById("settings-btn")!.addEventListener("click", () => sendMessage({ type: "listSaves" }));
 
@@ -7573,9 +4603,7 @@ async function main() {
   // Phase 4: Shift+C then right-click an enemy = charge, Shift+B then right-click = bombard that point;
   // right-clicking a camp hearth = attackHearth. Settings: Shift+T hold fire, Shift+V skirmish, Alt+C cycle
   // charge (toggles), Shift+Q cycles the shape.
-  type ArmedOrder = "attackMove" | "follow" | "charge" | "bombard";
   const ORDER_HOTKEYS: Record<string, ArmyOrderKind> = { f: "attackMove", g: "follow", h: "hold", r: "retreat", c: "charge", b: "bombard" };
-  type StrategySetting = "holdFire" | "skirmish" | "cycleCharge" | "shape";
   const SETTING_HOTKEYS: Record<string, StrategySetting> = { t: "holdFire", v: "skirmish", q: "shape" };
   let armedOrder: ArmedOrder | null = null;
   // Strategy mode phase 5: enemy summaries (snapshot enemyRegiments, kept until the next), their banners,
@@ -7784,7 +4812,7 @@ async function main() {
     const hpWidth=`${hpFrac * 100}%`;if(heroBarHp.style.width!==hpWidth)heroBarHp.style.width=hpWidth;
     updateVitals("health",hpFrac*100,me.dead?"Fallen":`${Math.ceil(me.hp)} / ${me.maxHp}`);
     const hpText=me.dead ? "Fallen" : `${Math.ceil(me.hp)} / ${me.maxHp}`;if(heroBarHpText.textContent!==hpText)heroBarHpText.textContent=hpText;
-    const prof = heroProfile;
+    const prof = heroSheetApi.heroProfile;
     const next = prof?.nextLevelXp ?? null;
     const xpFrac = prof && next !== null && next > prof.levelXp ? (prof.xp - prof.levelXp) / (next - prof.levelXp) : 1;
     const xpWidth=`${Math.max(0, Math.min(1, xpFrac)) * 100}%`;if(heroBarXp.style.width!==xpWidth)heroBarXp.style.width=xpWidth;
@@ -7832,8 +4860,8 @@ async function main() {
     itemCount: (id) => itemTotal(progressionUi.latest(), id),
     gatesOpen: () => progressionUi.latest()?.open === true,
     // Weapons in the pack plus the wielded one, in id order so slots keep their place when one is swapped in.
-    weapons: () => (heroProfile ? [heroProfile.equipment.weapon, ...heroProfile.inventory].filter((i): i is GearItem => !!i && i.slot === "weapon").sort((a, b) => (a.id < b.id ? -1 : 1)) : []),
-    equippedWeaponId: () => heroProfile?.equipment.weapon?.id ?? null,
+    weapons: () => (heroSheetApi.heroProfile ? [heroSheetApi.heroProfile.equipment.weapon, ...heroSheetApi.heroProfile.inventory].filter((i): i is GearItem => !!i && i.slot === "weapon").sort((a, b) => (a.id < b.id ? -1 : 1)) : []),
+    equippedWeaponId: () => heroSheetApi.heroProfile?.equipment.weapon?.id ?? null,
     equipWeapon: (id) => sendMessage({ type: "equipItem", itemId: id, slot: "weapon" }),
     weaponIcon: (item) => itemIcon(item),
   });
@@ -7842,8 +4870,8 @@ async function main() {
     app,
     worldLayer,
     structure: STRUCTURE_TEXTURES,
-    spellAim:()=>spellAim,
-    castSpell:target=>{if(spellAim)castSlot(spellAim.slot,target);},
+    spellAim:()=>spellBarApi.spellAim,
+    castSpell:target=>{if(spellBarApi.spellAim)castSlot(spellBarApi.spellAim.slot,target);},
     cancelSpell:()=>setSpellAim(null),
     combatAim:(x,y)=>combatControls?.aim(x,y),
     notice:text=>adventureUi.onEvent(text),
@@ -7894,7 +4922,7 @@ async function main() {
   combatControls=setupPlayerCombat({send:sendMessage,swing:()=>sound.play("sword_swing"),context:()=>{
     const me=latestPlayersForSpells.find(p=>p.id===myId),inside=!!interiorRef.ui?.active();
     const menu=document.getElementById("main-menu"),talk=document.getElementById("hl-dialogue");
-    return{me,inside,enabled:!!me&&!me.dead&&!strategyCam.inStrategy&&!currentPaused&&heroModal.hidden&&!!menu?.hidden&&(talk?.hidden??true)&&!spellAim&&(inside||buildPanel.classList.contains("collapsed")&&selectedIds.size===0&&(heroToolsRef.ui?.combatReady()??true))};
+    return{me,inside,enabled:!!me&&!me.dead&&!strategyCam.inStrategy&&!timeControlsApi.currentPaused&&heroModal.hidden&&!!menu?.hidden&&(talk?.hidden??true)&&!spellBarApi.spellAim&&(inside||buildPanel.classList.contains("collapsed")&&selectedIds.size===0&&(heroToolsRef.ui?.combatReady()??true))};
   }});
   const combatCues=new Graphics();combatCues.zIndex=1e7;worldLayer.addChild(combatCues);
   app.ticker.add(()=>{
@@ -8012,7 +5040,7 @@ async function main() {
   }
 
   function refreshStrategyFog() {
-    strategyFog.update(explored, liveVisionSources(latestPlayersForSpells, latestColonists));
+    strategyFog.update(minimapApi.explored, liveVisionSources(latestPlayersForSpells, latestColonists));
     fogUpdatedAt = performance.now();
   }
 
@@ -8248,15 +5276,15 @@ async function main() {
   // Every frame in strategy mode: flank arrows, threats, clash icons (Map band) and objective markers.
   function drawIntel(mapBand: boolean) {
     const objectives: ObjectiveMarker[] = [];
-    const castleGoal = latestGoal !== null && latestGoal.index < latestGoal.total && /castle ruin/i.test(latestGoal.title);
-    if (castleRuinTile && explored[castleRuinTile.y * worldTilesX + castleRuinTile.x]) {
+    const castleGoal = hudPanelsApi.latestGoal !== null && hudPanelsApi.latestGoal.index < hudPanelsApi.latestGoal.total && /castle ruin/i.test(hudPanelsApi.latestGoal.title);
+    if (castleRuinTile && minimapApi.explored[castleRuinTile.y * worldTilesX + castleRuinTile.x]) {
       objectives.push({
-        key: "castle", kind: "castle", label: castleGoal ? latestGoal!.title : "Castle Ruin", objective: castleGoal,
+        key: "castle", kind: "castle", label: castleGoal ? hudPanelsApi.latestGoal!.title : "Castle Ruin", objective: castleGoal,
         x: (castleRuinTile.x + 0.5) * tileSize, y: (castleRuinTile.y + 0.5) * tileSize,
       });
     }
     for (const index of latestHearths) {
-      if (!explored[index]) continue;
+      if (!minimapApi.explored[index]) continue;
       objectives.push({
         key: `h${index}`, kind: "camp", label: "Camp", objective: false,
         x: ((index % worldTilesX) + 0.5) * tileSize, y: (Math.floor(index / worldTilesX) + 0.5) * tileSize,
@@ -8266,7 +5294,7 @@ async function main() {
       zoom: camZoom,
       mapBand,
       enemies: enemyRegiments,
-      clashes: mapBand ? latestFights.filter(fightIsOnScreen).map((f) => ({ fight: f, ...fightWorldPos(f) })) : [],
+      clashes: mapBand ? fightArrowsApi.latestFights.filter(fightIsOnScreen).map((f) => ({ fight: f, ...fightWorldPos(f) })) : [],
       threats: strategyThreats,
       objectives,
       now: performance.now(),
@@ -8316,7 +5344,7 @@ async function main() {
     redrawOrderMarkers();
     if (strategyCam.active) {
       if (performance.now() - fogUpdatedAt >= STRATEGY_FOG_REFRESH_MS) {
-        strategyFog.update(explored, liveVisionSources(players, latestColonists));
+        strategyFog.update(minimapApi.explored, liveVisionSources(players, latestColonists));
         fogUpdatedAt = performance.now();
       }
       buildStrategyBanners();
@@ -8403,7 +5431,7 @@ async function main() {
     "keydown",
     (e) => {
       if (e.key !== "Escape" || !strategyCam.inStrategy) return;
-      if (spellAim || infoTile || selectedIds.size > 0 || !settingsModalEl.hidden || !heroModal.hidden) return;
+      if (spellBarApi.spellAim || buildingPanelApi.infoTile || selectedIds.size > 0 || !settingsModalEl.hidden || !heroModal.hidden) return;
       e.stopImmediatePropagation();
       strategyCam.exit(performance.now());
     },
@@ -8449,7 +5477,7 @@ async function main() {
     if (!at) return;
     const tx = at.x;
     const ty = at.y;
-    const reach = 8 / minimapCssPerTile;
+    const reach = 8 / minimapApi.minimapCssPerTile;
     let tip = "";
     let best = Infinity;
     for (const f of fortMarkers) {
@@ -8494,29 +5522,7 @@ async function main() {
 
   app.canvas.addEventListener("contextmenu", (e) => e.preventDefault());
 
-  // Left button is resolved on pointerup (it may become a drag-select); other buttons act on down.
-  interface LeftPress {
-    pointerId: number;
-    screenX: number;
-    screenY: number;
-    worldX: number;
-    worldY: number;
-    dragging: boolean;
-  }
   let leftPress: LeftPress | null = null;
-  // Right-button order in progress for a multi-unit selection (see computeLineFormationTargets).
-  interface OrderPress {
-    pointerId: number;
-    screenX: number;
-    screenY: number;
-    worldX: number;
-    worldY: number;
-    dragging: boolean;
-    order: number;
-    // Strategy mode: the regiment order a release sends (Shift at press = queue it).
-    kind?: "move" | "attackMove";
-    queue?: boolean;
-  }
   let orderPress: OrderPress | null = null;
   const lineGuide = new Graphics();
   function cancelOrderPress() {
@@ -8551,8 +5557,8 @@ async function main() {
     // Creative mode: a spawn / stamp placed "At click" takes the left click.
     if (e.button === 0 && creativeUi.consumeClick(x, y)) return;
     // Hero phase 4: aiming a spell takes the left click; a right click cancels the aim.
-    if (spellAim && e.button === 0 && spellAimClick(x, y)) return;
-    if (spellAim && e.button === 2) {
+    if (spellBarApi.spellAim && e.button === 0 && spellAimClick(x, y)) return;
+    if (spellBarApi.spellAim && e.button === 2) {
       setSpellAim(null);
       return;
     }
@@ -9056,26 +6062,4 @@ async function main() {
 }
 
 setupMainMenu({ serverUrl: SERVER_URL, startGame: () => void main() });
-
-// The control strip can wrap at different window sizes and text scales.
-const toolbarForLayout=document.getElementById('control-buttons');
-if(toolbarForLayout){const placeLedger=()=>document.documentElement.style.setProperty('--toolbar-bottom',`${toolbarForLayout.getBoundingClientRect().bottom+8}px`);new ResizeObserver(placeLedger).observe(toolbarForLayout);placeLedger();}
-
-// Keep controls outside the collapsible inventory; reparenting retains every existing listener.
-const colonyHeader = document.createElement('section');
-colonyHeader.id = 'colony-header';
-colonyHeader.setAttribute('aria-label', 'Colony status and time');
-const colonyCommands = document.createElement('div');
-colonyCommands.id = 'colony-commands';
-for (const id of ['strategy-btn', 'pause-btn', 'time-controls']) colonyCommands.append(document.getElementById(id)!);
-colonyHeader.append(colonyCommands, document.getElementById('colony-stats')!);
-document.body.append(colonyHeader);
-document.getElementById('control-buttons')!.append(document.getElementById('next-bar')!);
-document.getElementById('economy-panel-toggle')!.textContent = 'Stockpile';
-const stockPanel = document.getElementById('economy-panel')!;
-const syncStockPanel = () => document.body.classList.toggle('stockpile-open', !stockPanel.classList.contains('collapsed'));
-new MutationObserver(syncStockPanel).observe(stockPanel, {attributes:true, attributeFilter:['class']});
-syncStockPanel();
-const measureHeader = () => document.documentElement.style.setProperty('--colony-header-bottom', `${colonyHeader.getBoundingClientRect().bottom + 12}px`);
-new ResizeObserver(measureHeader).observe(colonyHeader);
-measureHeader();
+setupHudLayout();

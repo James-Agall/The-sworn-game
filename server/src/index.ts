@@ -32,6 +32,8 @@ import { generateWorld, worldBusy, worldJob } from "./worldgen.js";
 import { loadCampTemplates } from "./camps.js";
 import { buildingTemplates, handlePlaceBlueprint, loadBuildingTemplates } from "./buildingTemplates.js";
 import { loadSettlementTemplates } from "./settlementTemplates.js";
+import { loadSiteTemplates } from "./siteTemplates.js";
+import { loadPoiTemplates } from "./poiTemplates.js";
 import { wildlifeForSnapshot } from "./wildlife.js";
 import {
   TOWN_CENTER_TILE, civilianPopulationUsed, handleRepairBuilding, isAtShelter, peopleSnapshot, respawnWindowSnapshot,
@@ -92,6 +94,8 @@ setTile(tileIndex(TOWN_CENTER_TILE.x, TOWN_CENTER_TILE.y), TileType.TownCenter);
 loadCampTemplates();
 loadBuildingTemplates();
 loadSettlementTemplates();
+loadSiteTemplates();
+loadPoiTemplates();
 await generateWorld();
 httpServer.listen(PORT,process.env.COLONY_HOST??'0.0.0.0');
 console.log(`colony2d server listening on ws://localhost:${PORT}`);

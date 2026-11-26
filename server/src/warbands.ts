@@ -10,12 +10,13 @@ import { TILE_SIZE, type MobKind } from "@colony/shared/protocol";
 import type { Mob, RaidEdge, RaidFactionId, RaidGroup, SiteState, SiteTemplateId, TileCoord } from "./types.js";
 import {
   CAMP_RAID_MIN_TIER, CAMP_RAID_RANGE_TILES, CAMP_RAID_SIZE_CAP, CAMP_RESETTLE_COOLDOWN_DAYS, GAME_DAY_TICKS,
-  MOB_KIND_CONFIG, MOB_REPATH_TICKS, RAID_FACTIONS, SITE_APRON_TILES, SITE_FORT_MIN_WORLD_TILES, SITE_FORT_SPACING_TILES, SITE_TEMPLATES,
+  MOB_KIND_CONFIG, MOB_REPATH_TICKS, RAID_FACTIONS, SITE_APRON_TILES, SITE_FORT_MIN_WORLD_TILES, SITE_FORT_SPACING_TILES,
   TEST_HOOKS, WARBAND_AWAKE_TILES, WARBAND_CLAN_CLEARANCE_TILES, WARBAND_COUNT_AT_512, WARBAND_COUNT_EXP,
   WARBAND_ENGAGE_TILES, WARBAND_FIRST_DAY, WARBAND_PACE, WARBAND_SEGMENT_TILES, WARBAND_SETTLE_ATTEMPTS,
   WARBAND_SETTLE_MAX_TC_TILES, WARBAND_SETTLE_MIN_TC_TILES, WARBAND_SIGHT_TILES, WARBAND_SIZE_BASE,
   WARBAND_SIZE_DAYS_PER_MOB, WARBAND_SIZE_MAX, WARBAND_SLEEP_TILES, WARBAND_SPAWN_DAYS,
 } from "./constants.js";
+import { SITE_TEMPLATES } from "./siteTemplates.js";
 import { colonists, hearths, mobs, players, raidGroups, sites, state } from "./state.js";
 import { inBounds, tileIndex, tileOfPixel, tileToPixelCenter, dayTicksFor } from "./tiles.js";
 import { advanceAlongPath, findAdjacentWalkable, findPath, isWalkableTile } from "./pathfinding.js";

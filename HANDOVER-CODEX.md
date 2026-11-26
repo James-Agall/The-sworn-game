@@ -29,7 +29,11 @@ priorities, hero tools, seasons/weather, interiors, animals in buildings, bluepr
   `buildingTemplates.ts`, `settlementTemplates.ts`, `snapshotDelta.ts`, `herolife.ts`, ...
 - `server/src/`: one module per domain, `index.ts` boots + routes messages, `sim.ts` is one tick, `testhooks.ts` exposes
   test-only hooks (needs `COLONY_TEST_HOOKS=1`). Data: `server/data/camps/`, `server/data/buildings/`,
-  `server/data/settlements/` (JSON templates, `user/` subfolders for editor saves).
+  `server/data/settlements/` (JSON templates, `user/` subfolders for editor saves). Stage B (2026-11-26,
+  STAGE-B-DATA-2026-11-26.md): also `server/data/sites/` (forts + human-site profiles, was SITE_TEMPLATES),
+  `server/data/pois/` (ruin / encampment pools) and `server/data/castle-ruins/` (the Castle Ruin), same store rules;
+  building interiors are static data in `shared/src/data/interiors/*.json` (no user folder; bundled into the client).
+  `npm test -- data-templates` proves world-gen / interiors identical to the pre-move code (golden hashes).
 - `client/src/main.ts` (large; splitting it is an open cleanup), plus `adventure.ts`, `interior.ts`, `herotools.ts`,
   `zones.ts`, `work.ts`, `weather.ts`, `blueprints.ts`, `campEditor.ts`, `templateEditor.ts`, `structureArt.ts`,
   `spriteRegistry.ts`, `unitVisuals.ts`, `worldVisuals.ts`, `tools.ts`, ...

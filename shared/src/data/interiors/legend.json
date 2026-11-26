@@ -1,0 +1,175 @@
+{
+  "1": {
+    "label": "Keeper",
+    "npc": "1"
+  },
+  "2": {
+    "label": "Second keeper",
+    "npc": "2"
+  },
+  "#": {
+    "label": "Wall"
+  },
+  ".": {
+    "label": "Floor"
+  },
+  "E": {
+    "label": "Exit mat"
+  },
+  "b": {
+    "label": "Bed",
+    "prop": "bed"
+  },
+  "q": {
+    "label": "Bed (level 2+)",
+    "prop": "bed",
+    "minLevel": 2
+  },
+  "Q": {
+    "label": "Fine bed (level 3)",
+    "prop": "bedFine",
+    "minLevel": 3
+  },
+  "c": {
+    "label": "Chest",
+    "prop": "chest"
+  },
+  "t": {
+    "label": "Table",
+    "prop": "table"
+  },
+  "h": {
+    "label": "Chair",
+    "prop": "chair"
+  },
+  "H": {
+    "label": "Hearth",
+    "prop": "hearth"
+  },
+  "l": {
+    "label": "Lamp (level 2+)",
+    "prop": "lamp",
+    "minLevel": 2
+  },
+  "r": {
+    "label": "Rug (level 2+)",
+    "prop": "rug",
+    "minLevel": 2
+  },
+  "s": {
+    "label": "Shelf",
+    "prop": "shelf"
+  },
+  "w": {
+    "label": "Wardrobe (level 2+)",
+    "prop": "wardrobe",
+    "minLevel": 2
+  },
+  "K": {
+    "label": "Counter",
+    "prop": "counter"
+  },
+  "A": {
+    "label": "Altar",
+    "prop": "altar"
+  },
+  "p": {
+    "label": "Pew",
+    "prop": "pew"
+  },
+  "n": {
+    "label": "Anvil",
+    "prop": "anvil"
+  },
+  "o": {
+    "label": "Oven",
+    "prop": "oven"
+  },
+  "x": {
+    "label": "Barrel",
+    "prop": "barrel"
+  },
+  "X": {
+    "label": "Crates",
+    "prop": "crates"
+  },
+  "k": {
+    "label": "Sacks",
+    "prop": "sacks"
+  },
+  "y": {
+    "label": "Hay",
+    "prop": "hay"
+  },
+  "R": {
+    "label": "Weapon rack",
+    "prop": "weaponRack"
+  },
+  "a": {
+    "label": "Armour stand",
+    "prop": "armourStand"
+  },
+  "B": {
+    "label": "Banner",
+    "prop": "banner"
+  },
+  "S": {
+    "label": "Statue (level 3)",
+    "prop": "statue",
+    "minLevel": 3
+  },
+  "T": {
+    "label": "High seat",
+    "prop": "throne"
+  },
+  "f": {
+    "label": "Forge",
+    "prop": "forge"
+  },
+  "m": {
+    "label": "Market stall",
+    "prop": "stall"
+  },
+  "W": {
+    "label": "Workbench",
+    "prop": "workbench"
+  },
+  "C": {
+    "label": "Candelabra (level 2+)",
+    "prop": "candelabra",
+    "minLevel": 2
+  },
+  "v": {
+    "label": "Resident / patron",
+    "npc": "v"
+  },
+  "U": {
+    "label": "Stairs up",
+    "prop": "stairsUp"
+  },
+  "D": {
+    "label": "Stairs down",
+    "prop": "stairsDown"
+  },
+  "O": {
+    "label": "Ore face",
+    "prop": "oreFace"
+  },
+  "P": {
+    "label": "Timber prop",
+    "prop": "timberProp"
+  },
+  "Z": {
+    "label": "Monster lair (floor)"
+  },
+  "N": {
+    "label": "Way down to level 2",
+    "prop": "mineShaft",
+    "minLevel": 2
+  },
+  "M": {
+    "label": "Way down to level 3",
+    "prop": "mineShaft",
+    "minLevel": 3
+  }
+}

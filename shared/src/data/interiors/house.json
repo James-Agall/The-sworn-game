@@ -1,0 +1,54 @@
+{
+  "id": "house",
+  "required": [
+    "bed",
+    "chest",
+    "hearth"
+  ],
+  "sleep": true,
+  "variants": [
+    {
+      "label": "House",
+      "floor": "wood",
+      "wall": "wood",
+      "rows": [
+        "###########",
+        "#b.qH..s.c#",
+        "#v.v.....w#",
+        "#...rr....#",
+        "#..hth..x.#",
+        "#l.......l#",
+        "#####E#####"
+      ]
+    },
+    {
+      "label": "House",
+      "floor": "wood",
+      "wall": "wood",
+      "rows": [
+        "#########",
+        "#b.H..sc#",
+        "#v......#",
+        "#q.v.ht.#",
+        "#....hr.#",
+        "#Q.....w#",
+        "#l.x...l#",
+        "####E####"
+      ]
+    },
+    {
+      "label": "House",
+      "floor": "wood",
+      "wall": "wood",
+      "rows": [
+        "############",
+        "#bq..#.H..c#",
+        "#v.v.#.....#",
+        "#Q.........#",
+        "#w...#..hth#",
+        "#l...#.x..l#",
+        "######E#####"
+      ]
+    }
+  ]
+}

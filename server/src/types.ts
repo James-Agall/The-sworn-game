@@ -388,14 +388,16 @@ export interface Mob {
 // Forts phase B: "fort" = a stamped NPC fort (a SiteState in `sites`, keyed by the mobs' siteId).
 export type PoiSiteKind = "ruin" | "encampment" | "castleRuin" | "miniBoss" | "fort";
 // ---- Forts phase B (PLAN-forts-diplomacy-moats.md §2, §8): stamped NPC fort sites ----
-export type SiteTemplateId = "thornwick" | "grakkar" | "hearthmoor" | "ironhold" | "riverwatch";
+// Stage B (2026-11-26): an open id (the templates are data: server/data/sites/*.json + user/). Check one at run
+// time with isSiteTemplateId (siteTemplates.ts); the built-ins the code names are BUILTIN_SITE_TEMPLATE_IDS.
+export type SiteTemplateId = string;
 export interface SiteTemplate {
   id: SiteTemplateId;
   faction: SiteFaction;
   // "Palisade" / "Stockade": the site name is "<picked name> <label>".
   label: string;
   names: string[];
-  // ASCII grid (legend SITE_TEMPLATE_TILES) at the MAX tier; `tiers` is a same-size grid giving, per
+  // ASCII grid (legend SITE_TEMPLATE_TILES, shared/src/siteTemplates.ts) at the MAX tier; `tiers` is a same-size grid giving, per
   // non-"." cell, the tier (digit 1-4) that adds it. Rows must all have the same length.
   rows: string[];
   tiers: string[];

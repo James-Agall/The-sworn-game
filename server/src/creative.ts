@@ -11,9 +11,10 @@ import {
 } from "@colony/shared/protocol";
 import type { Colonist, Mob, Player, RaidFactionId, RaidGroup, SiteState, SiteTemplateId, TileCoord } from "./types.js";
 import {
-  GAME_DAY_TICKS, MOB_KIND_CONFIG, PLAYER_ATTACK_RANGE, RAID_FACTIONS, SITE_TEMPLATES,
+  GAME_DAY_TICKS, MOB_KIND_CONFIG, PLAYER_ATTACK_RANGE, RAID_FACTIONS,
   STANCES, STANCE_ALERT_RANGE_TILES, LINE_LEASH_TILES,
 } from "./constants.js";
+import { SITE_TEMPLATES } from "./siteTemplates.js";
 import {
   buildingLevel, clans, colonists, makeClan, mobs, players, raidGroups, sites, state, tradingPosts, wildlife,
   type Clan,
