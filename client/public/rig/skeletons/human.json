@@ -1,7 +1,7 @@
 {
   "format": "sworn-skeleton/1",
   "name": "human",
-  "note": "The player rig's skeleton as data, from client/public/rig/body.html (frame, ground point, torso heights, hips, hand reach, shield pose) and index.html (bend signs, spear grip, bow string). Bone LENGTHS come from the part set's manifest (len of thigh, shin, upperArm, foreArm; soleBelowAnkle). Units: source px, degrees (0 = down, + = forward, 180 = up). Read by the Sprite Lab Rig tab (tools/sprite-lab/shared/pose.ts); the game runtime does not read it yet.",
+  "note": "The player rig's skeleton as data, from client/public/rig/body.html (frame, ground point, torso heights, hips, hand reach, shield pose) and index.html (bend signs, spear grip, bow string); weapon angle offsets and width scales follow client/src/heroRig.ts (axe +180, spear drawn 0.4 wide). Bone LENGTHS come from the part set's manifest (len of thigh, shin, upperArm, foreArm; soleBelowAnkle). Units: source px, degrees (0 = down, + = forward, 180 = up). Read by the Sprite Lab Rig tab (tools/sprite-lab/shared/pose.ts); the game runtime does not read it yet.",
   "frame": { "w": 256, "h": 176, "groundX": 118, "groundY": 160, "drawScale": 1.08 },
   "waistUp": 1,
   "neckUp": 31,
@@ -19,8 +19,8 @@
   "shieldPose": { "shoulder": 42, "elbow": 62, "at": [1, 0] },
   "weapons": {
     "sword": { "source": "harvested from sprites/autumn/frames/heroes/base-05.png like body.html" },
-    "axe": { "part": "axe", "angle": 180, "length": 30 },
-    "spear": { "part": "spear", "angle": 0, "length": 60 },
+    "axe": { "part": "axe", "angle": 180, "length": 30, "width": 1 },
+    "spear": { "part": "spear", "angle": 0, "length": 60, "width": 0.4 },
     "bow": { "part": "bow", "at": [6, 0], "string": { "from": [-4, 0], "to": [3, 3], "top": [-6, -27], "bottom": [-6, 27] } }
   },
   "bones": [

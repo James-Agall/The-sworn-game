@@ -152,7 +152,11 @@ export function drawFrame(R: Rig, B: Body, skel: Skeleton, clip: Clip, look0: Lo
     else if (u >= rel && rel < 1) { const f = (u - rel) / (1 - rel); g.globalAlpha = 1 - f * f; R.limbAt(g, B.arrow, S.armF.H[0] + 36 + f * 120, S.armF.H[1], 0); g.globalAlpha = 1; }
   } else if (wp) {
     if (look.weapon === "sword") R.limbAt(g, wp, S.armN.H[0], S.armN.H[1], S.wa - wp.native);
-    else R.limbAt(g, wp, S.armN.H[0], S.armN.H[1], S.wa + (skel.weapons[look.weapon]?.angle ?? 0));
+    else {
+      // heroRig.ts draws the set's weapons narrowed (spear 0.4 wide): rig-core's limbAt with a width scale
+      const ws = skel.weapons[look.weapon], a = S.wa + (ws?.angle ?? 0);
+      g.save(); g.translate(S.armN.H[0], S.armN.H[1]); g.rotate(-a * R.D); g.scale(ws?.width ?? 1, 1); g.drawImage(wp.c, -wp.px, -wp.py); g.restore();
+    }
     // index.html: the spear's off hand closes over the shaft
     if (clip.limbs?.armF?.target === "grip" && clip.limbs.armF.mode === "ik" && !look.shield) R.limbAt(g, part("foreArm", true), S.armF.E[0], S.armF.E[1], S.armF.a2);
   }

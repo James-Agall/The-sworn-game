@@ -8,18 +8,19 @@ import { mountDraw } from "./draw.ts";
 import { mountCompare } from "./compare.ts";
 import { el, toast } from "./ui.ts";
 import { installHook } from "./rig/hook.ts";
+import { mountRig } from "./rig/tab.ts";
 
 type TabId = "parts" | "draw" | "rig" | "area" | "compare";
-const TABS: [TabId, string][] = [["parts", "Parts"], ["draw", "Draw (based on Piskel)"], ["rig", "Rig (coming next)"], ["area", "Area (coming next)"], ["compare", "Compare"]];
+const TABS: [TabId, string][] = [["parts", "Parts"], ["draw", "Draw (based on Piskel)"], ["rig", "Rig"], ["area", "Area (coming next)"], ["compare", "Compare"]];
 let active: TabId = "parts", palette: HeroPalette | null = null;
 
 const app = document.getElementById("app")!;
 const tabBar = el("nav", { class: "tabs", role: "tablist" });
 const dirtyDot = el("span", { class: "dirty", id: "dirty", title: "Unsaved changes" });
 const setName = el("span", { class: "setname", id: "header-set" });
-const undoBtn = el("button", { id: "undo", text: "Undo", title: "Undo (Ctrl+Z)", onclick: () => project.undo() });
-const redoBtn = el("button", { id: "redo", text: "Redo", title: "Redo (Ctrl+Shift+Z / Ctrl+Y)", onclick: () => project.redo() });
-const saveBtn = el("button", { id: "save", class: "primary", text: "Save", title: "Save the set (Ctrl+S); overwritten files are backed up", onclick: () => save() });
+const undoBtn = el("button", { id: "undo", text: "Undo", title: "Undo (Ctrl+Z)", onclick: () => (active === "rig" ? rig.undo() : project.undo()) });
+const redoBtn = el("button", { id: "redo", text: "Redo", title: "Redo (Ctrl+Shift+Z / Ctrl+Y)", onclick: () => (active === "rig" ? rig.redo() : project.redo()) });
+const saveBtn = el("button", { id: "save", class: "primary", text: "Save", title: "Save the set (Ctrl+S; on the Rig tab: the clip); overwritten files are backed up", onclick: () => (active === "rig" ? rig.save() : save()) });
 const rootNote = el("span", { class: "rootnote", id: "root-note" });
 const palNote = el("span", { class: "warn-text", id: "palette-note" });
 const header = el("header", {}, el("strong", { class: "brand", text: "Sprite Lab" }), tabBar, el("span", { class: "grow" }), palNote, rootNote, setName, dirtyDot, undoBtn, redoBtn, saveBtn);
@@ -31,7 +32,8 @@ const parts = mountParts(panes.get("parts")!, { palette: () => palette, openInDr
 const draw = mountDraw(panes.get("draw")!, { isActive: () => active === "draw", showParts: () => showTab("parts") });
 const compare = mountCompare(panes.get("compare")!, { isActive: () => active === "compare" });
 const placeholder = (id: TabId, title: string, text: string) => panes.get(id)!.append(el("div", { class: "placeholder" }, el("h2", { text: title }), el("p", { text })));
-placeholder("rig", "Rig (coming next)", "Skeleton view, clip editor (timeline, keyframes, easing), clips as data in client/public/rig/clips/, and bending limbs. It will reuse the Lab's project model, pixel view, undo service, save API and validators.");
+installHook();
+const rig = mountRig(panes.get("rig")!, { isActive: () => active === "rig", onState: () => refreshHeader() });
 placeholder("area", "Area (coming next)", "Grid editor for bandit camps, buildings and settlements (server/data/*/user/), with the game's own validators running live. See SPEC-sprite-lab.md section 9.");
 
 for (const [id, label] of TABS) {
@@ -45,16 +47,21 @@ function showTab(id: TabId) {
   if (id === "draw") draw.activate();
   if (id === "compare") compare.activate();
   if (id === "parts") parts.view.render();
+  if (id === "rig") rig.activate();
+  refreshHeader();
 }
 
 function refreshHeader() {
-  dirtyDot.classList.toggle("on", project.dirty);
+  const onRig = active === "rig";
+  dirtyDot.classList.toggle("on", project.dirty || rig.dirty);
+  dirtyDot.title = [project.dirty ? "unsaved set" : "", rig.dirty ? "unsaved clip(s)" : ""].filter(Boolean).join(", ") || "No unsaved changes";
   setName.textContent = project.set ? `set: ${project.set}` : "";
-  undoBtn.disabled = !project.history.canUndo;
-  redoBtn.disabled = !project.history.canRedo;
-  document.title = (project.dirty ? "* " : "") + "Sprite Lab" + (project.set ? " - " + project.set : "");
+  undoBtn.disabled = onRig ? !rig.canUndo : !project.history.canUndo;
+  redoBtn.disabled = onRig ? !rig.canRedo : !project.history.canRedo;
+  document.title = (project.dirty || rig.dirty ? "* " : "") + "Sprite Lab" + (project.set ? " - " + project.set : "");
 }
 project.on(refreshHeader);
+project.on((why) => { if (why === "saved") rig.refreshParts(); });
 project.history.onChange = refreshHeader;
 
 let saving = false;
@@ -73,8 +80,9 @@ async function save() {
 window.addEventListener("keydown", (e) => {
   const t = e.target as HTMLElement, typing = t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.tagName === "SELECT");
   const mod = e.ctrlKey || e.metaKey, k = e.key.toLowerCase();
-  if (mod && k === "s") { e.preventDefault(); save(); return; }
+  if (mod && k === "s") { e.preventDefault(); if (active === "rig") rig.save(); else save(); return; }
   if (typing || document.querySelector(".modal-back")) return;
+  if (active === "rig" && !(e.altKey && /^[1-5]$/.test(e.key))) { if (rig.onKey(e)) e.preventDefault(); return; }
   if (active === "draw" && mod) return;    // inside Draw, undo belongs to the editor (focus it by clicking the canvas)
   if (mod && k === "z" && !e.shiftKey) { e.preventDefault(); project.undo(); return; }
   if (mod && (k === "y" || (k === "z" && e.shiftKey))) { e.preventDefault(); project.redo(); return; }
@@ -90,8 +98,7 @@ window.addEventListener("keydown", (e) => {
     if (i >= 0 && i < project.order.length) { e.preventDefault(); project.selected = project.order[i]; project.emit("select"); }
   }
 });
-installHook();
-window.addEventListener("beforeunload", (e) => { if (project.dirty) { e.preventDefault(); e.returnValue = ""; } });
+window.addEventListener("beforeunload", (e) => { if (project.dirty || rig.dirty) { e.preventDefault(); e.returnValue = ""; } });
 
 (async () => {
   try {
@@ -101,7 +108,7 @@ window.addEventListener("beforeunload", (e) => { if (project.dirty) { e.preventD
     rootNote.textContent = info.sameRoot ? "" : "scratch root";
     rootNote.title = info.root;
     parts.paletteChanged();
-    await Promise.all([parts.init(), compare.init()]);
+    await Promise.all([parts.init(), compare.init(), rig.init()]);
     const tab = localStorage.getItem("lab.tab") as TabId | null;
     if (tab && panes.has(tab)) showTab(tab);
     refreshHeader();

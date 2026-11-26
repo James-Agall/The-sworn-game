@@ -173,7 +173,7 @@ export type Skeleton = {
   hips: { near: [number, number]; far: [number, number] }; handReach: number;
   rest: Partial<Record<Channel, number>>; bend: { arm: 1 | -1; leg: 1 | -1 };
   shieldPose: { shoulder: number; elbow: number; at: [number, number] };
-  weapons: Record<string, { part?: string; angle?: number; length?: number; at?: [number, number]; string?: { from: [number, number]; to: [number, number]; top: [number, number]; bottom: [number, number] } }>;
+  weapons: Record<string, { part?: string; angle?: number; length?: number; width?: number; at?: [number, number]; string?: { from: [number, number]; to: [number, number]; top: [number, number]; bottom: [number, number] } }>;
   bones: { name: string; parent: string | null; [k: string]: unknown }[];
   [extra: string]: unknown;
 };

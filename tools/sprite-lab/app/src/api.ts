@@ -35,4 +35,9 @@ export const api = {
   layouts: () => call<Layout[]>("GET", "layouts"),
   slice: (body: { set: string; layout: string; sheet: string; bg: "auto" | "none"; merge: boolean }) => call<SaveResult & { stdout: string; sheet: string }>("POST", "slice", body),
   validate: (set: string) => call<Report>("GET", "validate/" + encodeURIComponent(set)),
+  clips: () => call<string[]>("GET", "clips"),
+  getClip: (name: string) => call<Record<string, unknown>>("GET", "clips/" + encodeURIComponent(name)),
+  putClip: (name: string, clip: unknown) => call<{ ok: true; backup: string | null }>("PUT", "clips/" + encodeURIComponent(name), clip),
+  deleteClip: (name: string) => call<{ ok: true; backup: string | null }>("POST", `clips/${encodeURIComponent(name)}/delete`, {}),
+  exportPng: (name: string, png: string) => call<{ ok: true; path: string; backup: string | null }>("POST", "exports", { name, png }),
 };

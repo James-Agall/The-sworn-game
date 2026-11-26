@@ -1,14 +1,16 @@
 // ONE headless-browser smoke test of the whole Lab on a scratch copy (LAB_ROOT): every tab opens with zero console errors,
-// a pivot edit survives save + reload, and a part edited through the Piskel iframe is sent back and changes the PNG on disk.
+// a pivot edit survives save + reload, a part edited through the Piskel iframe is sent back and changes the PNG on disk,
+// and the Rig tab plays, scrubs, keys a pose by dragging a gizmo, saves, reloads, exports a contact sheet and a bake.
 // Screenshots go to $LAB_SHOTS (default: the session scratchpad), never into the repo.
 import { test, before, after } from "node:test";
 import assert from "node:assert/strict";
 import { createRequire } from "node:module";
 import { existsSync, mkdirSync } from "node:fs";
-import { readFile, rm } from "node:fs/promises";
+import { readFile, rm, stat } from "node:fs/promises";
 import path from "node:path";
 import { startLab, type Lab } from "../server/lab.ts";
 import { scratchRoot } from "./helpers.ts";
+import { validateClip } from "../shared/clip.ts";
 
 const SCRATCH = "/tmp/claude-1000/-home-james/e750a2dc-86fa-43ba-992d-dfa7a0e3a701/scratchpad";
 const PW_PKG = process.env.LAB_PLAYWRIGHT_PKG || "/home/james/projects/auto-loan-ff-release/package.json";
@@ -100,6 +102,94 @@ test("Lab smoke: tabs, pivot save + reload, Draw round trip", { timeout: 180_000
   await page.click("#tab-parts");
   await page.waitForTimeout(800);
   await page.screenshot({ path: `${SHOTS}/parts-after-draw.png` });
+
+  // ---------------- Rig tab
+  await page.click("#tab-rig");
+  await page.waitForSelector('#rig-clip-list li[data-clip="walk"]');
+  const timeText = () => page.textContent("#rig-time");
+  await page.click('#rig-clip-list li[data-clip="attack-sword"]');
+  const t0 = await timeText();
+  await page.click("#rig-play");
+  await page.waitForTimeout(450);
+  await page.click("#rig-play");                                        // pause
+  assert.notEqual(await timeText(), t0, "playback moves the playhead");
+  await page.screenshot({ path: `${SHOTS}/rig-play.png` });
+  // scrub on the ruler to the middle
+  const tl = await page.locator("#rig-timeline-canvas").boundingBox();
+  assert.ok(tl);
+  await page.mouse.move(tl.x + 140, tl.y + 6); await page.mouse.down();
+  const mid = tl.x + 128 + 0.5 * (tl.width - 128 - 12);
+  await page.mouse.move(mid, tl.y + 6, { steps: 6 }); await page.mouse.up();
+  assert.match(await timeText(), /^u 0\.(49|50|51)/, "scrubbed to the middle: " + await timeText());
+  // keyboard: arrow steps one frame, space plays / pauses
+  const frameNo = async () => Number((await timeText()).match(/f (\d+)/)![1]);
+  const f0 = await frameNo();
+  await page.focus("#rig-canvas");
+  await page.keyboard.press("ArrowRight");
+  assert.equal(await frameNo(), f0 + 1, "Right arrow steps one frame");
+  await page.keyboard.press("ArrowLeft");
+  assert.equal(await frameNo(), f0, "Left arrow steps back");
+  // built-ins are read-only: duplicate walk, save it once unchanged
+  await page.click('#rig-clip-list li[data-clip="walk"]');
+  await page.click("#rig-dup");
+  await page.fill(".modal-form input[name=name]", "walk-lab");
+  await page.click(".modal-form button[type=submit]");
+  await page.waitForSelector('#rig-clip-list li[data-clip="walk-lab"].sel');
+  await page.waitForSelector("#rig-dirty.on");
+  await page.keyboard.press("Control+s");
+  await page.waitForSelector("#rig-dirty:not(.on)", { timeout: 15_000 });
+  const CLIP = path.join(root, "client/public/rig/clips/walk-lab.json");
+  const first = await readFile(CLIP, "utf8");
+  // scrub to u 0.25, then drag the near hand gizmo: shoulder + elbow are keyed at the playhead
+  await page.mouse.click(tl.x + 128 + 0.25 * (tl.width - 128 - 12), tl.y + 6);
+  const handles = await page.evaluate(() => (window as Any).__labRig.handles());
+  assert.ok(handles["armN.hand"], "near hand gizmo: " + JSON.stringify(Object.keys(handles)));
+  const [hx, hy] = handles["armN.hand"];
+  await page.mouse.move(hx, hy); await page.mouse.down();
+  await page.mouse.move(hx + 30, hy - 40, { steps: 8 }); await page.mouse.up();
+  await page.waitForSelector("#rig-dirty.on");
+  await page.screenshot({ path: `${SHOTS}/rig-drag.png` });
+  // undo / redo round trip through the header buttons
+  await page.click("#undo"); await page.waitForSelector("#rig-dirty:not(.on)");
+  await page.click("#redo"); await page.waitForSelector("#rig-dirty.on");
+  await page.click("#rig-save");
+  await page.waitForSelector("#rig-dirty:not(.on)", { timeout: 15_000 });
+  const second = await readFile(CLIP, "utf8");
+  assert.notEqual(second, first, "walk-lab.json changed after the drag + save");
+  const saved = JSON.parse(second);
+  assert.deepEqual(validateClip(saved, "walk-lab"), []);
+  assert.ok(saved.tracks["armN.elbow"]?.keys.some((k: Any) => Math.abs(k.u - 0.25) < 0.03), "elbow keyed near u 0.25: " + JSON.stringify(saved.tracks["armN.elbow"]));
+  assert.equal(saved.builtin, undefined);
+  // reload: the clip comes back from disk with the new key
+  await page.reload();
+  await page.waitForSelector("body[data-ready='1']", { timeout: 30_000 });
+  await page.click("#tab-rig");
+  await page.click('#rig-clip-list li[data-clip="walk-lab"]');
+  const elbowAfter = await page.evaluate(() => (window as Any).__labRig.channels("walk-lab", 0.25 / 1.15));
+  const key = saved.tracks["armN.elbow"].keys.find((k: Any) => Math.abs(k.u - 0.25) < 0.03);
+  assert.ok(Math.abs(elbowAfter["armN.elbow"] - key.v) < 1e-6, `reloaded elbow ${elbowAfter["armN.elbow"]} = saved key ${key.v}`);
+  // exports: contact sheet and baked atlas saved under art-sources/lab/exports/
+  await page.click("#rig-export");
+  await page.click(".modal-form button[type=submit]");
+  await page.waitForSelector("#rig-export-box");
+  await page.screenshot({ path: `${SHOTS}/rig-contact.png` });
+  await page.click("#rig-export-save");
+  await page.waitForFunction(() => /Saved art-sources\/lab\/exports/.test(document.getElementById("toasts")?.textContent || ""), null, { timeout: 15_000 });
+  await page.click("#rig-export-close");
+  await page.click("#rig-bake");
+  await page.waitForSelector("#rig-bake-preview");
+  await page.waitForTimeout(300);
+  await page.screenshot({ path: `${SHOTS}/rig-bake.png` });
+  await page.click("#rig-export-save");
+  await page.click("#rig-export-close");
+  for (const f of ["walk-lab-contact.png", "walk-lab-atlas.png"]) {
+    let size = 0;
+    for (let i = 0; i < 50 && !size; i++) { size = (await stat(path.join(root, "art-sources/lab/exports", f)).catch(() => null))?.size || 0; if (!size) await page.waitForTimeout(100); }
+    assert.ok(size > 100, `${f} saved under art-sources/lab/exports/`);
+  }
+  await page.click("#rig-onion");
+  await page.waitForTimeout(200);
+  await page.screenshot({ path: `${SHOTS}/rig-onion.png` });
 
   assert.deepEqual(errors, [], "console errors:\n" + errors.join("\n"));
   await page.close();

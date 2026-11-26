@@ -55,7 +55,8 @@ after(async () => {
 });
 
 const png = (url: string) => decodePNG(Buffer.from(url.split(",")[1], "base64"));
-function compare(name: string, a: { w: number; h: number; data: Uint8Array }, b: { w: number; h: number; data: Uint8Array }) {
+type Px = { w: number; h: number; data: Uint8Array | Uint8ClampedArray };
+function compare(name: string, a: Px, b: Px) {
   assert.equal(a.w, b.w, name + " width"); assert.equal(a.h, b.h, name + " height");
   let pixels = 0, maxDelta = 0;
   const diff = new Uint8Array(a.data.length);
