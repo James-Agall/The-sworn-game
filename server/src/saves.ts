@@ -267,8 +267,21 @@ export function savePath(slot: SaveSlot): string {
 
 // Plain-object view of the world. Serialized right away (JSON.stringify), so live objects are
 // referenced rather than copied. Raid groups' Maps become entry arrays.
-export function snapshotWorld() {
-  return withClan(clans[0], snapshotWorldInner);
+// diffLayer: a streamed save (saveFileFor) replaces tiles / biomes / explored, so they are not encoded at all.
+export function snapshotWorld(diffLayer = false) {
+  return withClan(clans[0], () => snapshotWorldInner(diffLayer));
+}
+
+// A number Map's [key, value] pairs as one flat array, in the Map's order (what Array.from(map).flat() gives,
+// without an array per entry: the NPC tile owners of a 1024 world are ~90k pairs).
+function flatPairs(map: Map<number, number>): number[] {
+  const out = new Array<number>(map.size * 2);
+  let i = 0;
+  for (const [k, v] of map) {
+    out[i++] = k;
+    out[i++] = v;
+  }
+  return out;
 }
 
 // Clan 0 is saved in the top-level fields (as before clans); clans 1+ in `clans`, their tiles in `tileClans`.
@@ -285,15 +298,15 @@ export function snapshotClan(c: Clan) {
   };
 }
 
-function snapshotWorldInner() {
+function snapshotWorldInner(diffLayer: boolean) {
   return {
     clans: clans.slice(1).map(snapshotClan) as ReturnType<typeof snapshotClan>[] | undefined,
-    tileClans: Array.from(tileClan).flat() as number[] | undefined,
+    tileClans: flatPairs(tileClan) as number[] | undefined,
     // World streaming phase 4: a streamed save drops tiles / biomes / explored for the fields below
     // (saveFileFor); the old full arrays stay the format of every other save.
-    tiles: Buffer.from(state.tiles).toString("base64") as string | undefined,
-    biomes: Buffer.from(state.biomes).toString("base64") as string | undefined,
-    explored: packExplored() as string | undefined,
+    tiles: (diffLayer ? undefined : Buffer.from(state.tiles).toString("base64")) as string | undefined,
+    biomes: (diffLayer ? undefined : Buffer.from(state.biomes).toString("base64")) as string | undefined,
+    explored: (diffLayer ? undefined : packExplored()) as string | undefined,
     seed: undefined as number | undefined,
     worldgenVersion: undefined as number | undefined,
     baseSum: undefined as number | undefined,
@@ -310,7 +323,7 @@ function snapshotWorldInner() {
     hearths: Array.from(hearths.values()),
     // Forts phase A: NPC tile owners as flattened [tile index, site number] pairs + the site ids they
     // name (optional: saves without them have every tile the colony's).
-    owners: Array.from(tileOwner).flat() as number[] | undefined,
+    owners: flatPairs(tileOwner) as number[] | undefined,
     ownerSites: [...ownerSiteIds] as string[] | undefined,
     // Forts phase B: SiteState per stamped fort (optional: old saves have no forts).
     sites: sitesForSave() as SiteState[] | undefined,
@@ -700,12 +713,8 @@ export function migrateSaveDayLength(oldDay: number, oldNight: number) {
 }
 
 export function saveFileFor(slot: SaveSlot, layer: TileDiffs | null = null): SaveFile {
-  const world = snapshotWorld();
-  if (layer) {
-    const bits = Buffer.from(world.explored!, "base64");
-    world.tiles = world.biomes = world.explored = undefined;
-    Object.assign(world, layer, { exploredZ: deflateBase64(bits) });
-  }
+  const world = snapshotWorld(!!layer);
+  if (layer) Object.assign(world, layer, { exploredZ: deflateBase64(Buffer.from(packExplored(), "base64")) });
   return {
     version: SAVE_VERSION,
     savedAt: new Date().toISOString(),
@@ -862,13 +871,14 @@ export async function handleLoadGame(player: Player, slot: unknown) {
   sendTo(player, { type: "saveResult", ok: !error, ...(error ? { error } : {}), slot, action: "load" });
 }
 
-export function runDueAutosave() {
-  if (!state.autosaveDue) return;
+// The started autosave's promise (the forceAutosave test hook waits on it), else null.
+export function runDueAutosave(): Promise<string | null> | null {
+  if (!state.autosaveDue) return null;
   state.autosaveDue = false;
   // Debounced: never more than one autosave queued or writing.
-  if (!AUTOSAVE_ENABLED || !state.anyPlayerSinceBoot || state.autosaveQueued) return;
+  if (!AUTOSAVE_ENABLED || !state.anyPlayerSinceBoot || state.autosaveQueued) return null;
   state.autosaveQueued = true;
-  void saveToSlot(slotForSave("autosave")).finally(() => (state.autosaveQueued = false));
+  return saveToSlot(slotForSave("autosave")).finally(() => (state.autosaveQueued = false));
 }
 export function saveOnShutdown(signal: string) {
   if (state.shuttingDown) return;
