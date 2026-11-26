@@ -4,6 +4,19 @@ Start the game with `scripts/live.sh` (frozen copy that keeps running while code
 code) or `npm run dev`. Open http://localhost:5173. Detailed step-by-step checklists live at the end of each
 "landed" section in `ROADMAP.md`; this is the short version, in the order I would try them.
 
+## One raid per night, raiders leave a fallen colony (2026-11-26)
+Details: `RAIDS-2026-11-26.md`.
+1. New game, build nothing defensive. Watch the first night's raid arrive ("Raiders gather at the ... edge").
+2. Next day at midday: if any raider of last night is still alive (attacking a house, wandering), there is NO new
+   "Raiders gather" toast. Kill the last raider (hero or soldiers); the following midday a raid gathers again.
+3. Let the Town Center fall and the raiders wreck the rest (or demolish your buildings yourself). Once nothing is left
+   to attack, the toast "Finding nothing left to plunder, the raiders withdraw" appears; the raiders turn and walk to the
+   nearest map edge and vanish there (at the latest 60 s later they vanish where they are).
+4. Following nights: no "Raiders gather" toast at all while you have no Town Center or building.
+5. Optional: save while raiders are walking off, load: they keep walking off and vanish.
+6. Walls only: wall your Town Center in completely. Raiders must still breach the wall (not leave): leaving is only for
+   "nothing to attack", never for "can't get there".
+
 ## Post-Castle goals (2026-11-20)
 After "Clear the Castle Ruin" the goal card should continue: Destroy 3 enemy camps, Take a vassal, Hold 600 gold, Survive
 15 nights, each with a "Goal complete" toast and a small reward; only after the last does it read "Complete".
