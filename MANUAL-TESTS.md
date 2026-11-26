@@ -1631,3 +1631,26 @@ Automated: `npm test -- road-water` (6 seeds at 160 / 512 / 1024, version 22 vs 
 10. Mobile width (~400 px): the sheet is one column, the pack grid has 8 columns, the goods rows and buttons fit without overflow.
 
 Automated: `npm test -- ground-items hall-chest`.
+
+## Player rig: proportions, one outline, joints, walk/attack motion (27 November 2026)
+
+The painted-part rig is NOT the default player art (the NPC hero sheets are). Open the game with `?rig=1` added to the
+URL (e.g. `http://localhost:5173/?rig=1`, or `&rig=1` after `?mode=creative`) to see it; without it nothing changes.
+1. Stand still: an adult with long legs (hip at about half the height), head about 1/5.7 of the height, no dark lines
+   across the body at the belt, hips, knees or elbows; only the outer silhouette is outlined. He breathes and shifts
+   weight slowly. No "backpack" lump behind the back (with a T1 leather tunic a small dark back shoulder is painted art).
+2. Walk in each direction: the planted foot does not slide on the ground (watch a grass tuft next to the foot), heel
+   lands first and the toe pushes off, the knee bends on the swing, the hips dip slightly as the feet pass, the arms
+   swing against the legs. Turn left/right: the figure mirrors cleanly.
+3. Attack (Space) with sword, axe, spear and bow (armoury / Hero sheet): the front foot steps in and back, the rear foot
+   stays planted, the hips lunge into the strike. The fist closes over every grip. Spear: the free hand holds the
+   shaft behind the leading hand at chest height. Bow: the string hand pulls back to the face.
+4. Equip a shield: it is strapped to the front forearm in front of the chest (about a third of the height), with the
+   arm and the weapon hand still visible; it no longer covers the whole torso.
+5. Mount a horse (and dismount): the rider sits as before, the horse keeps its in-game size, shield and weapons show.
+6. Hero -> Edit appearance with `?rig=1`: the creator preview uses the same rig; try female, all three builds,
+   all hair styles, armour 0-3 with helmets (helmets still fit the head).
+7. Other players' heroes (second browser tab with `?rig=1`), interiors (walk into the Town Center), hurt (take a hit:
+   he recoils backwards) and the tool swing (hotbar tool + Space) all use the same rig and size.
+
+Automated / sheets: `node scripts/player-rig-sheets.mjs <out dir> <private vite port>` (see PLAYER-RIG-2026-11-27.md).
