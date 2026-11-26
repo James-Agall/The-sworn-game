@@ -33,6 +33,32 @@ export const SKIN_COLORS = ["#f3cda7", "#e0ad7c", "#b77c50", "#805135", "#51362b
 export const HAIR_COLORS = ["#25221f", "#654430", "#b88443", "#994c31", "#b8b4a5", "#e4d5a7"];
 let ready = false, loading: Promise<void> | undefined;
 const make = (w: number, h: number) => { const c = document.createElement("canvas"); c.width = w; c.height = h; return c; };
+// Proportions (2026-11-27): limbs, torso and boots are lengthened along their shaft at load, so joint caps, fists,
+// collars and toes keep their painted pixels. Per part family: [axis, from, to, extra] in the PNG's own pixels.
+const LENGTHEN: Record<string, [ "x" | "y", number, number, number ]> = {
+    upperArm: ["y", 9, 17, 3], foreArm: ["y", 9, 17, 3], thigh: ["y", 11, 21, 4], shin: ["y", 9, 17, 5],
+    torso: ["y", 14, 24, 2], torsoF: ["y", 14, 24, 2], foot: ["x", 9, 13, 2],
+};
+function lengthen(name: string, p: Part): Part {
+    const spec = LENGTHEN[name.split(".")[0]];
+    if (!spec) return p;
+    const [axis, from, to, extra] = spec, img = p.image, w = img.width, h = img.height, y = axis === "y";
+    const c = make(w + (y ? 0 : extra), h + (y ? extra : 0)), g = c.getContext("2d")!;
+    g.imageSmoothingEnabled = true;
+    g.imageSmoothingQuality = "high";
+    if (y) {
+        g.drawImage(img, 0, 0, w, from, 0, 0, w, from);
+        g.drawImage(img, 0, from, w, to - from, 0, from, w, to - from + extra);
+        g.drawImage(img, 0, to, w, h - to, 0, to + extra, w, h - to);
+    } else {
+        g.drawImage(img, 0, 0, from, h, 0, 0, from, h);
+        g.drawImage(img, from, 0, to - from, h, from, 0, to - from + extra, h);
+        g.drawImage(img, to, 0, w - to, h, to + extra, 0, w - to, h);
+    }
+    const i = y ? 1 : 0, pivot: Vec = [...p.pivot];
+    if (pivot[i] >= to) pivot[i] += extra;
+    return { image: c, pivot, len: p.len + (y ? extra : 0) };
+}
 const load = (url: string) => new Promise<HTMLImageElement>((resolve, reject) => { const i = new Image(); i.onload = () => resolve(i); i.onerror = reject; i.src = url; });
 export function loadHeroRig(): Promise<void> {
     return loading ??= (async () => {
@@ -45,7 +71,7 @@ export function loadHeroRig(): Promise<void> {
                 parts: Record<string, PartSpec>;
             };
             await Promise.all(Object.entries(manifest.parts).map(async ([name, p]) => { try {
-                parts.set(name, { image: await load(base + p.file), pivot: p.pivot, len: p.len });
+                parts.set(name, lengthen(name, { image: await load(base + p.file), pivot: p.pivot, len: p.len }));
             }
             catch { } }));
             ready = ["head.m_plain", "torso.tunic", "pelvis", "upperArm", "foreArm", "thigh", "shin", "foot"].every(n => parts.has(n));
@@ -119,6 +145,9 @@ function motion(keys: number[][], u: number) {
 }
 function draw(g: CanvasRenderingContext2D, p: Part | undefined, at: Vec, angle = 0, limb = false, widthScale = 1, heightScale = 1) { if (!p)
     return; g.save(); g.translate(...at); g.rotate(angle * D * (limb ? -1 : 1)); g.scale(widthScale, heightScale); g.drawImage(p.image, -p.pivot[0], -p.pivot[1]); g.restore(); }
+// Skeleton (bake px). Legs ~47% of the height (hip joint 48 above the sole), arms reach mid-thigh, head ~1/5.5.
+// ARM_K rescales the hand-space attack paths that were tuned for the old 13 + 16 px arm.
+const THIGH = 20, SHIN = 19, HIP = 48, UPPER = 16, LOWER = 19, ARM_K = (UPPER + LOWER) / 29, HORSE_K = 101 / 89;
 // The NPC-style male sheets are the player art. The painted-part rig is drawn instead when a caller asks for it
 // (allowRig: contact sheets, reviews) or the page was opened with `?rig=1` (James's in-game rig review).
 const preferRig = typeof location !== "undefined" && new URLSearchParams(location.search).get("rig") === "1";
@@ -149,8 +178,8 @@ export function heroFrame(v: HeroVisual, pose: HeroPose, mounted = false, allowR
     const horse = mounted ? parts.get(`horse.${a.horse}.${moving ? Math.floor(q * 4) % 4 : 0}`) : undefined;
     if (mounted && !horse) return undefined;
     const ground = mounted ? 211 : 163;
-    const saddleHeight = horse ? horse.image.height - horse.pivot[1] - 3 : 0;
-    const hipBase = mounted ? ground - saddleHeight : ground - 40;
+    const saddleHeight = horse ? (horse.image.height - horse.pivot[1] - 3) * HORSE_K : 0;
+    const hipBase = mounted ? ground - saddleHeight : ground - HIP - 2;
     const bob = mounted ? 0 : moving ? -.9 * Math.sin(q * Math.PI * 4) : Math.sin(q * Math.PI * 2) * .35;
     const lean = attack ? motion([[0, 0], [.30, -6], [.52, mounted ? 7 : 11], [.72, 5], [1, 0]], u) : pose.state === "hurt" ? motion([[0, 0], [.18, -10], [.42, -6], [.72, 2], [1, 0]], q) : moving ? 2 + Math.sin(q * Math.PI * 2 + .4) * (mounted ? 2 : 1.3) : sw * .6;
     const root: Vec = [120 + (attack && !mounted ? motion([[0, 0], [.3, -1.5], [.54, 2.5], [1, 0]], u) : 0), hipBase + bob + (attack && !mounted ? motion([[0, 0], [.3, 1], [.56, 2], [1, 0]], u) : 0)];
@@ -159,13 +188,13 @@ export function heroFrame(v: HeroVisual, pose: HeroPose, mounted = false, allowR
         g.scale(-1, 1);
     }
     // Authored coats keep leather/cloth colours intact. Every frame carries a fitted saddle pivot.
-    if (horse) draw(g, horse, [120, hipBase]);
+    if (horse) draw(g, horse, [120, hipBase], 0, false, HORSE_K, HORSE_K);
     const factor = heroBuildFactor(v), width = [.88, 1, 1.16][a.build];
     g.save();
     g.translate(root[0], mounted ? root[1] : ground);
     g.scale(width, factor);
     g.translate(-root[0], -(mounted ? root[1] : ground));
-    const waist: Vec = [root[0], root[1] - 1], up = (h: number, x = 0) => add(waist, rot(x, -h, lean)), neck = up(29, 2), shoulder = up(25, -4);
+    const waist: Vec = [root[0], root[1] - 1], up = (h: number, x = 0) => add(waist, rot(x, -h, lean)), neck = up(31, 2), shoulder = up(27, -4);
     let ua = 12, fe = 24, wa = 105;
     if (attack) {
         const axe = v.weapon === "axe", spear = v.weapon === "spear", bow = v.weapon === "bow";
@@ -189,35 +218,35 @@ export function heroFrame(v: HeroVisual, pose: HeroPose, mounted = false, allowR
         fe = 20;
         wa = 0;
     }
-    const upper = 13, lower = 16;
+    const upper = UPPER, lower = LOWER;
     let elbow = add(shoulder, dir(ua), upper), hand = add(elbow, dir(ua + fe), lower);
     // Pose references supply readable guards; hand-space arcs keep elbow and wrist connected.
     if (attack && (v.weapon === "sword" || v.weapon === "axe")) {
         const axe = v.weapon === "axe", wind = axe ? .36 : .28, impact = axe ? .56 : .48;
         const rest = add(shoulder, add(dir(12), dir(36), lower / upper), upper);
-        const x = motion([[0, rest[0]-shoulder[0]], [wind, axe ? -3 : 4], [impact, 26], [.72, 18], [1, rest[0]-shoulder[0]]], u);
-        const y = motion([[0, rest[1]-shoulder[1]], [wind, axe ? -23 : -18], [impact, mounted ? 5 : 1], [.72, 18], [1, rest[1]-shoulder[1]]], u);
+        const x = motion([[0, rest[0]-shoulder[0]], [wind, (axe ? -3 : 4) * ARM_K], [impact, 26 * ARM_K], [.72, 18 * ARM_K], [1, rest[0]-shoulder[0]]], u);
+        const y = motion([[0, rest[1]-shoulder[1]], [wind, (axe ? -23 : -18) * ARM_K], [impact, (mounted ? 5 : 1) * ARM_K], [.72, 18 * ARM_K], [1, rest[1]-shoulder[1]]], u);
         const swing = ik(shoulder, add(shoulder, [x, y]), upper, lower, -1);
         elbow = swing.j; hand = swing.end;
         wa = motion([[0, 105], [wind*.8, 165], [wind, axe ? 215 : 205], [impact, mounted ? 65 : 55], [.68, axe ? 25 : 35], [.86, 80], [1, 105]], u);
     }
     if (attack && (v.weapon === "spear" || v.weapon === "bow")) {
         const bow = v.weapon === "bow", rest = add(shoulder, add(dir(bow ? 42 : 12), dir(bow ? 62 : 36), lower/upper), upper);
-        const x = motion(bow ? [[0, rest[0]-shoulder[0]], [.34, 26], [.78, 26], [1, rest[0]-shoulder[0]]] : [[0, rest[0]-shoulder[0]], [.27, 3], [.5, 28], [.68, 25], [1, rest[0]-shoulder[0]]], u);
-        const y = motion([[0, rest[1]-shoulder[1]], [.32, bow ? -7 : 4], [.72, bow ? -7 : 2], [1, rest[1]-shoulder[1]]], u);
+        const x = motion(bow ? [[0, rest[0]-shoulder[0]], [.34, 26 * ARM_K], [.78, 26 * ARM_K], [1, rest[0]-shoulder[0]]] : [[0, rest[0]-shoulder[0]], [.27, 3 * ARM_K], [.5, 28 * ARM_K], [.68, 25 * ARM_K], [1, rest[0]-shoulder[0]]], u);
+        const y = motion([[0, rest[1]-shoulder[1]], [.32, (bow ? -7 : 4) * ARM_K], [.72, (bow ? -7 : 2) * ARM_K], [1, rest[1]-shoulder[1]]], u);
         const reach = ik(shoulder, add(shoulder,[x,y]), upper, lower, -1); elbow=reach.j;hand=reach.end;
         wa = bow ? 0 : motion([[0,105],[.28,90],[.72,90],[1,105]],u);
     }
-    const shieldShoulder = up(24, 5);
+    const shieldShoulder = up(26, 5);
     let farElbow = add(shoulder, dir(shield ? 40 : -15 - sw * (moving ? 22 : 0)), upper), farHand = add(farElbow, dir(shield ? 95 : 10), lower);
     if (shield) {
         // Right (near) arm: elbow at the ribs, forearm tucked across the body.
-        const guard = ik(shieldShoulder, up(10, 7 + (moving ? sw : 0)), upper, lower, -1);
+        const guard = ik(shieldShoulder, up(11, 7 + (moving ? sw : 0)), upper, lower, -1);
         farElbow = guard.j;
         farHand = guard.end;
     }
     if (v.weapon === "bow" && attack) {
-        const pull: Vec = [hand[0] - motion([[0, 5], [.34, 24], [.65, 24], [.74, 28], [.83, 18], [1, 5]], u), hand[1]];
+        const pull: Vec = [hand[0] - ARM_K * motion([[0, 5], [.34, 24], [.65, 24], [.74, 28], [.83, 18], [1, 5]], u), hand[1]];
         const arm = ik(shoulder, pull, upper, lower, -1);
         farElbow = arm.j;
         farHand = arm.end;
@@ -229,8 +258,8 @@ export function heroFrame(v: HeroVisual, pose: HeroPose, mounted = false, allowR
         if (mounted) {
             a1 = (far ? 70 : 74) + (moving ? Math.sin(q*Math.PI*2 + (far ? Math.PI : 0))*2 : 0);
             a2 = -4 - (moving ? sw*2 : 0);
-            knee = add(hip, dir(a1), 16);
-            end = add(knee, dir(a2), 14);
+            knee = add(hip, dir(a1), THIGH);
+            end = add(knee, dir(a2), SHIN);
         }
         else {
             const p = (q + (far ? .5 : 0)) % 1, stance = p < .62, swing = (p - .62) / .38;
@@ -238,7 +267,7 @@ export function heroFrame(v: HeroVisual, pose: HeroPose, mounted = false, allowR
             // Matching velocity at toe-off/heel-strike avoids the old abrupt direction changes.
             const f = !moving ? 0 : stance ? 8 - 16*p/.62 : (2*t3-3*t2+1)*-8 + (-2*t3+3*t2)*8 + (2*t3-3*t2+t)*(-16/.62*.38);
             const lift = moving && !stance ? 5.5 * Math.sin(t * Math.PI) ** 2 : 0;
-            const solve = ik(hip, [120 + (far ? -4 : 4) + f, ground - 10 - lift], 16, 14);
+            const solve = ik(hip, [120 + (far ? -4 : 4) + f, ground - 10 - lift], THIGH, SHIN);
             a1 = solve.a1;
             a2 = solve.a2;
             knee = solve.j;
@@ -262,7 +291,7 @@ export function heroFrame(v: HeroVisual, pose: HeroPose, mounted = false, allowR
         draw(g, get(`hair.${hairName}`), neck, lean * .25);
     if (helm)
         draw(g, helm, neck, lean * .25);
-    draw(g, torso, waist, lean, false, Math.min(1, (a.gender === "f" ? 21 : 23) / Math.max(1, torso!.image.width - 4)));
+    draw(g, torso, waist, lean, false, (a.gender === "f" ? 22.5 : 25) / Math.max(1, torso!.image.width - 4));
     leg(false);
     if (shield) {
         arm(true);
@@ -284,7 +313,8 @@ export function heroFrame(v: HeroVisual, pose: HeroPose, mounted = false, allowR
     g.restore();
     const texture = Texture.from(c);
     texture.source.scaleMode = "linear";
-    const bodyHeight = 89;
+    // Idle is ~103 px from sole to hair top (91 before the 2026-11-27 proportions), so 25 px in game as before.
+    const bodyHeight = 101;
     scales.set(texture, 25 / bodyHeight);
     const value = { canvas: c, texture, bodyHeight, buildScale: factor };
     cache.set(key, value);
