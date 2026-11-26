@@ -18,7 +18,6 @@ import { initPerfOverlay } from "./perfOverlay";
 import { heroFrame, loadHeroRig, rigTextureScale } from "./heroRig";
 import { menuPrefs, setupMainMenu, setActiveDifficulty, saveSlotLabel, clanParam } from "./menu";
 import { setupEconomyPanel, type GoodKey } from "./economyPanel";
-import { setupProgressionPanel } from "./progressionPanel";
 import "./economySkin.css";
 import "./menuSkin.css";
 import { heroArt, loadHeroAppearanceArt } from "./heroAppearance";
@@ -34,7 +33,7 @@ import { createGroundItems } from "./groundItems";
 import { setupCreative } from "./creative";
 import { createLoadingScreen } from "./loadingScreen";
 import { makeStructureTextures, type StructureArt } from "./structureArt";
-import { STRUCTURE_FURNITURE_ART, ITEM_ICON, STRUCTURE_ART_PX_PER_TILE, STRUCTURE_ART_URLS, iconImg } from "./spriteRegistry";
+import { ITEM_ICON, STRUCTURE_ART_PX_PER_TILE, STRUCTURE_ART_URLS } from "./spriteRegistry";
 import { setupZones } from "./zones";
 import { setupBlueprints } from "./blueprints";
 import { BLUEPRINT_TOOL } from "@colony/shared/buildingTemplates";
@@ -144,6 +143,7 @@ import { createTimeControls } from "./game/timeControls";
 import { createBuildingPanel } from "./game/buildingPanel";
 import { createStrategyView } from "./game/strategyView";
 import { createSelection } from "./game/selection";
+import { createToolbar } from "./game/toolbar";
 
 const SERVER_URL = import.meta.env.VITE_SERVER_URL || "ws://localhost:8080";
 // The same server answers plain HTTP: GET /saves lists the save slots (the menu has no socket yet).
@@ -3607,117 +3607,17 @@ async function main() {
   let furnitureRot = 0;
   // Phase 3: a creative world shows the retired build tools.
   let creativeWorld = false;
-  const toolButtonEls = new Map<TileType, HTMLButtonElement>();
+  // Declared before createToolbar: its initial setup reads it.
   let activeCategory: ToolCategory = TOOL_CATEGORIES[0].key;
-  const categoryTabEls = new Map<ToolCategory, HTMLButtonElement>();
-
-  function setupToolbar() {
-    const container = document.getElementById("toolbar")!;
-    for (const tool of TOOLS) {
-      const btn = document.createElement("button");
-      btn.className = "tool-btn";
-      const toolIcons:Record<number,string>={
-        [ZONE_TOOL_WHEAT]:'crops/crop_wheat_stage5',[ZONE_TOOL_HEMP]:'crops/hemp_ripe',
-        [ZONE_TOOL_STOCKPILE]:'structure/chest',[ZONE_TOOL_HOME]:'cottage',[ZONE_TOOL_ANIMAL]:'fortifications/fence_h',
-        [ZONE_TOOL_ERASE]:'icons/tool_hoe',[TileType.Empty]:'icons/tool_pickaxe',[BLUEPRINT_TOOL]:'icons/work_building',
-        [ROOM_TOOL_WOOD]:'woodWall',[ROOM_TOOL_STONE]:'stoneWall',
-        [TileType.WoodFloor]:'structure/floor_wood_1',[TileType.StoneFloor]:'structure/floor_stone_1',
-        [TileType.WoodDoor]:'structure/door_wood_h_closed',[TileType.StoneDoor]:'structure/door_stone_h_closed',
-        [TileType.WoodWindow]:'structure/window_wood_h',[TileType.StoneWindow]:'structure/window_stone_h',
-      };
-      const name=toolIcons[tool.tile]??TILE_OPTIONAL_ART[tool.tile]??TILE_SPRITE_FILES[tool.tile]??'icons/work_building';
-      const icon=iconImg(STRUCTURE_FURNITURE_ART[tool.tile]??`/sprites/${name}.png`,28,tool.label);icon.className='build-tool-icon';
-      btn.append(icon,document.createTextNode(tool.key ? `${tool.label} (${tool.key})` : tool.label));
-      btn.addEventListener("click", () => {
-        selectTool(tool.tile, true);
-        btn.blur();
-      });
-      container.appendChild(btn);
-      toolButtonEls.set(tool.tile, btn);
-    }
-    refreshToolbarSelection();
-  }
-
-  function setupCategoryTabs() {
-    const container = document.getElementById("build-category-tabs")!;
-    for (const cat of TOOL_CATEGORIES) {
-      const btn = document.createElement("button");
-      btn.className = "category-tab";
-      btn.textContent = cat.label;
-      btn.addEventListener("click", () => {
-        activeCategory = cat.key;
-        refreshToolbarVisibility();
-        refreshCategoryTabSelection();
-        btn.blur();
-      });
-      container.appendChild(btn);
-      categoryTabEls.set(cat.key, btn);
-    }
-    refreshCategoryTabSelection();
-  }
-
-  function refreshCategoryTabSelection() {
-    for (const [key, btn] of categoryTabEls) {
-      btn.classList.toggle("selected", key === activeCategory);
-    }
-  }
-
-  // Break is pinned and always shown, regardless of the active category tab.
-  function refreshToolbarVisibility() {
-    for (const tool of TOOLS) {
-      const btn = toolButtonEls.get(tool.tile);
-      if (!btn) continue;
-      // Phase 3: retired tools (Farm Plot, Hemp Field) only in creative mode.
-      const visible = (tool.tile === TileType.Empty || tool.category === activeCategory) && (!tool.legacy || creativeWorld);
-      btn.style.display = visible ? "" : "none";
-    }
-    // The building templates (Blueprints) are hidden for now outside creative mode: the buildings are single sprites.
-    if (activeCategory === "blueprints") activeCategory = TOOL_CATEGORIES[0].key;
-    categoryTabEls.get("blueprints")?.style.setProperty("display", "none");
-    zonesUi.setActive(activeCategory === "zones" || isZoneTool(currentTool));
-    blueprintsUi.setActive(false);
-  }
-
-  function refreshToolbarSelection() {
-    for (const [tile, btn] of toolButtonEls) {
-      btn.classList.toggle("selected", tile === currentTool);
-    }
-  }
-
-  function selectTool(tile: TileType, fromUser = false) {
-    currentTool = tile;
-    zonesUi.setActive(activeCategory === "zones" || isZoneTool(tile));
-    blueprintsUi.setActive(false);
-    // Picking something to build puts the units down, so right-click places instead of giving orders.
-    if (fromUser && tile !== TileType.Empty && selectedIds.size > 0) setSelection([]);
-    if (tile !== TileType.TownCenter && !isRoadTile(tile)) placementGhost.visible = false;
-    configurePlacementGhost(tile);
-    refreshToolbarSelection();
-    refreshBuildRequirements();
-  }
-
-  function refreshBuildRequirements() {
-    const def = TOOLS.find((t) => t.tile === currentTool);
-    const text = def && def.cost ? def.cost : "No requirements.";
-    const needs = progressionUi.locked()[currentTool];
-    buildRequirementsEl.textContent = needs ? `Locked. Needs: ${needs.join(", ")}. ${text}` : text;
-  }
-
-  const progressionUi = setupProgressionPanel({
-    send: (m) => sendMessage(m),
-    goodsGroups: GOODS_GROUPS,
-    latestStock,
-    setGoodCount,
-    toolButtonEls,
-    refreshBuildRequirements: () => refreshBuildRequirements(),
-    strategyOrderKey: (e) => strategyOrderKey(e),
+  const { selectTool, progressionUi, toolButtonEls, refreshToolbarVisibility, applyProgression, refreshCategoryTabSelection, itemTotal } = createToolbar({
+    zonesUi, blueprintsUi, placementGhost, configurePlacementGhost, buildRequirementsEl, sendMessage, GOODS_GROUPS,
+    latestStock, setGoodCount,
+    get activeCategory() { return activeCategory; }, set activeCategory(v) { activeCategory = v; },
+    get creativeWorld() { return creativeWorld; },
+    get currentTool() { return currentTool; }, set currentTool(v) { currentTool = v; },
+    get selectedIds() { return selectedIds; }, get setSelection() { return setSelection; },
+    get strategyOrderKey() { return strategyOrderKey; },
   });
-  const { applyProgression, itemTotal } = progressionUi;
-
-  setupToolbar();
-  setupCategoryTabs();
-  refreshToolbarVisibility();
-  selectTool(currentTool);
 
   // ---- Unit selection (client-local; task forces are server-synced) ----
 

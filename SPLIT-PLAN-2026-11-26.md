@@ -180,3 +180,4 @@ so that build doubles as the per-commit production build check. Baseline main ch
 |--------|--------|--------------|---------------|-------|-----------------------------------|------------|
 | (seam 14) | `game/strategyView.ts` | 744 | 5391 | PASS | 0.56% / 0.86% | 988254 |
 | (seam 15) | `game/selection.ts` | 282 | 5144 | PASS | 0.62% / 0.78% | 989819 |
+| (seam 16) | `game/toolbar.ts` | 141 | 5044 | PASS | 0.61% / 0.81% | 990833 |
