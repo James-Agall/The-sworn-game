@@ -93,7 +93,9 @@ if (mode === "content") {
   const I = await import("@colony/shared/interiors");
   const sitesMod = await import("./src/siteTemplates.js").catch(() => null);
   const poi = await import("./src/poiTemplates.js").catch(() => null);
-  const src = { ...c, ...(sitesMod ?? {}), ...(poi ?? {}) } as Record<string, unknown>;
+  const sharedSites = await import("@colony/shared/siteTemplates").catch(() => null);
+  // After the migration the tables live in these modules (same export names); before it all are in constants.ts.
+  const src = { ...c, ...(sharedSites ?? {}), ...(sitesMod ?? {}), ...(poi ?? {}) } as Record<string, unknown>;
   const pick = (...names: string[]) => Object.fromEntries(names.map((n) => [n, src[n]]));
   const content = {
     sites: pick("SITE_TEMPLATES", "SITE_TEMPLATE_TILES", "HUMAN_SITE_SYMBOLS", "SITE_FORT_COUNT_AT_512"),

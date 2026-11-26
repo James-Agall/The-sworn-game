@@ -63,7 +63,7 @@ import { START_VISION_OFFSETS, broadcastEvent, broadcastTileUpdate, revealAround
 import { tierOf, tradeInfoFor } from "./diplomacy.js";
 import { clanPower, sitePower, vassalInfoFor } from "./vassals.js";
 import { captureSite, isInSiteGrounds, nearSiteGrounds, rebuildKeepBlocker, relationOf, siteAtKeep, siteByNum } from "./sites.js";
-import { SITE_TEMPLATES } from "./constants.js";
+import { SITE_TEMPLATES } from "./siteTemplates.js";
 import { clanById, clanIdAt, clanTownCenters, enterClan, isForeignClanTile, resetClan, setTileClan, townCentersOfClan } from "./clans.js";
 import { trainInfo, villageLevyInfo } from "./people.js";
 import { buildingPostsInfo } from "./work.js";

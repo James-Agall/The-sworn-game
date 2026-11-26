@@ -40,9 +40,9 @@ import {
   FORAGE_RIPE_TO_PICKED, GAME_DAY_TICKS, HERO_KEY_PREFIX, LEGACY_DAY_TICKS, LEGACY_GAME_DAY_TICKS,
   LEGACY_NIGHT_TICKS, MOB_KIND_CONFIG, MORALE_MAX, NIGHT_TICKS, RAID_FACTIONS, RESPAWN_FOOD_COST, STANCES,
   TOWER_COSTS, TOWER_STATS, WEAPON_DAMAGE_MULT,
-  SITE_TEMPLATES,
   SAVE_DIR,
 } from "./constants.js";
+import { SITE_TEMPLATES } from "./siteTemplates.js";
 import {
   attackerSlots, buildingHp, colonists, constructionSites, equipEvents, farmPlots, forageRegrow,
   forgeAuto, forgeQueues, gates, hearthEvents, hearths, heroEvents, heroProfiles, heroRecruits, mobs, moraleRegimentOfUnit,
