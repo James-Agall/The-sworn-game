@@ -15,7 +15,7 @@ import type { SpellId, SpellBookSnapshot } from "@colony/shared/protocol";
 // readonly / settable ones are live getters (or setters) onto main's `let` variables.
 export interface HeroSheetContext {
   sendMessage: (msg: object) => void;
-  renderSpellBar: () => void;
+  readonly renderSpellBar: () => void;
   heroToolsRef: { ui: ReturnType<typeof setupHeroTools> | null };
   readonly latestColonists: ColonistSnapshot[];
   readonly selectedIds: Set<string>;
@@ -23,7 +23,7 @@ export interface HeroSheetContext {
 }
 
 export function createHeroSheet(game: HeroSheetContext) {
-  const { sendMessage, renderSpellBar, heroToolsRef } = game;
+  const { sendMessage, heroToolsRef } = game;
   // ---- Hero phases 1-2: Character sheet (` key or the Hero button). The server sends this player's
   // profile in a snapshot only when it changes (snapshot.profile); the sheet re-renders then, or when the
   // colony's armoury stock changes while it's open. Placeholder icons: a coloured square with a slot
@@ -586,7 +586,7 @@ export function createHeroSheet(game: HeroSheetContext) {
     heroMe = me;
     heroStock = stock;
     renderHeroSheet();
-    renderSpellBar();
+    game.renderSpellBar();
   }
   return { spellIcon, showSpellTip, hideItemTip, syncHeroProfile, setHeroSheetOpen, heroModal, itemIcon, get heroProfile() { return heroProfile; } };
 }

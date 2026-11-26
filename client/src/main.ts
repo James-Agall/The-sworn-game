@@ -76,8 +76,7 @@ import {
   placedFootprintAt,
 } from "@colony/shared/buildings";
 import type { Footprint } from "@colony/shared/buildings";
-import { type ChainStep, type ItemId, PROGRESSION, PROGRESSION_BUILDING_LABEL, QUALITY_GRADES } from "@colony/shared/progression";
-import { spellCooldownSeconds } from "@colony/shared/herolife"; // Spellcasting skill
+import { type ChainStep, type ItemId, PROGRESSION, PROGRESSION_BUILDING_LABEL, QUALITY_GRADES } from "@colony/shared/progression"; // Spellcasting skill
 import type { ProgressionSnapshot } from "@colony/shared/protocol";
 import {
   Biome, BOSS_RENDER_SCALE, mobSizeScale, bossTitle, BUILDING_LEVEL_SNAPSHOT_STRIDE, CONSTRUCTION_SNAPSHOT_STRIDE,
@@ -88,7 +87,7 @@ import {
 } from "@colony/shared/protocol";
 import { MOB_ROLE, isRearRole, SIEGE_KINDS, unitRole, HERO_CLASSES, HERO_CLASS_LABEL } from "@colony/shared/protocol";
 import type { CombatRole, SiegeKind } from "@colony/shared/protocol";
-import { SPELLS, SPELL_SLOT_COUNT } from "@colony/shared/protocol";
+import { SPELLS } from "@colony/shared/protocol";
 import { LINE_FACE_ENEMY_TILES, computeFormationTargets, computeLineFormationTargets as sharedLineFormation, groupShape, planOrderFormation } from "@colony/shared/formation";
 import type { FormationPlan } from "@colony/shared/formation";
 import type { SpellId } from "@colony/shared/protocol";
@@ -159,6 +158,7 @@ import { createSoundHooks } from "./game/soundHooks";
 import { createFightArrows } from "./game/fightArrows";
 import { createMinimap } from "./game/minimap";
 import { createHeroSheet } from "./game/heroSheet";
+import { createSpellBar } from "./game/spellBar";
 
 const SERVER_URL = import.meta.env.VITE_SERVER_URL || "ws://localhost:8080";
 // The same server answers plain HTTP: GET /saves lists the save slots (the menu has no socket yet).
@@ -5055,138 +5055,20 @@ async function main() {
     statEquipmentEl.replaceChildren(part("Armour T1/T2/T3", eq.armour), " · ", part("Weapons", eq.weapon));
   }
   const heroSheetApi = createHeroSheet({
-    sendMessage, renderSpellBar, heroToolsRef, get latestColonists() { return latestColonists; },
+    sendMessage, get renderSpellBar() { return renderSpellBar; }, heroToolsRef, get latestColonists() { return latestColonists; },
     get selectedIds() { return selectedIds; },
     get spellCdAt() { return spellCdAt; }, set spellCdAt(v) { spellCdAt = v; },
   });
   const { spellIcon, showSpellTip, hideItemTip, syncHeroProfile, setHeroSheetOpen, heroModal, itemIcon } = heroSheetApi;
-
-  // ---- Hero phase 4: the player's spell bar (bottom centre, above the command bar) ----
-  // Hotkeys Shift+1..4 or F1..F4 (every letter, every bare digit and Ctrl / Alt + digit are taken). A
-  // targeted spell then waits for a left click: enemy = a monster, ally = a friendly unit / player (empty
-  // ground = yourself), ground = the spot; right click or Escape cancels; the same key again casts an
-  // ally spell on yourself. Cooldowns are drawn as a dark overlay with the seconds left.
-  const spellBarEl = document.getElementById("spell-bar")!;
+  const spellBarApi = createSpellBar({
+    heroSheetApi, spellIcon, showSpellTip, hideItemTip, app, sendMessage, pushEventToast, findNearest, worldLayer,
+    interiorRef, get spellCdAt() { return spellCdAt; }, get latestMobs() { return latestMobs; },
+    get latestColonists() { return latestColonists; },
+    get latestPlayersForSpells() { return latestPlayersForSpells; }, get myId() { return myId; },
+  });
+  const { renderSpellBar, castSlot, setSpellAim, spellAimClick } = spellBarApi;
   let spellCdAt = performance.now();
-  let spellAim: { slot: number; spell: SpellId } | null = null;
-  const spellBtns: HTMLButtonElement[] = [];
-  const SPELL_KEY_LABEL = ["⇧1", "⇧2", "⇧3", "⇧4"];
-  for (let i = 0; i < SPELL_SLOT_COUNT; i++) {
-    const b = document.createElement("button");
-    b.className = "spell-btn";
-    b.addEventListener("click", () => {
-      b.blur();
-      useSpellSlot(i);
-    });
-    b.addEventListener("pointerdown", (e) => e.stopPropagation());
-    spellBarEl.append(b);
-    spellBtns.push(b);
-  }
-  const spellRangeRing = new Graphics();
-  let spellBarKey = "";
-  function spellCooldownMs(id: SpellId): number {
-    const ticks = heroSheetApi.heroProfile?.spells?.cooldowns[id] ?? 0;
-    return Math.max(0, (ticks / TICK_RATE) * 1000 - (performance.now() - spellCdAt));
-  }
-  function renderSpellBar() {
-    const book = heroSheetApi.heroProfile?.spells;
-    spellBarEl.hidden = !book || book.learned.length === 0;
-    if (!book) return;
-    const key = JSON.stringify([book.slots, spellAim, heroSheetApi.heroProfile?.stats.spellPowerMult, book.castLevel]);
-    if (key !== spellBarKey) {
-      spellBarKey = key;
-      book.slots.forEach((id, i) => {
-        const b = spellBtns[i];
-        b.replaceChildren();
-        b.classList.toggle("aiming", spellAim?.slot === i);
-        b.disabled = !id;
-        if (id) b.append(spellIcon(id));
-        const k = document.createElement("kbd");
-        k.textContent = SPELL_KEY_LABEL[i];
-        const cd = document.createElement("div");
-        cd.className = "spell-cd";
-        b.append(k, cd);
-        b.onmousemove = id ? (e) => showSpellTip(e, id, heroSheetApi.heroProfile?.stats.spellPowerMult ?? 1, `Shift+${i + 1} or F${i + 1}`, book.castLevel) : null;
-        b.onmouseleave = hideItemTip;
-      });
-    }
-    book.slots.forEach((id, i) => {
-      const cd = spellBtns[i].querySelector<HTMLElement>(".spell-cd");
-      if (!cd) return;
-      const left = id ? spellCooldownMs(id) : 0;
-      const height=id && left > 0 ? `${Math.min(100, (left / (spellCooldownSeconds(id, book.castLevel ?? 1) * 1000)) * 100)}%` : "0%";
-      const text=left > 0 ? String(Math.ceil(left / 1000)) : "";
-      if(cd.style.height!==height)cd.style.height=height;
-      if(cd.textContent!==text)cd.textContent=text;
-    });
-  }
-  window.setInterval(renderSpellBar, 100);
-  function setSpellAim(aim: typeof spellAim) {
-    spellAim = aim;
-    app.canvas.style.cursor = aim ? "crosshair" : "";
-    spellRangeRing.clear();
-    renderSpellBar();
-  }
-  function castSlot(slot: number, target: { targetId?: string; x?: number; y?: number }) {
-    sendMessage({ type: "castSpell", slot, ...target });
-    setSpellAim(null);
-  }
-  function useSpellSlot(slot: number) {
-    const id = heroSheetApi.heroProfile?.spells?.slots[slot];
-    if (!id) return;
-    const def = SPELLS[id];
-    if (spellCooldownMs(id) > 0) {
-      pushEventToast("build", `${def.name}: ${Math.ceil(spellCooldownMs(id) / 1000)} s cooldown`);
-      return;
-    }
-    // Pressing an ally spell's key again while aiming casts it on yourself.
-    if (def.targeting === "self" || (def.targeting === "ally" && spellAim?.slot === slot)) return castSlot(slot, {});
-    setSpellAim(spellAim?.slot === slot ? null : { slot, spell: id });
-  }
-  // A left click while aiming: true when it was used for the spell.
-  function spellAimClick(x: number, y: number): boolean {
-    if (!spellAim) return false;
-    const def = SPELLS[spellAim.spell];
-    if (def.targeting === "enemy") {
-      const mob = findNearest(latestMobs.filter((m) => (m.x - x) ** 2 + (m.y - y) ** 2 <= (mobHitRadius(m.kind, mobRenderScale(m)) + 6) ** 2), x, y, Infinity);
-      if (!mob) {
-        pushEventToast("build", `${def.name}: click on an enemy (right click cancels)`);
-        return true;
-      }
-      castSlot(spellAim.slot, { targetId: mob.id });
-    } else if (def.targeting === "ally") {
-      const friends = [...latestColonists, ...(latestPlayersForSpells.filter((p) => !p.dead) as { id: string; x: number; y: number }[])];
-      const ally = findNearest(friends, x, y, UNIT_HIT_RADIUS + 4);
-      castSlot(spellAim.slot, ally && ally.id !== myId ? { targetId: ally.id } : {});
-    } else {
-      castSlot(spellAim.slot, { x, y });
-    }
-    return true;
-  }
   let latestPlayersForSpells: PlayerSnapshot[] = [];
-  app.ticker.add(() => {
-    if (!spellAim || !myId) return;
-    if(interiorRef.ui?.active()){spellRangeRing.clear();return;}
-    const me = latestPlayersForSpells.find((p) => p.id === myId);
-    spellRangeRing.clear();
-    if (!me) return;
-    spellRangeRing.circle(me.x, me.y, SPELLS[spellAim.spell].range * TILE_SIZE).stroke({ width: 2, color: 0xf2c94c, alpha: 0.6 });
-    if (spellRangeRing.parent !== worldLayer) worldLayer.addChild(spellRangeRing);
-  });
-  window.addEventListener("keydown", (e) => {
-    if (e.ctrlKey || e.altKey || e.metaKey || e.repeat) return;
-    const digit = /^Digit([1-4])$/.exec(e.code);
-    const fkey = /^F([1-4])$/.exec(e.code);
-    if (digit && e.shiftKey) {
-      e.preventDefault();
-      useSpellSlot(Number(digit[1]) - 1);
-    } else if (fkey) {
-      e.preventDefault();
-      useSpellSlot(Number(fkey[1]) - 1);
-    } else if (e.key === "Escape" && spellAim) {
-      setSpellAim(null);
-    }
-  });
 
   // ---- Settlement population (ROADMAP "Settlement population caps"): one Colony panel row per Town
   // Center ("Settlement 1: 9/12"), amber when full, red when over its cap; a toast (throttled per
@@ -6110,8 +5992,8 @@ async function main() {
     app,
     worldLayer,
     structure: STRUCTURE_TEXTURES,
-    spellAim:()=>spellAim,
-    castSpell:target=>{if(spellAim)castSlot(spellAim.slot,target);},
+    spellAim:()=>spellBarApi.spellAim,
+    castSpell:target=>{if(spellBarApi.spellAim)castSlot(spellBarApi.spellAim.slot,target);},
     cancelSpell:()=>setSpellAim(null),
     combatAim:(x,y)=>combatControls?.aim(x,y),
     notice:text=>adventureUi.onEvent(text),
@@ -6162,7 +6044,7 @@ async function main() {
   combatControls=setupPlayerCombat({send:sendMessage,swing:()=>sound.play("sword_swing"),context:()=>{
     const me=latestPlayersForSpells.find(p=>p.id===myId),inside=!!interiorRef.ui?.active();
     const menu=document.getElementById("main-menu"),talk=document.getElementById("hl-dialogue");
-    return{me,inside,enabled:!!me&&!me.dead&&!strategyCam.inStrategy&&!currentPaused&&heroModal.hidden&&!!menu?.hidden&&(talk?.hidden??true)&&!spellAim&&(inside||buildPanel.classList.contains("collapsed")&&selectedIds.size===0&&(heroToolsRef.ui?.combatReady()??true))};
+    return{me,inside,enabled:!!me&&!me.dead&&!strategyCam.inStrategy&&!currentPaused&&heroModal.hidden&&!!menu?.hidden&&(talk?.hidden??true)&&!spellBarApi.spellAim&&(inside||buildPanel.classList.contains("collapsed")&&selectedIds.size===0&&(heroToolsRef.ui?.combatReady()??true))};
   }});
   const combatCues=new Graphics();combatCues.zIndex=1e7;worldLayer.addChild(combatCues);
   app.ticker.add(()=>{
@@ -6671,7 +6553,7 @@ async function main() {
     "keydown",
     (e) => {
       if (e.key !== "Escape" || !strategyCam.inStrategy) return;
-      if (spellAim || infoTile || selectedIds.size > 0 || !settingsModalEl.hidden || !heroModal.hidden) return;
+      if (spellBarApi.spellAim || infoTile || selectedIds.size > 0 || !settingsModalEl.hidden || !heroModal.hidden) return;
       e.stopImmediatePropagation();
       strategyCam.exit(performance.now());
     },
@@ -6797,8 +6679,8 @@ async function main() {
     // Creative mode: a spawn / stamp placed "At click" takes the left click.
     if (e.button === 0 && creativeUi.consumeClick(x, y)) return;
     // Hero phase 4: aiming a spell takes the left click; a right click cancels the aim.
-    if (spellAim && e.button === 0 && spellAimClick(x, y)) return;
-    if (spellAim && e.button === 2) {
+    if (spellBarApi.spellAim && e.button === 0 && spellAimClick(x, y)) return;
+    if (spellBarApi.spellAim && e.button === 2) {
       setSpellAim(null);
       return;
     }
