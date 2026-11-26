@@ -1551,3 +1551,19 @@ Automated: `node server/interactions-test.mjs`; `COLONY_WORLD_SEED=42 npm test -
 5. Optional `?perf=1`: compare warm frame time and snapshot gaps. Inspect scenery active/total, bounded floor cache and occluder count (zero in front, positive behind). First-time asset/geometry loading can still cause transient hitches.
 
 Automated: `node client/render-depth-test.mjs`; `npm test -- scale-rider strategy-view interior-refresh`; `COLONY_WORLD_SEED=7 npm test -- tile-sprites-roundtrip`.
+
+
+## Roads across marsh water (26 November 2026)
+
+New world (worldgen 23; old worlds keep their dirt strips). Large or Huge map is best: marsh crossings are common there.
+1. Open the map, find a road crossing a marsh pond or a lake (blue water with reeds / willows around it) and walk it.
+   The whole crossing must be a wooden plank bridge over water, shore to shore. No dirt road tile may have water on
+   both sides (the old bug: a brown strip straight through the pond).
+2. Straight runs: planks go across the direction of travel, railings on the water sides. North-south crossings use the
+   upright deck, east-west crossings the sideways one. Where two bridges run side by side (a town gate road beside a
+   winding road), each lane should look like one straight bridge, not a block of sideways planks.
+3. A road that turns on a bridge shows a straight deck piece at the corner (known: no corner art yet). Check that you
+   can walk the whole bridge, including corners, and that the river bridges look as before.
+4. The start area, Abbey and Castle Ruin grounds have no bridges over dry ground at their edge.
+
+Automated: `npm test -- road-water` (6 seeds at 160 / 512 / 1024, version 22 vs 23).
