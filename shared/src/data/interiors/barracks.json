@@ -1,0 +1,70 @@
+{
+  "id": "barracks",
+  "required": [
+    "bed",
+    "weaponRack",
+    "chest"
+  ],
+  "sleep": false,
+  "variants": [
+    {
+      "label": "Barracks",
+      "floor": "wood",
+      "wall": "wood",
+      "rows": [
+        "#############",
+        "#bvb.bvb.RaR#",
+        "#...........#",
+        "#qvq.QvQ....#",
+        "#...........#",
+        "#.hth..B..xc#",
+        "#l..1.....Ul#",
+        "######E######"
+      ]
+    },
+    {
+      "label": "Barracks",
+      "floor": "wood",
+      "wall": "wood",
+      "rows": [
+        "###########",
+        "#b.b.b.b.U#",
+        "#v.v.v.v..#",
+        "#.........#",
+        "#q.q.Q.Q..#",
+        "#.........#",
+        "#RaR..hth.#",
+        "#c..1...x.#",
+        "#####E#####"
+      ]
+    },
+    {
+      "label": "Barracks",
+      "floor": "wood",
+      "wall": "wood",
+      "rows": [
+        "#############",
+        "#bvb.#.RRa.U#",
+        "#....#......#",
+        "#qvq.......B#",
+        "#....#..hth.#",
+        "#QvQ.#.1..xc#",
+        "#....#......#",
+        "######E######"
+      ]
+    }
+  ],
+  "upper": {
+    "label": "Barracks, officers' rooms",
+    "floor": "wood",
+    "wall": "wood",
+    "rows": [
+      "###########",
+      "#b.c.#.b.b#",
+      "#v...#.v.v#",
+      "#.R..#....#",
+      "#..D......#",
+      "###########"
+    ]
+  }
+}

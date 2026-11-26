@@ -156,6 +156,38 @@ const quiet = <T,>(fn: () => T): T => {
   rmSync(userDir, { recursive: true, force: true });
 }
 
+// ---- D. building interiors (static data in shared/src/data/interiors, bundled into the client too) ----
+{
+  const I = await import("@colony/shared/interiors");
+  const dir = fileURLToPath(new URL("../shared/src/data/interiors/", import.meta.url));
+  const files = readdirSync(dir).filter((f) => f.endsWith(".json")).sort();
+  check(files.length === 10 && files.includes("legend.json"), `interiors: legend + 9 building files (${files.join(", ")})`);
+  check(JSON.stringify(I.INTERIOR_LEGEND, null, 2) + "\n" === readFileSync(path.join(dir, "legend.json"), "utf8"), "interiors/legend.json: round-trips byte for byte");
+  for (const id of I.BUILDING_INTERIOR_IDS) {
+    const src = readFileSync(path.join(dir, `${id}.json`), "utf8");
+    const raw = JSON.parse(src);
+    const errs = I.validateInteriorFile(raw);
+    check(errs.length === 0, `interiors/${id}.json: valid (shape + every layout) ${errs.join("; ")}`);
+    check(JSON.stringify(I.normaliseInteriorFile(raw), null, 2) + "\n" === src, `interiors/${id}.json: round-trips byte for byte`);
+    check(I.INTERIOR_TEMPLATES[id].length === I.INTERIOR_VARIANTS && I.INTERIOR_TEMPLATES[id].every((t, v) => t.id === id && JSON.stringify(t.rows) === JSON.stringify(raw.variants[v].rows)), `interiors: INTERIOR_TEMPLATES.${id} is the file's variants in order`);
+  }
+  check(I.validateAllInteriorTemplates().length === 0, "interiors: validateAllInteriorTemplates() is clean");
+  const hall = JSON.parse(readFileSync(path.join(dir, "hall.json"), "utf8"));
+  const bad = (edit: (o: any) => void) => { const o = clone(hall); edit(o); return I.validateInteriorFile(o); };
+  rejects(bad((o) => { o.variants[1].rows = o.variants[1].rows.map((r: string) => r.replace("c", ".")); }), "a hall layout without its chest", /hall: no chest .*variant 1/);
+  rejects(bad((o) => { o.required = ["throne", "table"]; }), "a hall whose required props drop the chest", /hall: required must keep "chest"/);
+  rejects(bad((o) => { o.variants[0].rows = o.variants[0].rows.map((r: string) => r.replace("T", ".")); }), "a hall layout without its high seat", /no throne/);
+  rejects(bad((o) => { o.variants[0].rows[3] += "#"; }), "an interior row of the wrong width", /rows differ in length/);
+  rejects(bad((o) => { o.variants[2].rows[2] = o.variants[2].rows[2].replace(".", "?"); }), "an unknown interior symbol", /unknown symbol "\?"/);
+  rejects(bad((o) => { o.variants[0].rows[1] = o.variants[0].rows[1].replace(".", "E"); }), "two exit mats", /exactly one exit mat/);
+  rejects(bad((o) => { o.variants.pop(); }), "a type with 2 variants", /2 variants, wants 3/);
+  rejects(bad((o) => { o.variants[0].floor = "marble"; }), "an unknown floor", /floor one of/);
+  rejects(bad((o) => { o.upper.rows[4] = o.upper.rows[4].replace("D", "."); }), "an upper floor without stairs down", /upstairs: needs exactly one "D"/);
+  rejects(bad((o) => { o.variants[0].rows = o.variants[0].rows.map((r: string) => r.replace("U", ".")); }), "a hall with an upper floor but no stairs up", /no stairs up/);
+  rejects(bad((o) => { o.id = "castle"; }), "an unknown building type", /^id: one of/);
+  check(I.INTERIOR_SLEEP_TEMPLATES.has("house") && I.INTERIOR_SLEEP_TEMPLATES.has("hall") && I.INTERIOR_SLEEP_TEMPLATES.size === 2, "interiors: you sleep in your house and your hall only");
+}
+
 // ---- the older template stores still load; every settlement profile is a site template ----
 {
   const { loadCampTemplates } = await import("./src/camps.js");

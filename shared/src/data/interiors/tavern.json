@@ -1,0 +1,74 @@
+{
+  "id": "tavern",
+  "required": [
+    "counter",
+    "table",
+    "chair",
+    "hearth",
+    "chest"
+  ],
+  "sleep": false,
+  "variants": [
+    {
+      "label": "Tavern",
+      "floor": "wood",
+      "wall": "wood",
+      "rows": [
+        "#############",
+        "#xX.1.H.s.xc#",
+        "#..K.K......#",
+        "#....v..v...#",
+        "#.hth..hth..#",
+        "#......v....#",
+        "#.hth..hth.l#",
+        "#U.........C#",
+        "######E######"
+      ]
+    },
+    {
+      "label": "Tavern",
+      "floor": "wood",
+      "wall": "wood",
+      "rows": [
+        "###########",
+        "#H..s.xx.c#",
+        "#.........#",
+        "#hth.hth.U#",
+        "#.........#",
+        "#hth.hth..#",
+        "#.........#",
+        "#KK1K....l#",
+        "#####E#####"
+      ]
+    },
+    {
+      "label": "Tavern",
+      "floor": "wood",
+      "wall": "wood",
+      "rows": [
+        "#############",
+        "#c.x.H...U..#",
+        "#K..........#",
+        "#K1.hth..hth#",
+        "#K..........#",
+        "#K..hth..hth#",
+        "#x..........#",
+        "#s...l...x.C#",
+        "######E######"
+      ]
+    }
+  ],
+  "upper": {
+    "label": "Tavern, upstairs",
+    "floor": "wood",
+    "wall": "wood",
+    "rows": [
+      "###########",
+      "#b.#b.#b.c#",
+      "#v.#v.#v..#",
+      "#.........#",
+      "#.x....D.l#",
+      "###########"
+    ]
+  }
+}
