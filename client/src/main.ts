@@ -225,6 +225,7 @@ import type {
   AnimSet, FacingMap, MobVariant, AnimMode, AnimState, SiteView, FireOverlay, CritterKind, Critter, WildlifeSet,
   ActiveEffect, FightArrow, ArmedOrder, StrategySetting, LeftPress, OrderPress,
 } from "./game/types";
+import { setupHudLayout } from "./game/hudLayout";
 
 const SERVER_URL = import.meta.env.VITE_SERVER_URL || "ws://localhost:8080";
 // The same server answers plain HTTP: GET /saves lists the save slots (the menu has no socket yet).
@@ -8954,26 +8955,4 @@ async function main() {
 }
 
 setupMainMenu({ serverUrl: SERVER_URL, startGame: () => void main() });
-
-// The control strip can wrap at different window sizes and text scales.
-const toolbarForLayout=document.getElementById('control-buttons');
-if(toolbarForLayout){const placeLedger=()=>document.documentElement.style.setProperty('--toolbar-bottom',`${toolbarForLayout.getBoundingClientRect().bottom+8}px`);new ResizeObserver(placeLedger).observe(toolbarForLayout);placeLedger();}
-
-// Keep controls outside the collapsible inventory; reparenting retains every existing listener.
-const colonyHeader = document.createElement('section');
-colonyHeader.id = 'colony-header';
-colonyHeader.setAttribute('aria-label', 'Colony status and time');
-const colonyCommands = document.createElement('div');
-colonyCommands.id = 'colony-commands';
-for (const id of ['strategy-btn', 'pause-btn', 'time-controls']) colonyCommands.append(document.getElementById(id)!);
-colonyHeader.append(colonyCommands, document.getElementById('colony-stats')!);
-document.body.append(colonyHeader);
-document.getElementById('control-buttons')!.append(document.getElementById('next-bar')!);
-document.getElementById('economy-panel-toggle')!.textContent = 'Stockpile';
-const stockPanel = document.getElementById('economy-panel')!;
-const syncStockPanel = () => document.body.classList.toggle('stockpile-open', !stockPanel.classList.contains('collapsed'));
-new MutationObserver(syncStockPanel).observe(stockPanel, {attributes:true, attributeFilter:['class']});
-syncStockPanel();
-const measureHeader = () => document.documentElement.style.setProperty('--colony-header-bottom', `${colonyHeader.getBoundingClientRect().bottom + 12}px`);
-new ResizeObserver(measureHeader).observe(colonyHeader);
-measureHeader();
+setupHudLayout();
