@@ -41,7 +41,7 @@ import {
 import { siegeEvent, takeChargeBonus, trackCharge, updateSiegeMob } from "./siege.js";
 import { clearMobTarget, mobTactic, regimentKey, tacticsEvent } from "./tactics.js";
 import { siteLeash, type SiteLeash } from "./sites.js";
-import { stepRaidMobToward } from "./raids.js";
+import { isRaider, raidTargetExists, startRaiderLeave, stepRaidMobToward } from "./raids.js";
 import { playerMaxHp } from "./heroes.js";
 import { resetWorld } from "./saves.js";
 import { recordMobStrike } from "./net.js";
@@ -590,6 +590,11 @@ export function updateMob(mob: Mob, dt: number) {
 
   // Cavalry & siege: rams and catapults pick and hit their own targets (see updateSiegeMob).
   if (isSiegeKind(mob.kind)) {
+    // Siege engines only ever attack buildings: with none left anywhere a raid's engine leaves the map.
+    if (isRaider(mob) && !raidTargetExists()) {
+      startRaiderLeave(mob);
+      return;
+    }
     updateSiegeMob(mob, dt, hold);
     return;
   }
@@ -662,6 +667,9 @@ export function updateMob(mob: Mob, dt: number) {
   if (!targetPos) {
     clearDuel(mob);
     if (leash && Math.hypot(leash.px - mob.x, leash.py - mob.y) > TILE_SIZE * 0.5) walkMobTo(mob, leash.px, leash.py, mob.speed * SITE_RETURN_SPEED_MULT, dt);
+    // A released raider that found nothing to attack (no unit in reach) in a colony with nothing left to take
+    // leaves the map instead of standing here forever (RAIDS-2026-11-26.md).
+    else if (!leash && isRaider(mob) && !raidTargetExists()) startRaiderLeave(mob);
     return;
   }
 

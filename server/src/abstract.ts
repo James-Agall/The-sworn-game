@@ -28,6 +28,7 @@ import {
   resetChunkStates, streamingOn,
 } from "./chunks.js";
 import { WILDLIFE_CONFIG, spawnWildlifeAt, wildlifeTileOk } from "./wildlife.js";
+import { despawnMob } from "./tactics.js";
 
 // ---- deterministic dice ----
 export function hashId(id: string): number {
@@ -232,6 +233,12 @@ export function updateAbstractWorld() {
     if (m.hp <= 0 || m.siteWorker || !mobFrozenByStreaming(m)) continue;
     const rec = cold.get(chunkAtPixel(m.x, m.y));
     if (!rec) continue;
+    // Raid cap (RAIDS-2026-11-26.md): a raider walking off the map ("leave"), or an idle nightly raider, that
+    // drifts out of sight has left: it is removed instead of parked (a parked one would never finish leaving).
+    if (m.tactic === "leave" || m.raidClan !== undefined) {
+      despawnMob(m);
+      continue;
+    }
     mobs.delete(m.id);
     parkedMobs.set(m.id, m);
     rec.mobIds.add(m.id);

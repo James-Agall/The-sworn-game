@@ -14,9 +14,9 @@ import {
   RAID_HEADING_SMOOTHING, RAID_HORDE_SHARE_MAX, RAID_HORDE_SHARE_MIN, RAID_LOITER_CHANCE_PER_TICK,
   RAID_LOITER_RADIUS_TILES, RAID_MARCH_REPATH_TICKS, RAID_REACH_BUDGET, RAID_REACH_RADIUS, RAID_REAR_RANK_TILES,
   RAID_RELEASE_ROW_TICKS, RAID_SIZE_PER_DAY, RAID_SPAWN_DIST_STEPS, RAID_TRAVEL_MARGIN_TICKS, RAID_TRAVEL_SLACK,
-  RAID_WEDGE_LOOSENESS, GAME_DAY_TICKS,
+  RAID_WEDGE_LOOSENESS, GAME_DAY_TICKS, RAID_LEAVE_MAX_TICKS, ROUT_TOAST_COOLDOWN_TICKS,
 } from "./constants.js";
-import { colonists, mobs, players, raidGroups, state } from "./state.js";
+import { colonists, mobs, parkedMobs, players, raidGroups, state } from "./state.js";
 import { raidForecastBand, type RaidForecast, type RaidForecastEdge } from "@colony/shared/raidForecast";
 import { biomeSpeedMultiplier, inBounds, isNightNow, ownerAt, resourceKey, tileIndex, tileOfPixel, tileToPixelCenter, dayIndexAt, dayTicksFor, nightTicksFor } from "./tiles.js";
 import {advanceGroundApproach} from "./groundNavigation.js";
@@ -26,9 +26,10 @@ import { TOWN_CENTER_TILE, activeWardSources, civilianPopulationUsed, highestTow
 import { isGuardOrMilitiaKind, isRearMob, isSiegeKind, mobRole } from "./units.js";
 import { raidSiegeCap } from "./siege.js";
 import {
-  applyHungerMark, applyMobSize, buildingNearby, hungerMarkChance, hungerMarkLabel, mobBodyRadius, mobKindLabel,
+  applyHungerMark, applyMobSize, buildingNearby, buildingTargetCandidates, hungerMarkChance, hungerMarkLabel, mobBodyRadius, mobKindLabel,
   pickMobTarget, resolveTargetPosition,
 } from "./mobs.js";
+import { clearMobTarget, fleeEdgePoint } from "./tactics.js";
 import { broadcastEvent } from "./net.js";
 import { clanTownCenters } from "./clans.js";
 import { campRaidBonus } from "./sites.js";
@@ -323,11 +324,13 @@ export function spawnRaid(dayIndex: number) {
       leaderId: null,
       offsets: new Map(),
       repathCooldown: 0,
+      raidClan: state.clan.id,
     };
     let freshCount = size;
     if (isHorde) {
       for (const d of deserters) {
         d.groupId = group.id;
+        d.raidClan = state.clan.id;
         d.passive = true;
         d.path = [];
         group.memberIds.push(d.id);
@@ -340,6 +343,7 @@ export function spawnRaid(dayIndex: number) {
       noteRaidAnchor(anchor.tile.x, anchor.tile.y);
       for (const tile of clusterRaidTiles(anchor.tile, freshCount, occupied)) {
         const mob = createRaidMob(pickRaidFactionKind(group.faction, dayIndex, siegeLeft), tile, group.id);
+        mob.raidClan = state.clan.id;
         if (marksLeft > 0 && Math.random() < markChance) {
           applyHungerMark(mob, randInt(HungerMark.Gorrath, HungerMark.Vhorrun) as HungerMark);
           marksLeft--;
@@ -653,7 +657,12 @@ export function marchRaidGroup(group: RaidGroup, dt: number) {
   if (!leader || leader.groupId !== group.id) leader = assignRaidLeader(group) ?? undefined;
   if (!leader) return;
   const goal = raidMarchGoal(leader);
-  if (!goal) return;
+  if (!goal) {
+    // Nothing left to attack anywhere (no unwarded Town Center or building): the raid goes home instead of
+    // holding here forever. A goal that is merely out of the leader's reach this tick keeps the old hold.
+    if (!raidTargetExists()) leaveRaidGroup(group);
+    return;
+  }
   if (raidGroupShouldEngage(leader, goal)) {
     if (isNightNow()) engageRaidGroup(group);
     else holdRaidGroup(group, leader, dt);
@@ -743,4 +752,83 @@ export function raidForecastNow(): RaidForecast | undefined {
   }
   if (count === 0) return undefined;
   return { band: raidForecastBand(count), factions: [...factions], edges: [...edges] };
+}
+
+// ---- Raid cap and target-less raiders (RAIDS-2026-11-26.md) ----
+// True while the colony offers raiders anything to attack: an unwarded standing Town Center (any clan) or an
+// unwarded damageable building (buildingTargetCandidates: not walls / gates / moats / fences, not NPC sites).
+// Guards and players are not counted: they move, and a raider already fighting one keeps fighting it. Walls behind
+// which targets sit do not make a raid target-less (they are breached), so this is false only when there is truly
+// nothing to take. Cached for a second (one scan of the building list at most once a second), and recomputed at
+// once when a building changes (buildingTargetsDirty) or a Town Center is added / lost.
+let targetCacheTick = -1;
+let targetCacheValue = false;
+let targetCacheTownCenters = -1;
+export function raidTargetExists(): boolean {
+  if (targetCacheTick >= 0 && state.cycleTick >= targetCacheTick && state.cycleTick - targetCacheTick < TICK_RATE
+    && !state.buildingTargetsDirty && targetCacheTownCenters === state.townCenters.length) return targetCacheValue;
+  const wards = activeWardSources();
+  let found = false;
+  for (const tc of state.townCenters) {
+    const pos = resolveTargetPosition("townCenter", resourceKey(tc.x, tc.y));
+    if (pos && !isWarded(pos.x, pos.y, wards)) {
+      found = true;
+      break;
+    }
+  }
+  if (!found) {
+    for (const b of buildingTargetCandidates()) {
+      const c = tileToPixelCenter(b);
+      if (!isWarded(c.x, c.y, wards)) {
+        found = true;
+        break;
+      }
+    }
+  }
+  targetCacheTick = state.cycleTick;
+  targetCacheValue = found;
+  targetCacheTownCenters = state.townCenters.length;
+  return found;
+}
+
+// Rule 1: one nightly raid at a time per clan. True while any group or mob of a nightly raid sent against `clanId`
+// is still on the map (grouped, released, leaving, or parked in a COLD chunk). Runs once per clan per day.
+export function nightlyRaidActive(clanId: number): boolean {
+  // A group whose last member died this tick is not deleted until updateRaidGroups runs: only live members count.
+  for (const g of raidGroups.values()) if (g.raidClan === clanId && raidGroupMembers(g).length > 0) return true;
+  for (const m of mobs.values()) if (m.raidClan === clanId && m.hp > 0) return true;
+  for (const m of parkedMobs.values()) if (m.raidClan === clanId) return true;
+  return false;
+}
+
+// A raider created by a raid group (nightly, camp raid, deserter wave, Creative): released mobs keep the group id
+// as regimentId. Site guardians and warband bodies are not raiders.
+export function isRaider(m: Mob): boolean {
+  return !!m.regimentId && !m.siteId && !m.warbandId;
+}
+
+// Rule 2: a raider with nothing to attack walks to the nearest map edge (the same "leave" tactic a routed raid uses,
+// see mobTactic) and despawns there, or after RAID_LEAVE_MAX_TICKS, whichever comes first.
+export function startRaiderLeave(m: Mob) {
+  clearMobTarget(m);
+  m.tactic = "leave";
+  m.flanker = false;
+  const edge = fleeEdgePoint(m, m.x, m.y);
+  m.fleeX = edge.x;
+  m.fleeY = edge.y;
+  m.leaveUntilTick = state.cycleTick + RAID_LEAVE_MAX_TICKS;
+}
+
+let lastLeaveToastTick = -Infinity;
+// The whole group breaks up into leaving raiders; the group record goes at once (no orphan raidGroups entry).
+export function leaveRaidGroup(group: RaidGroup) {
+  for (const m of raidGroupMembers(group)) {
+    releaseRaidMob(m);
+    startRaiderLeave(m);
+  }
+  raidGroups.delete(group.id);
+  if (state.cycleTick - lastLeaveToastTick >= ROUT_TOAST_COOLDOWN_TICKS || state.cycleTick < lastLeaveToastTick) {
+    lastLeaveToastTick = state.cycleTick;
+    broadcastEvent("raid", "Finding nothing left to plunder, the raiders withdraw");
+  }
 }

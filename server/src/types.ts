@@ -328,6 +328,8 @@ export interface Mob {
   // Regiments: the raid group this mob marched in, kept after its group breaks up so its ranged /
   // casters still know their front rank (see regimentFrontDistance). Missing for non-raid mobs.
   regimentId?: string | null;
+  // Raid cap: the clan whose nightly raid this mob belongs to (see RaidGroup.raidClan); kept after its group breaks up.
+  raidClan?: number;
   // Monster tactics (see the "Monster tactics" block); missing on most mobs and in old saves.
   //   flank - walking a flanking arc (flankWaypoints) round the enemy line to flankTargetId (a soldier)
   //   rout  - fleeing toward its regiment's home;  leave - a routed raider walking off the map (fleeX/Y)
@@ -813,6 +815,9 @@ export interface RaidGroup {
   engagedTick?: number;
   anchorX?: number;
   anchorY?: number;
+  // Raid cap (RAIDS-2026-11-26.md): the clan a nightly raid (spawnRaid) was sent against. Unset for camp raids,
+  // Creative groups and old saves; while any group or mob carries a clan's id, no new nightly raid forms against it.
+  raidClan?: number;
 }
 // A mob target pick; `approach` (building / Town Center targets only) is the tile to attack from.
 export interface PickedTarget {

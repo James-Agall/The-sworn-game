@@ -47,7 +47,7 @@ import {
   ownerSiteIds, playerMorale, raidGroups, regiments, repairPaid, repairQueue, respawnQueue, routedUnits, siegeEvents,
   siegeWorkshops, spellCooldowns, spellEvents, spellStatuses, state, summonedUntil, systemMs, tacticsEvents, tickDurationsMs,
   tileOwner, towerCooldowns, towerEvents, walledSites, wildlife,
-  sites, players,
+  sites, players, parkedMobs,
 } from "./state.js";
 import {
   getBuildingLevel, inBounds, isNightNow, ownerAt, resourceKey, setOwner, siteNumber, tileIndex, tileOfPixel,
@@ -77,10 +77,10 @@ import {
   damagedBuildingsForSnapshot, isTowerTile, livingTowersNear, structureHp, towerCooldownTicks, updateGates,
 } from "./combat.js";
 import { raidSiegeCap } from "./siege.js";
-import { applyHungerMark, mobBodyRadius, rollMobSize } from "./mobs.js";
+import { applyHungerMark, buildingTargetCandidates, mobBodyRadius, rollMobSize } from "./mobs.js";
 import { placementCost, resolveTownCenterPlacement } from "./construction.js";
 import { regimentKey } from "./tactics.js";
-import { createRaidMob, raidSizeForDay, spawnRaid } from "./raids.js";
+import { createRaidMob, raidSizeForDay, raidTargetExists, spawnRaid } from "./raids.js";
 import { damageHearth } from "./hearths.js";
 import { activeGoals, nightsSurvived, refreshGoalSnapshot } from "./goals.js";
 import {
@@ -129,7 +129,10 @@ export function handleTestHook(player: Player, msg: Record<string, unknown>) {
         headingY: g.headingY ?? null,
         engagedTick: g.engagedTick ?? null,
         offsets: Array.from(g.offsets),
+        raidClan: g.raidClan ?? null,
       })),
+      raidTargetExists: raidTargetExists(),
+      parkedRaidMobs: Array.from(parkedMobs.values()).filter((m) => m.raidClan !== undefined || m.tactic === "leave").length,
       mobs: Array.from(mobs.values()).map((m) => ({
         id: m.id,
         kind: m.kind,
@@ -153,6 +156,9 @@ export function handleTestHook(player: Player, msg: Record<string, unknown>) {
         bodyRadius: mobBodyRadius(m),
         rolledScale: rollMobSize(m.kind, m.id),
         regimentId: m.regimentId ?? null,
+        raidClan: m.raidClan ?? null,
+        tactic: m.tactic ?? null,
+        leaveUntilTick: m.leaveUntilTick ?? null,
       })),
       factions: RAID_FACTIONS,
       unlockDays: Object.fromEntries(Object.entries(MOB_KIND_CONFIG).map(([k, c]) => [k, c.unlockDay])),
@@ -661,6 +667,17 @@ export function handleTestHook(player: Player, msg: Record<string, unknown>) {
     // amount 0 (or missing) just reports the HP.
     if (typeof msg.amount === "number" && msg.amount > 0 && structureHp(msg.tx, msg.ty)) damageBuilding(msg.tx, msg.ty, msg.amount);
     reply({ structure: structureHp(msg.tx, msg.ty) });
+  } else if (msg.op === "razeColony") {
+    // Raid cap test: every Town Center and every raid-targetable building destroyed (the colony left with nothing).
+    for (const tc of state.townCenters.slice()) damageTownCenter(tc, 1e9);
+    for (let pass = 0; pass < 4; pass++) {
+      state.buildingTargetsDirty = true;
+      const left = buildingTargetCandidates();
+      if (left.length === 0) break;
+      for (const b of left.slice()) if (structureHp(b.x, b.y)) damageBuilding(b.x, b.y, 1e9);
+    }
+    state.buildingTargetsDirty = true;
+    reply({ townCenters: state.townCenters.length, buildings: buildingTargetCandidates().length });
   } else if (msg.op === "killColonists" && typeof msg.kind === "string") {
     let killed = 0;
     for (const c of Array.from(colonists.values())) {
