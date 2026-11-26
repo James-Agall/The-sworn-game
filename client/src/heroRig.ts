@@ -143,8 +143,104 @@ function motion(keys: number[][], u: number) {
     }
     return keys.at(-1)![1];
 }
-function draw(g: CanvasRenderingContext2D, p: Part | undefined, at: Vec, angle = 0, limb = false, widthScale = 1, heightScale = 1) { if (!p)
-    return; g.save(); g.translate(...at); g.rotate(angle * D * (limb ? -1 : 1)); g.scale(widthScale, heightScale); g.drawImage(p.image, -p.pivot[0], -p.pivot[1]); g.restore(); }
+// One figure, one outline (2026-11-27). Every body part is drawn without its own painted rim; afterwards the outline is
+// derived from the composited figure: the rim colour on edges against air or gear, a soft seam in the upper part's own
+// shade where two body parts overlap, and nothing where they are one form across a joint (JOINS). Gear (head, hair,
+// helm, weapons, shield, horse) keeps its painted outline so it still reads as a separate object.
+type Layer = { name: string; part: Part; at: Vec; angle: number; limb: boolean; ws: number; hs: number; m: DOMMatrix };
+const RIM = [25, 20, 20], BODY = /^(torso|pelvis|upperArm|foreArm|thigh|shin|foot)\b/;
+// [layer, layer, joint, radius]: seamless pairs; with a joint only within that radius (bake px) of it.
+const JOINS: [string, string, string?, number?][] = [
+    ["pelvis", "thigh:near"], ["pelvis", "thigh:far"], ["pelvis", "torso"],
+    ["thigh:near", "shin:near"], ["thigh:far", "shin:far"], ["upperArm:near", "foreArm:near"], ["upperArm:far", "foreArm:far"],
+    ["torso", "upperArm:near", "shoulder:near", 7], ["torso", "upperArm:far", "shoulder:far", 7],
+];
+const rimlessCache = new WeakMap<object, HTMLCanvasElement>(), solidCache = new WeakMap<object, HTMLCanvasElement>();
+// The part with its dark rim (near-black pixels within 2 px of its own edge) repainted from the neighbouring fill.
+function rimless(src: HTMLImageElement | HTMLCanvasElement) {
+    const old = rimlessCache.get(src);
+    if (old) return old;
+    const w = src.width, h = src.height, c = make(w, h), g = c.getContext("2d")!;
+    g.drawImage(src, 0, 0);
+    const im = g.getImageData(0, 0, w, h), d = im.data, state = new Uint8Array(w * h); // 0 fill, 1 rim, 2 repainted
+    const alpha = (x: number, y: number) => x < 0 || y < 0 || x >= w || y >= h ? 0 : d[(y * w + x) * 4 + 3];
+    for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+        const i = (y * w + x) * 4;
+        if (!d[i + 3] || d[i] * .3 + d[i + 1] * .59 + d[i + 2] * .11 >= 60) continue;
+        let edge = false;
+        for (let dy = -2; dy <= 2 && !edge; dy++) for (let dx = -2; dx <= 2; dx++) if (alpha(x + dx, y + dy) < 64) { edge = true; break; }
+        if (edge) state[y * w + x] = 1;
+    }
+    for (let pass = 0; pass < 4; pass++) {
+        const done: number[] = [];
+        for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+            if (state[y * w + x] !== 1) continue;
+            const sum = [0, 0, 0];
+            let n = 0;
+            for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
+                const nx = x + dx, ny = y + dy;
+                if (nx < 0 || ny < 0 || nx >= w || ny >= h || state[ny * w + nx] === 1 || alpha(nx, ny) < 64) continue;
+                for (let k = 0; k < 3; k++) sum[k] += d[(ny * w + nx) * 4 + k];
+                n++;
+            }
+            if (n) { for (let k = 0; k < 3; k++) d[(y * w + x) * 4 + k] = sum[k] / n; done.push(y * w + x); }
+        }
+        for (const i of done) state[i] = 2;
+    }
+    g.putImageData(im, 0, 0);
+    rimlessCache.set(src, c);
+    return c;
+}
+// Opaque silhouette of a part (for the layer-id map).
+function solid(src: HTMLImageElement | HTMLCanvasElement) {
+    const old = solidCache.get(src);
+    if (old) return old;
+    const c = make(src.width, src.height), g = c.getContext("2d")!;
+    g.drawImage(src, 0, 0);
+    const im = g.getImageData(0, 0, c.width, c.height);
+    for (let i = 3; i < im.data.length; i += 4) im.data[i] = im.data[i] >= 96 ? 255 : 0;
+    g.putImageData(im, 0, 0);
+    solidCache.set(src, c);
+    return c;
+}
+function place(g: CanvasRenderingContext2D, l: Layer, image: CanvasImageSource) {
+    g.setTransform(l.m); g.translate(...l.at); g.rotate(l.angle * D * (l.limb ? -1 : 1)); g.scale(l.ws, l.hs); g.drawImage(image, -l.part.pivot[0], -l.part.pivot[1]);
+}
+function compose(g: CanvasRenderingContext2D, layers: Layer[], joints: Map<string, Vec>) {
+    const W = g.canvas.width, H = g.canvas.height, keep = g.getTransform(), ids = make(W, H), ig = ids.getContext("2d")!, tmp = make(W, H), tg = tmp.getContext("2d")!;
+    ig.imageSmoothingEnabled = tg.imageSmoothingEnabled = false;
+    const body = layers.map(l => BODY.test(l.name)), slotOf = new Map(layers.map((l, k) => [l.name, k + 1]));
+    layers.forEach((l, k) => {
+        place(g, l, body[k] ? rimless(l.part.image) : l.part.image);
+        tg.setTransform(1, 0, 0, 1, 0, 0); tg.globalCompositeOperation = "source-over"; tg.clearRect(0, 0, W, H);
+        place(tg, l, solid(l.part.image));
+        tg.setTransform(1, 0, 0, 1, 0, 0); tg.globalCompositeOperation = "source-in"; tg.fillStyle = `rgb(${k + 1},0,0)`; tg.fillRect(0, 0, W, H);
+        ig.drawImage(tmp, 0, 0);
+    });
+    const joins = new Map<number, [Vec | undefined, number]>();
+    for (const [a, b, joint, r] of JOINS) { const s = slotOf.get(a), t = slotOf.get(b); if (s && t) joins.set(s * 64 + t, [joint ? joints.get(joint) : undefined, r ?? 0]).set(t * 64 + s, [joint ? joints.get(joint) : undefined, r ?? 0]); }
+    g.setTransform(1, 0, 0, 1, 0, 0);
+    const im = g.getImageData(0, 0, W, H), d = im.data, src = d.slice(), id = ig.getImageData(0, 0, W, H).data;
+    const slot = (x: number, y: number) => x < 0 || y < 0 || x >= W || y >= H || !id[(y * W + x) * 4 + 3] ? 0 : id[(y * W + x) * 4];
+    for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+        const i = (y * W + x) * 4, a = src[i + 3];
+        if (a < 8) continue;
+        const s = slot(x, y) || slot(x - 1, y) || slot(x + 1, y) || slot(x, y - 1) || slot(x, y + 1);
+        if (!s || !body[s - 1]) continue;
+        let mode = a < 128 ? 2 : 0;
+        for (const [nx, ny] of mode ? [] : [[x - 1, y], [x + 1, y], [x, y - 1], [x, y + 1]]) {
+            if (nx < 0 || ny < 0 || nx >= W || ny >= H || src[(ny * W + nx) * 4 + 3] < 128) { mode = 2; break; }
+            const t = slot(nx, ny);
+            if (!t || t >= s) continue;
+            if (!body[t - 1]) { mode = 2; break; }
+            const join = joins.get(s * 64 + t);
+            if (!join || (join[0] && Math.hypot(x - join[0][0], y - join[0][1]) > join[1])) mode = 1;
+        }
+        if (mode) for (let k = 0; k < 3; k++) d[i + k] = src[i + k] + (RIM[k] - src[i + k]) * (mode === 2 ? 1 : .45);
+    }
+    g.putImageData(im, 0, 0);
+    g.setTransform(keep);
+}
 // Skeleton (bake px). Legs ~47% of the height (hip joint 48 above the sole), arms reach mid-thigh, head ~1/5.5.
 // ARM_K rescales the hand-space attack paths that were tuned for the old 13 + 16 px arm.
 const THIGH = 20, SHIN = 19, HIP = 48, UPPER = 16, LOWER = 19, ARM_K = (UPPER + LOWER) / 29, HORSE_K = 101 / 89;
@@ -188,7 +284,10 @@ export function heroFrame(v: HeroVisual, pose: HeroPose, mounted = false, allowR
         g.scale(-1, 1);
     }
     // Authored coats keep leather/cloth colours intact. Every frame carries a fitted saddle pivot.
-    if (horse) draw(g, horse, [120, hipBase], 0, false, HORSE_K, HORSE_K);
+    const layers: Layer[] = [], joints = new Map<string, Vec>();
+    const draw = (name: string, p: Part | undefined, at: Vec, angle = 0, limb = false, ws = 1, hs = 1) => { if (p) layers.push({ name, part: p, at, angle, limb, ws, hs, m: g.getTransform() }); };
+    const mark = (name: string, at: Vec) => { const pt = g.getTransform().transformPoint(new DOMPoint(at[0], at[1])); joints.set(name, [pt.x, pt.y]); };
+    if (horse) draw("horse", horse, [120, hipBase], 0, false, HORSE_K, HORSE_K);
     const factor = heroBuildFactor(v), width = [.88, 1, 1.16][a.build];
     g.save();
     g.translate(root[0], mounted ? root[1] : ground);
@@ -251,7 +350,7 @@ export function heroFrame(v: HeroVisual, pose: HeroPose, mounted = false, allowR
         farElbow = arm.j;
         farHand = arm.end;
     }
-    const arm = (far: boolean) => { const el = far ? farElbow : elbow, ha = far ? farHand : hand, origin = far && shield ? shieldShoulder : shoulder, shaded = shield ? !far : far; draw(g, get(`upperArm.${material}`, shaded), origin, Math.atan2(el[0] - origin[0], el[1] - origin[1]) / D, true); draw(g, get(`foreArm.${fore}`, shaded), el, Math.atan2(ha[0] - el[0], ha[1] - el[1]) / D, true); };
+    const arm = (far: boolean) => { const el = far ? farElbow : elbow, ha = far ? farHand : hand, origin = far && shield ? shieldShoulder : shoulder, shaded = shield ? !far : far, side = far ? "far" : "near"; mark(`shoulder:${side}`, origin); draw(`upperArm:${side}`, get(`upperArm.${material}`, shaded), origin, Math.atan2(el[0] - origin[0], el[1] - origin[1]) / D, true); draw(`foreArm:${side}`, get(`foreArm.${fore}`, shaded), el, Math.atan2(ha[0] - el[0], ha[1] - el[1]) / D, true); };
     const leg = (far: boolean) => {
         const hip: Vec = [root[0] + (far ? -2 : 2), root[1] + 2];
         let knee: Vec, end: Vec, a1: number, a2: number, tilt = 0;
@@ -274,32 +373,34 @@ export function heroFrame(v: HeroVisual, pose: HeroPose, mounted = false, allowR
             end = solve.end;
             tilt = !moving ? 0 : stance ? 8 * Math.sin(p/.62 * Math.PI*2) : -15 * Math.sin(t * Math.PI);
         }
-        draw(g, get(tier ? `thigh.t${tier}` : "thigh", far), hip, a1, true);
-        draw(g, get(tier ? `shin.t${tier}` : "shin", far), knee, a2, true);
-        draw(g, get(tier ? `foot.t${tier}` : "foot", far), end, tilt);
+        const side = far ? "far" : "near";
+        draw(`thigh:${side}`, get(tier ? `thigh.t${tier}` : "thigh", far), hip, a1, true);
+        draw(`shin:${side}`, get(tier ? `shin.t${tier}` : "shin", far), knee, a2, true);
+        draw(`foot:${side}`, get(tier ? `foot.t${tier}` : "foot", far), end, tilt);
     };
     // Weapon in the left/far hand; the right shield arm is drawn over the torso.
-    if (shield) { arm(false); draw(g, weapon, hand, wa + (v.weapon === "axe" ? 180 : 0), true, v.weapon === "spear" ? .4 : v.weapon === "sword" ? .55 : 1); }
+    if (shield) { arm(false); draw("weapon", weapon, hand, wa + (v.weapon === "axe" ? 180 : 0), true, v.weapon === "spear" ? .4 : v.weapon === "sword" ? .55 : 1); }
     else arm(true);
     leg(true);
-    draw(g, get("pelvis"), root);
+    draw("pelvis", get("pelvis"), root);
     const hairName = ["", "short", "long", "ponytail"][a.hair];
     if (hairName && !helm && a.hair > 1)
-        draw(g, get(`hairBack.${hairName}`), neck, lean * .25);
-    draw(g, head, neck, lean * .25);
+        draw("hairBack", get(`hairBack.${hairName}`), neck, lean * .25);
+    draw("head", head, neck, lean * .25);
     if (hairName && !helm)
-        draw(g, get(`hair.${hairName}`), neck, lean * .25);
+        draw("hair", get(`hair.${hairName}`), neck, lean * .25);
     if (helm)
-        draw(g, helm, neck, lean * .25);
-    draw(g, torso, waist, lean, false, (a.gender === "f" ? 22.5 : 25) / Math.max(1, torso!.image.width - 4));
+        draw("helm", helm, neck, lean * .25);
+    draw("torso", torso, waist, lean, false, (a.gender === "f" ? 22.5 : 25) / Math.max(1, torso!.image.width - 4));
     leg(false);
     if (shield) {
         arm(true);
-        draw(g, shield, [(farElbow[0]+farHand[0])*.5, (farElbow[1]+farHand[1])*.5], lean - 5, false, 1.15 * (shield.image.height - 4) / (shield.image.width - 4), 1.15);
+        draw("shield", shield, [(farElbow[0]+farHand[0])*.5, (farElbow[1]+farHand[1])*.5], lean - 5, false, 1.15 * (shield.image.height - 4) / (shield.image.width - 4), 1.15);
     } else {
         arm(false);
-        draw(g, weapon, hand, wa + (v.weapon === "axe" ? 180 : 0), true, v.weapon === "spear" ? .4 : v.weapon === "sword" ? .55 : 1);
+        draw("weapon", weapon, hand, wa + (v.weapon === "axe" ? 180 : 0), true, v.weapon === "spear" ? .4 : v.weapon === "sword" ? .55 : 1);
     }
+    compose(g, layers, joints);
     if (v.weapon === "bow" && weapon) {
         g.strokeStyle = "#b3a48b";
         g.lineWidth = .65;
