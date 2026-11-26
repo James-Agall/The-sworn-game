@@ -245,6 +245,14 @@ function compose(g: CanvasRenderingContext2D, layers: Layer[], joints: Map<strin
 // Skeleton (bake px). Legs ~47% of the height (hip joint 48 above the sole), arms reach mid-thigh, head ~1/5.5.
 // ARM_K rescales the hand-space attack paths that were tuned for the old 13 + 16 px arm.
 const THIGH = 20, SHIN = 19, HIP = 48, UPPER = 16, LOWER = 19, ARM_K = (UPPER + LOWER) / 29, HORSE_K = 101 / 89;
+// Walk: main.ts advances the phase by 1 per 11 world px and the bake is 101 px per 25 world px, so a planted foot
+// must travel 0.62 (stance) x 11 x 101 / 25 = 27.5 px backwards per stance to stay put on the ground.
+const STRIDE = .62 * 11 * 101 / 25 / 2, REACH = (THIGH + SHIN) * .995, TOE: Vec = [12, 9.5], HEEL: Vec = [-4, 9.5];
+// Attack footwork per weapon (on foot): the front (near) foot steps in, the rear foot stays planted.
+// [windup u, strike u, step px, hip lunge back/forward px, dip px]
+const FOOTWORK: Record<string, [number, number, number, number, number, number]> = {
+    sword: [.28, .49, 8, -2, 4, 1.5], axe: [.36, .58, 7, -3, 4, 2], spear: [.27, .5, 10, -2, 6, 1.2], bow: [.3, .5, 0, 0, -1, .6], unarmed: [.3, .5, 5, -1, 2, 1],
+};
 // The NPC-style male sheets are the player art. The painted-part rig is drawn instead when a caller asks for it
 // (allowRig: contact sheets, reviews) or the page was opened with `?rig=1` (James's in-game rig review).
 const preferRig = typeof location !== "undefined" && new URLSearchParams(location.search).get("rig") === "1";
@@ -277,9 +285,40 @@ export function heroFrame(v: HeroVisual, pose: HeroPose, mounted = false, allowR
     const ground = mounted ? 211 : 163;
     const saddleHeight = horse ? (horse.image.height - horse.pivot[1] - 3) * HORSE_K : 0;
     const hipBase = mounted ? ground - saddleHeight : ground - HIP - 2;
-    const bob = mounted ? 0 : moving ? -.9 * Math.sin(q * Math.PI * 4) : Math.sin(q * Math.PI * 2) * .35;
+    const idle = pose.state === "idle", hurt = pose.state === "hurt";
+    // legFwd: +1 when the near foot is forward (heel strike at q = 0), -1 at its toe-off; hips and arms follow it.
+    const legFwd = moving && !mounted ? Math.cos(2 * Math.PI * (q - .06)) : 0, breath = idle ? .45 * Math.sin(q * Math.PI * 2 + 1) : 0;
+    const steps = FOOTWORK[v.weapon] ?? FOOTWORK.sword, [wind, strike, stepLen, back, lunge, dip] = steps;
+    const hump = (u0: number, u1: number) => u > u0 && u < u1 ? Math.sin(Math.PI * (u - u0) / (u1 - u0)) : 0;
+    const step = attack && !mounted ? motion([[0, 0], [wind, -1], [strike, stepLen], [.8, stepLen], [1, 0]], u) : 0;
+    const stepLift = attack && !mounted && stepLen ? 3 * hump(wind * .6, strike) + 2 * hump(.8, 1) : 0;
+    // Planted feet (ankle targets); the heel and toe roll keep the sole on the ground while the ankle moves.
+    const roll = (x: number, tilt: number, about: Vec): Vec => { const r = rot(about[0], about[1], tilt); return [x + about[0] - r[0], ground - 10 + about[1] - r[1]]; };
+    const footAt = (far: boolean): { ankle: Vec; tilt: number } => {
+        if (!moving) {
+            const x = 120 + (far ? -4 : 4) + (far ? 0 : step), lift = far ? 0 : stepLift;
+            return { ankle: [x, ground - 10 - lift], tilt: lift > .3 ? -6 * lift / 3 : 0 };
+        }
+        const p = (q + (far ? .5 : 0)) % 1, base = 120 + (far ? -1 : 1);
+        const stance = (pp: number) => {
+            const x = base + STRIDE - 2 * STRIDE * pp / .62;
+            if (pp < .08) return { ankle: roll(x, -10 * (1 - pp / .08), HEEL), tilt: -10 * (1 - pp / .08) };
+            if (pp > .4) { const t = 24 * Math.min(1, (pp - .4) / .22) ** 1.5; return { ankle: roll(x, t, TOE), tilt: t }; }
+            return { ankle: [x, ground - 10] as Vec, tilt: 0 };
+        };
+        if (p < .62) return stance(p);
+        const t = (p - .62) / .38, from = stance(.62), to = stance(0), e = t * t * (3 - 2 * t);
+        return { ankle: [from.ankle[0] + (to.ankle[0] - from.ankle[0]) * e, from.ankle[1] + (to.ankle[1] - from.ankle[1]) * t - 7 * Math.sin(Math.PI * t) ** 1.3], tilt: motion([[0, from.tilt], [.4, 4], [.8, -12], [1, to.tilt]], t) };
+    };
+    const feet = mounted ? undefined : [footAt(false), footAt(true)];
+    const hipX = (far: boolean, x: number) => x + (far ? -1 : 1) * (moving ? 1 + 1.2 * legFwd : 2);
+    let rootX = 120 + (attack && !mounted ? motion([[0, 0], [wind, back], [strike, lunge], [.8, lunge * .7], [1, 0]], u) : 0)
+        + (hurt ? motion([[0, 0], [.18, -2.5], [.5, -1.5], [1, 0]], q) : 0) + (idle ? .6 * Math.sin(q * Math.PI * 2) : 0);
+    let rootY = hipBase + (attack && !mounted ? motion([[0, 0], [wind, .5], [strike + .03, dip], [.8, dip * .6], [1, 0]], u) : 0) + (hurt ? motion([[0, 0], [.2, 1.5], [1, 0]], q) : 0);
+    // The pelvis drops as far as needed for every planted foot to stay on the ground (heel strike / toe-off dip).
+    if (feet) feet.forEach((f, i) => { const dx = f.ankle[0] - hipX(i === 1, rootX); rootY = Math.max(rootY, f.ankle[1] - Math.sqrt(Math.max(0, REACH * REACH - dx * dx)) - 2); });
     const lean = attack ? motion([[0, 0], [.30, -6], [.52, mounted ? 7 : 11], [.72, 5], [1, 0]], u) : pose.state === "hurt" ? motion([[0, 0], [.18, -10], [.42, -6], [.72, 2], [1, 0]], q) : moving ? 2 + Math.sin(q * Math.PI * 2 + .4) * (mounted ? 2 : 1.3) : sw * .6;
-    const root: Vec = [120 + (attack && !mounted ? motion([[0, 0], [.3, -1.5], [.54, 2.5], [1, 0]], u) : 0), hipBase + bob + (attack && !mounted ? motion([[0, 0], [.3, 1], [.56, 2], [1, 0]], u) : 0)];
+    const root: Vec = [rootX, rootY];
     if (pose.facing === -1) {
         g.translate(240, 0);
         g.scale(-1, 1);
@@ -294,9 +333,10 @@ export function heroFrame(v: HeroVisual, pose: HeroPose, mounted = false, allowR
     g.translate(root[0], mounted ? root[1] : ground);
     g.scale(width, factor);
     g.translate(-root[0], -(mounted ? root[1] : ground));
-    const waist: Vec = [root[0], root[1] - 1], up = (h: number, x = 0) => add(waist, rot(x, -h, lean)), neck = up(30, 2);
+    const waist: Vec = [root[0], root[1] - 1], up = (h: number, x = 0) => add(waist, rot(x, -h - breath, lean)), neck = up(30, 2);
     // The arm drawn behind the torso hangs from a shoulder 4 px further forward so it stays hidden behind the back.
-    const shoulder = up(28, shield ? 1 : -3), farShoulder = up(28, 1);
+    // Shoulders counter-rotate against the hips while walking (near shoulder back when the near leg is forward).
+    const shoulder = up(28, (shield ? 1 : -3) + (shield ? 1 : -1) * legFwd), farShoulder = up(28, 1 + legFwd);
     let ua = 12, fe = 24, wa = 105;
     if (attack) {
         const axe = v.weapon === "axe", spear = v.weapon === "spear", bow = v.weapon === "bow";
@@ -305,7 +345,7 @@ export function heroFrame(v: HeroVisual, pose: HeroPose, mounted = false, allowR
         wa = spear ? 90 : bow ? 0 : keyframes([[0, 105], [.3, 195], [.45, 200], [.65, 65], [1, 105]], u);
     }
     else if (moving) {
-        ua += sw * (mounted ? 4 : 17);
+        ua += mounted ? sw * 4 : -17 * legFwd;
         fe += Math.sin(q * Math.PI * 2 + .6) * 7;
         wa += Math.sin(q * Math.PI * 2 - .35) * 8;
     }
@@ -335,12 +375,12 @@ export function heroFrame(v: HeroVisual, pose: HeroPose, mounted = false, allowR
     if (attack && (v.weapon === "spear" || v.weapon === "bow")) {
         const bow = v.weapon === "bow", rest = add(shoulder, add(dir(bow ? 42 : 12), dir(bow ? 62 : 36), lower/upper), upper);
         const x = motion(bow ? [[0, rest[0]-shoulder[0]], [.34, 26 * ARM_K], [.78, 26 * ARM_K], [1, rest[0]-shoulder[0]]] : [[0, rest[0]-shoulder[0]], [.27, 3 * ARM_K], [.5, 28 * ARM_K], [.68, 25 * ARM_K], [1, rest[0]-shoulder[0]]], u);
-        const y = motion([[0, rest[1]-shoulder[1]], [.32, (bow ? -7 : 4) * ARM_K], [.72, (bow ? -7 : 2) * ARM_K], [1, rest[1]-shoulder[1]]], u);
+        const y = motion([[0, rest[1]-shoulder[1]], [.32, (bow ? -7 : 7) * ARM_K], [.72, (bow ? -7 : 5) * ARM_K], [1, rest[1]-shoulder[1]]], u);
         const reach = ik(shoulder, add(shoulder,[x,y]), upper, lower, -1); elbow=reach.j;hand=reach.end;
         wa = bow ? 0 : motion([[0,105],[.28,90],[.72,90],[1,105]],u);
     }
-    const shieldShoulder = up(26, 5);
-    const freeArm = 4 - sw * (moving ? 22 : 0);
+    const shieldShoulder = up(26, 5 - legFwd);
+    const freeArm = 4 + (mounted ? -sw * 4 : 22 * legFwd) + (idle ? 2 * Math.sin(q * Math.PI * 2) : 0);
     let farElbow = add(farShoulder, dir(shield ? 40 : freeArm), upper), farHand = add(farElbow, dir(shield ? 95 : freeArm + 16), lower);
     if (v.weapon === "spear" && !shield) {
         // Two-handed spear: the free hand grips the shaft 13 px behind the leading hand.
@@ -350,7 +390,7 @@ export function heroFrame(v: HeroVisual, pose: HeroPose, mounted = false, allowR
     }
     if (shield) {
         // Near (shield) arm: the upper arm hangs at the ribs, the forearm points forward across the body.
-        farElbow = add(shieldShoulder, dir(10 + lean * .5 + (moving ? sw * 4 : 0)), upper);
+        farElbow = add(shieldShoulder, dir(10 + lean * .5 + (moving ? (mounted ? sw : -legFwd) * 4 : 0)), upper);
         farHand = add(farElbow, dir(100 + lean * .5), lower);
     }
     if (v.weapon === "bow" && attack) {
@@ -361,7 +401,7 @@ export function heroFrame(v: HeroVisual, pose: HeroPose, mounted = false, allowR
     }
     const arm = (far: boolean, held?: () => void) => { const el = far ? farElbow : elbow, ha = far ? farHand : hand, origin = far ? (shield ? shieldShoulder : farShoulder) : shoulder, shaded = shield ? !far : far, side = far ? "far" : "near"; mark(`shoulder:${side}`, origin); draw(`upperArm:${side}`, get(`upperArm.${material}`, shaded), origin, Math.atan2(el[0] - origin[0], el[1] - origin[1]) / D, true); held?.(); draw(`foreArm:${side}`, get(`foreArm.${fore}`, shaded), el, Math.atan2(ha[0] - el[0], ha[1] - el[1]) / D, true); };
     const leg = (far: boolean) => {
-        const hip: Vec = [root[0] + (far ? -2 : 2), root[1] + 2];
+        const hip: Vec = mounted ? [root[0] + (far ? -2 : 2), root[1] + 2] : [hipX(far, root[0]), root[1] + 2];
         let knee: Vec, end: Vec, a1: number, a2: number, tilt = 0;
         if (mounted) {
             a1 = (far ? 70 : 74) + (moving ? Math.sin(q*Math.PI*2 + (far ? Math.PI : 0))*2 : 0);
@@ -370,17 +410,12 @@ export function heroFrame(v: HeroVisual, pose: HeroPose, mounted = false, allowR
             end = add(knee, dir(a2), SHIN);
         }
         else {
-            const p = (q + (far ? .5 : 0)) % 1, stance = p < .62, swing = (p - .62) / .38;
-            const t = Math.max(0, swing), t2 = t*t, t3 = t2*t;
-            // Matching velocity at toe-off/heel-strike avoids the old abrupt direction changes.
-            const f = !moving ? 0 : stance ? 8 - 16*p/.62 : (2*t3-3*t2+1)*-8 + (-2*t3+3*t2)*8 + (2*t3-3*t2+t)*(-16/.62*.38);
-            const lift = moving && !stance ? 5.5 * Math.sin(t * Math.PI) ** 2 : 0;
-            const solve = ik(hip, [120 + (far ? -4 : 4) + f, ground - 10 - lift], THIGH, SHIN);
+            const f = feet![far ? 1 : 0], solve = ik(hip, f.ankle, THIGH, SHIN);
             a1 = solve.a1;
             a2 = solve.a2;
             knee = solve.j;
             end = solve.end;
-            tilt = !moving ? 0 : stance ? 8 * Math.sin(p/.62 * Math.PI*2) : -15 * Math.sin(t * Math.PI);
+            tilt = f.tilt;
         }
         const side = far ? "far" : "near";
         draw(`thigh:${side}`, get(tier ? `thigh.t${tier}` : "thigh", far), hip, a1, true);
