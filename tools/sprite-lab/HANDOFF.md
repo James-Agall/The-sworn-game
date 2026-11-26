@@ -11,7 +11,13 @@
   aliases (`@colony/shared/*` -> this repo's shared/src; `pixi.js` -> `app/src/area/pixi-stub.ts`).
   Tests: `area-server.test.ts`, `area-grid.test.ts`, `area-game.test.ts` (game store loads Lab files, byte-equal
   saves; real stamper == shared-code preview for camps + settlements incl. ownership).
-- Next: art map (`app/src/area/art.ts`), PixelView zoom range + tool hooks, the Area tab UI, smoke, docs.
+- Step 2 DONE (commit "Area tab UI ..."): `app/src/area/{tab,render,art,pixi-stub}.ts`, PixelView `minZoom/maxZoom/
+  smooth/tool/cursor` (Parts unchanged), api.ts template calls, main.ts wiring (header Save / Undo / dirty dot, keys,
+  `window.__area` debug hook), CSS. `test/area-smoke.test.ts` (camp duplicate / paint / validator / undo / save /
+  reload; settlement library place + collision + undo + whole turn; shared + REAL stamp previews; building art
+  coverage; zero console errors). Main smoke: scratch root also copies ui-questNew / ui-questActive (worldVisuals.ts
+  loads them at import).
+- Next: README / MANUAL-TESTS / stage-B findings, full `npm run lab:test`, tsc shared/server/client, `npm run smoke`.
 - Finding: the root `node_modules/@colony/shared` link points at the MAIN checkout's shared/; the stamper worker
   re-maps it to this worktree with a resolve hook (`stamper/alias-hooks.mjs`), the result reports `sharedFrom`.
 - Finding: 15 settlement built-ins list `spriteBuildings` before `rotate` / `mirror` (or omit it); the game's store

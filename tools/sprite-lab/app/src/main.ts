@@ -9,18 +9,19 @@ import { mountCompare } from "./compare.ts";
 import { el, toast } from "./ui.ts";
 import { installHook } from "./rig/hook.ts";
 import { mountRig } from "./rig/tab.ts";
+import { mountArea } from "./area/tab.ts";
 
 type TabId = "parts" | "draw" | "rig" | "area" | "compare";
-const TABS: [TabId, string][] = [["parts", "Parts"], ["draw", "Draw (based on Piskel)"], ["rig", "Rig"], ["area", "Area (coming next)"], ["compare", "Compare"]];
+const TABS: [TabId, string][] = [["parts", "Parts"], ["draw", "Draw (based on Piskel)"], ["rig", "Rig"], ["area", "Area"], ["compare", "Compare"]];
 let active: TabId = "parts", palette: HeroPalette | null = null;
 
 const app = document.getElementById("app")!;
 const tabBar = el("nav", { class: "tabs", role: "tablist" });
 const dirtyDot = el("span", { class: "dirty", id: "dirty", title: "Unsaved changes" });
 const setName = el("span", { class: "setname", id: "header-set" });
-const undoBtn = el("button", { id: "undo", text: "Undo", title: "Undo (Ctrl+Z)", onclick: () => (active === "rig" ? rig.undo() : project.undo()) });
-const redoBtn = el("button", { id: "redo", text: "Redo", title: "Redo (Ctrl+Shift+Z / Ctrl+Y)", onclick: () => (active === "rig" ? rig.redo() : project.redo()) });
-const saveBtn = el("button", { id: "save", class: "primary", text: "Save", title: "Save the set (Ctrl+S; on the Rig tab: the clip); overwritten files are backed up", onclick: () => (active === "rig" ? rig.save() : save()) });
+const undoBtn = el("button", { id: "undo", text: "Undo", title: "Undo (Ctrl+Z)", onclick: () => (active === "rig" ? rig.undo() : active === "area" ? area.undo() : project.undo()) });
+const redoBtn = el("button", { id: "redo", text: "Redo", title: "Redo (Ctrl+Shift+Z / Ctrl+Y)", onclick: () => (active === "rig" ? rig.redo() : active === "area" ? area.redo() : project.redo()) });
+const saveBtn = el("button", { id: "save", class: "primary", text: "Save", title: "Save the set (Ctrl+S; Rig tab: the clip; Area tab: the template); overwritten files are backed up", onclick: () => (active === "rig" ? rig.save() : active === "area" ? area.save() : save()) });
 const rootNote = el("span", { class: "rootnote", id: "root-note" });
 const palNote = el("span", { class: "warn-text", id: "palette-note" });
 const header = el("header", {}, el("strong", { class: "brand", text: "Sprite Lab" }), tabBar, el("span", { class: "grow" }), palNote, rootNote, setName, dirtyDot, undoBtn, redoBtn, saveBtn);
@@ -31,10 +32,10 @@ app.append(header, ...panes.values());
 const parts = mountParts(panes.get("parts")!, { palette: () => palette, openInDraw: (n) => { showTab("draw"); draw.open(n); }, isActive: () => active === "parts" });
 const draw = mountDraw(panes.get("draw")!, { isActive: () => active === "draw", showParts: () => showTab("parts") });
 const compare = mountCompare(panes.get("compare")!, { isActive: () => active === "compare" });
-const placeholder = (id: TabId, title: string, text: string) => panes.get(id)!.append(el("div", { class: "placeholder" }, el("h2", { text: title }), el("p", { text })));
 installHook();
 const rig = mountRig(panes.get("rig")!, { isActive: () => active === "rig", onState: () => refreshHeader() });
-placeholder("area", "Area (coming next)", "Grid editor for bandit camps, buildings and settlements (server/data/*/user/), with the game's own validators running live. See SPEC-sprite-lab.md section 9.");
+const area = mountArea(panes.get("area")!, { isActive: () => active === "area", onState: () => refreshHeader() });
+(window as unknown as { __area: typeof area }).__area = area;    // smoke-test hook (read-only state)
 
 for (const [id, label] of TABS) {
   tabBar.append(el("button", { role: "tab", class: "tab" + (id === active ? " on" : ""), "data-tab": id, id: "tab-" + id, text: label, onclick: () => showTab(id) }));
@@ -48,17 +49,18 @@ function showTab(id: TabId) {
   if (id === "compare") compare.activate();
   if (id === "parts") parts.view.render();
   if (id === "rig") rig.activate();
+  if (id === "area") area.activate();
   refreshHeader();
 }
 
 function refreshHeader() {
-  const onRig = active === "rig";
-  dirtyDot.classList.toggle("on", project.dirty || rig.dirty);
-  dirtyDot.title = [project.dirty ? "unsaved set" : "", rig.dirty ? "unsaved clip(s)" : ""].filter(Boolean).join(", ") || "No unsaved changes";
-  setName.textContent = project.set ? `set: ${project.set}` : "";
-  undoBtn.disabled = onRig ? !rig.canUndo : !project.history.canUndo;
-  redoBtn.disabled = onRig ? !rig.canRedo : !project.history.canRedo;
-  document.title = (project.dirty || rig.dirty ? "* " : "") + "Sprite Lab" + (project.set ? " - " + project.set : "");
+  const onRig = active === "rig", onArea = active === "area";
+  dirtyDot.classList.toggle("on", project.dirty || rig.dirty || area.dirty);
+  dirtyDot.title = [project.dirty ? "unsaved set" : "", rig.dirty ? "unsaved clip(s)" : "", area.dirty ? "unsaved template" : ""].filter(Boolean).join(", ") || "No unsaved changes";
+  setName.textContent = onArea ? area.docLabel : project.set ? `set: ${project.set}` : "";
+  undoBtn.disabled = onRig ? !rig.canUndo : onArea ? !area.canUndo : !project.history.canUndo;
+  redoBtn.disabled = onRig ? !rig.canRedo : onArea ? !area.canRedo : !project.history.canRedo;
+  document.title = (project.dirty || rig.dirty || area.dirty ? "* " : "") + "Sprite Lab" + (project.set ? " - " + project.set : "");
 }
 project.on(refreshHeader);
 project.on((why) => { if (why === "saved") rig.refreshParts(); });
@@ -80,8 +82,9 @@ async function save() {
 window.addEventListener("keydown", (e) => {
   const t = e.target as HTMLElement, typing = t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.tagName === "SELECT");
   const mod = e.ctrlKey || e.metaKey, k = e.key.toLowerCase();
-  if (mod && k === "s") { e.preventDefault(); if (active === "rig") rig.save(); else save(); return; }
+  if (mod && k === "s") { e.preventDefault(); if (active === "rig") rig.save(); else if (active === "area") area.save(); else save(); return; }
   if (typing || document.querySelector(".modal-back")) return;
+  if (active === "area" && !(e.altKey && /^[1-5]$/.test(e.key))) { if (area.onKey(e)) e.preventDefault(); return; }
   if (active === "rig" && !(e.altKey && /^[1-5]$/.test(e.key))) { if (rig.onKey(e)) e.preventDefault(); return; }
   if (active === "draw" && mod) return;    // inside Draw, undo belongs to the editor (focus it by clicking the canvas)
   if (mod && k === "z" && !e.shiftKey) { e.preventDefault(); project.undo(); return; }
@@ -98,7 +101,8 @@ window.addEventListener("keydown", (e) => {
     if (i >= 0 && i < project.order.length) { e.preventDefault(); project.selected = project.order[i]; project.emit("select"); }
   }
 });
-window.addEventListener("beforeunload", (e) => { if (project.dirty || rig.dirty) { e.preventDefault(); e.returnValue = ""; } });
+window.addEventListener("keyup", (e) => { if (active === "area" && e.key === " ") area.onKey(e); });
+window.addEventListener("beforeunload", (e) => { if (project.dirty || rig.dirty || area.dirty) { e.preventDefault(); e.returnValue = ""; } });
 
 (async () => {
   try {
@@ -108,7 +112,7 @@ window.addEventListener("beforeunload", (e) => { if (project.dirty || rig.dirty)
     rootNote.textContent = info.sameRoot ? "" : "scratch root";
     rootNote.title = info.root;
     parts.paletteChanged();
-    await Promise.all([parts.init(), compare.init(), rig.init()]);
+    await Promise.all([parts.init(), compare.init(), rig.init(), area.init()]);
     const tab = localStorage.getItem("lab.tab") as TabId | null;
     if (tab && panes.has(tab)) showTab(tab);
     refreshHeader();

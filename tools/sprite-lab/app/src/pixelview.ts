@@ -1,6 +1,7 @@
 // Zoom / pan pixel canvas with an optional grid and draggable handles. Nearest-neighbour, integer zoom 1x-16x.
 // Mouse: wheel zooms around the cursor, drag empty space (or middle / right button) pans, drag a handle moves it.
-// Reused by the Parts tab now and meant for the Rig and Area tabs later.
+// Reused by the Parts tab and the Area tab. The Area tab treats one "pixel" as one grid cell (zoom = px per cell, up to
+// maxZoom) and installs `tool`: left / right drags then go to the tool, the middle button (or Space + drag) pans.
 export type Handle = { id: string; x: number; y: number; color: string; label?: string; shape?: "circle" | "diamond"; drag: (x: number, y: number, e: PointerEvent) => void; start?: () => void };
 
 export class PixelView {
@@ -16,7 +17,16 @@ export class PixelView {
   overlay: ((g: CanvasRenderingContext2D, sx: (x: number) => number, sy: (y: number) => number) => void) | null = null;
   onZoom: (z: number) => void = () => {};
   onHover: (x: number, y: number) => void = () => {};
-  private drag: { kind: "pan" | "handle"; h?: Handle; x0: number; y0: number; px: number; py: number } | null = null;
+  minZoom = 1;
+  maxZoom = 16;
+  /** Draw `image` with smoothing (painted art scaled per cell) instead of nearest neighbour. */
+  smooth = false;
+  background = "#15171c";
+  /** A painting tool: down returns true to take the drag (else it pans). Coordinates in image pixels (cells). */
+  tool: { down(x: number, y: number, e: PointerEvent): boolean; move(x: number, y: number, e: PointerEvent): void; up(x: number, y: number, e: PointerEvent): void } | null = null;
+  spaceHeld = false;
+  cursor = "default";
+  private drag: { kind: "pan" | "handle" | "tool"; h?: Handle; x0: number; y0: number; px: number; py: number } | null = null;
   private ro: ResizeObserver;
 
   constructor(parent: HTMLElement) {
@@ -26,11 +36,21 @@ export class PixelView {
     parent.append(this.canvas);
     this.ro = new ResizeObserver(() => this.render());
     this.ro.observe(parent);
-    this.canvas.addEventListener("wheel", (e) => { e.preventDefault(); this.zoomAt(this.zoom + (e.deltaY < 0 ? 1 : -1) * (this.zoom >= 8 ? 2 : 1), e.offsetX, e.offsetY); }, { passive: false });
+    this.canvas.addEventListener("wheel", (e) => {
+      e.preventDefault();
+      const step = this.maxZoom > 16 ? Math.max(1, Math.round(this.zoom * 0.15)) : this.zoom >= 8 ? 2 : 1;
+      this.zoomAt(this.zoom + (e.deltaY < 0 ? 1 : -1) * step, e.offsetX, e.offsetY);
+    }, { passive: false });
     this.canvas.addEventListener("contextmenu", (e) => e.preventDefault());
     this.canvas.addEventListener("pointerdown", (e) => this.down(e));
     this.canvas.addEventListener("pointermove", (e) => this.move(e));
-    this.canvas.addEventListener("pointerup", (e) => { this.drag = null; this.canvas.releasePointerCapture(e.pointerId); this.render(); });
+    this.canvas.addEventListener("pointerup", (e) => {
+      const d = this.drag;
+      this.drag = null;
+      this.canvas.releasePointerCapture(e.pointerId);
+      if (d?.kind === "tool") { const p = this.toImage(e); this.tool?.up(p.x, p.y, e); }
+      this.render();
+    });
   }
 
   setImage(img: CanvasImageSource | null, w: number, h: number, refit = false) {
@@ -43,14 +63,14 @@ export class PixelView {
     const r = this.canvas.parentElement!.getBoundingClientRect();
     if (!r.width || !r.height) { this.pendingFit = true; return; }    // hidden tab: fit once it is shown
     this.pendingFit = false;
-    if (this.imgW && r.width) this.zoom = Math.max(1, Math.min(16, Math.floor(Math.min((r.width - 80) / this.imgW, (r.height - 80) / this.imgH))));
+    if (this.imgW && r.width) this.zoom = Math.max(this.minZoom, Math.min(this.maxZoom, Math.floor(Math.min((r.width - 80) / this.imgW, (r.height - 80) / this.imgH))));
     this.panX = Math.round((r.width - this.imgW * this.zoom) / 2);
     this.panY = Math.round((r.height - this.imgH * this.zoom) / 2);
     this.onZoom(this.zoom);
     this.render();
   }
   zoomAt(z: number, cx?: number, cy?: number) {
-    z = Math.max(1, Math.min(16, Math.round(z)));
+    z = Math.max(this.minZoom, Math.min(this.maxZoom, Math.round(z)));
     if (z === this.zoom) return;
     const r = this.canvas.getBoundingClientRect();
     cx ??= r.width / 2; cy ??= r.height / 2;
@@ -72,15 +92,21 @@ export class PixelView {
   private down(e: PointerEvent) {
     this.canvas.focus();
     const h = e.button === 0 ? this.hit(e) : undefined;
-    this.drag = { kind: h ? "handle" : "pan", h, x0: e.offsetX, y0: e.offsetY, px: this.panX, py: this.panY };
+    let kind: "pan" | "handle" | "tool" = h ? "handle" : "pan";
+    if (!h && this.tool && (e.button === 0 || e.button === 2) && !this.spaceHeld) {
+      const p = this.toImage(e);
+      if (this.tool.down(p.x, p.y, e)) kind = "tool";
+    }
+    this.drag = { kind, h, x0: e.offsetX, y0: e.offsetY, px: this.panX, py: this.panY };
     if (h?.start) h.start();
     this.canvas.setPointerCapture(e.pointerId);
   }
   private move(e: PointerEvent) {
     const p = this.toImage(e);
     this.onHover(p.x, p.y);
-    if (!this.drag) { this.canvas.style.cursor = this.hit(e) ? "grab" : "default"; return; }
+    if (!this.drag) { this.canvas.style.cursor = this.hit(e) ? "grab" : this.cursor; return; }
     if (this.drag.kind === "pan") { this.panX = this.drag.px + e.offsetX - this.drag.x0; this.panY = this.drag.py + e.offsetY - this.drag.y0; this.render(); }
+    else if (this.drag.kind === "tool") this.tool?.move(p.x, p.y, e);
     else this.drag.h!.drag(p.x, p.y, e);
   }
 
@@ -92,7 +118,7 @@ export class PixelView {
     const g = c.getContext("2d")!;
     g.setTransform(dpr, 0, 0, dpr, 0, 0);
     g.imageSmoothingEnabled = false;
-    g.fillStyle = "#15171c"; g.fillRect(0, 0, W, H);
+    g.fillStyle = this.background; g.fillRect(0, 0, W, H);
     const z = this.zoom, x0 = this.panX, y0 = this.panY, w = this.imgW * z, h = this.imgH * z;
     if (this.imgW) {
       // checkerboard behind the image so transparency is visible
@@ -101,7 +127,7 @@ export class PixelView {
         g.fillStyle = ((x / cs + y / cs) & 1) ? "#3a3d45" : "#2c2f36";
         g.fillRect(x0 + x, y0 + y, Math.min(cs, w - x), Math.min(cs, h - y));
       }
-      if (this.image) g.drawImage(this.image, x0, y0, w, h);
+      if (this.image) { g.imageSmoothingEnabled = this.smooth; if (this.smooth) g.imageSmoothingQuality = "high"; g.drawImage(this.image, x0, y0, w, h); g.imageSmoothingEnabled = false; }
       if (this.grid && z >= 4) {
         g.strokeStyle = "rgba(255,255,255,0.09)"; g.lineWidth = 1; g.beginPath();
         for (let x = 0; x <= this.imgW; x++) { g.moveTo(x0 + x * z + 0.5, y0); g.lineTo(x0 + x * z + 0.5, y0 + h); }

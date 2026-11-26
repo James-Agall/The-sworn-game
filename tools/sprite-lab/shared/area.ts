@@ -12,8 +12,9 @@ import {
 } from "../../../shared/src/camps.ts";
 import {
   BUILDING_LEGEND, BUILDING_SIZE_MAX, BUILDING_SIZE_MIN, BUILDING_TYPES, BUILDING_TYPE_LABEL, type BuildingTemplate, buildingCells,
-  buildingDoorSide, buildingStats, validateBuildingTemplate,
+  buildingDoorSide, buildingPieceTiles, buildingStats, validateBuildingTemplate,
 } from "../../../shared/src/buildingTemplates.ts";
+import { ROOM_ROLE_LABEL } from "../../../shared/src/rooms.ts";
 import {
   SETTLEMENT_GUARDS, SETTLEMENT_LEGEND, SETTLEMENT_PROFILES, SETTLEMENT_SIZE_MAX, SETTLEMENT_SIZE_MIN, SETTLEMENT_TIER_LABEL,
   type BuildingLookup, type SettlementTemplate, composeTransforms, settlementLayout, settlementStats, settlementTransforms,
@@ -23,7 +24,8 @@ import {
 export {
   TileType, CAMP_LEGEND, BUILDING_LEGEND, SETTLEMENT_LEGEND, BUILDING_TYPES, BUILDING_TYPE_LABEL, SETTLEMENT_PROFILES, SETTLEMENT_GUARDS,
   SETTLEMENT_TIER_LABEL, transformRows, transformEntrance, transformSettlement, settlementTransforms, settlementLayout, settlementStats,
-  composeTransforms, buildingCells, buildingDoorSide, buildingStats, campCells, campStats, campRadius, spriteBuildingCells,
+  composeTransforms, buildingCells, buildingDoorSide, buildingPieceTiles, buildingStats, campCells, campStats, campRadius, spriteBuildingCells,
+  ROOM_ROLE_LABEL,
   validateCampTemplate, validateBuildingTemplate, validateSettlementTemplate,
 };
 export type { CampTemplate, BuildingTemplate, SettlementTemplate, BuildingLookup, CampEntrance };
@@ -33,6 +35,8 @@ export type Kind = (typeof KINDS)[number];
 export type AnyTemplate = CampTemplate | BuildingTemplate | SettlementTemplate;
 export const KIND_LABEL: Record<Kind, string> = { camps: "Bandit camps", buildings: "Buildings", settlements: "Settlements" };
 export const ID_RE = /^[a-z0-9][a-z0-9_-]{0,47}$/;
+/** Building template roles the game's validator accepts (every RoomRole but the role-less "room"). */
+export const BUILDING_ROLES = Object.keys(ROOM_ROLE_LABEL).filter((r) => r !== "room");
 
 export type LegendSymbol = { label: string; color: string; tile?: TileType; slot?: string; guard?: string; kind?: string; cells?: 2 };
 export function legendOf(kind: Kind): Record<string, LegendSymbol> {
@@ -179,6 +183,8 @@ export type Preview = {
   beds: { x: number; y: number }[];
   footprints: { x: number; y: number; w: number; h: number; ref: string }[];
   stats: Record<string, number | string>;
+  // spriteBuildings settlements: each building is ONE prefab tile at the centre of its 3x3 footprint
+  prefab?: boolean;
   source: "shared-code";
 };
 
@@ -243,7 +249,7 @@ export function settlementPreview(t0: SettlementTemplate, transform: number, loo
       return { x: b.x + a, y: b.y + a, w: fp.w, h: fp.h, ref: b.ref };
     }),
     stats: { buildings: st.buildings, beds: st.beds, guards: st.guards, trader: st.slots.trader, priest: st.slots.priest, villager: st.slots.villager, guardSlots: st.slots.guard, quest: st.slots.quest },
-    source: "shared-code",
+    prefab: !!t.spriteBuildings, source: "shared-code",
   };
 }
 

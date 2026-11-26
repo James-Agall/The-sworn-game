@@ -6,6 +6,13 @@ export type SetInfo = { name: string; parts: number; hasManifest: boolean };
 export type SetData = { set: string; manifestText: string | null; hash: string; sidecar: { order?: string[] } | null; files: string[] };
 export type SaveResult = SetData & { backup: string | null; written: string[]; deleted: string[] };
 export type Layout = { name: string; set?: string; cells: number };
+/** Area tab: one template file (server/templates.ts Entry). */
+export type TemplateEntry = {
+  id: string; name: string; file: string; src: "builtin" | "user"; path: string; tier?: number; w: number; h: number;
+  buildingType?: string; weight?: number; errors: string[]; shadowed?: boolean; template?: Record<string, unknown>;
+};
+export type TemplateRead = { kind: string; src: "builtin" | "user"; id: string; path: string; hash: string; template: Record<string, unknown>; errors: string[] };
+export type TemplateSaved = { ok: true; kind: string; id: string; path: string; hash: string; backup: string | null };
 
 export class ApiError extends Error {
   status: number;
@@ -39,5 +46,11 @@ export const api = {
   getClip: (name: string) => call<Record<string, unknown>>("GET", "clips/" + encodeURIComponent(name)),
   putClip: (name: string, clip: unknown) => call<{ ok: true; backup: string | null }>("PUT", "clips/" + encodeURIComponent(name), clip),
   deleteClip: (name: string) => call<{ ok: true; backup: string | null }>("POST", `clips/${encodeURIComponent(name)}/delete`, {}),
+  templates: (kind: string, full = false) => call<TemplateEntry[]>("GET", `templates/${kind}${full ? "?full=1" : ""}`),
+  readTemplate: (kind: string, src: string, id: string) => call<TemplateRead>("GET", `templates/${kind}/${src}/${encodeURIComponent(id)}`),
+  saveTemplate: (kind: string, template: unknown, overwrite: boolean, baseHash?: string | null) =>
+    call<TemplateSaved>("POST", `templates/${kind}/save`, { template, overwrite, ...(baseHash ? { baseHash } : {}) }),
+  deleteTemplate: (kind: string, id: string) => call<TemplateSaved>("POST", `templates/${kind}/delete`, { id }),
+  stamp: (kind: string, template: unknown, transform: number, seed: number) => call<Record<string, any>>("POST", "stamp", { kind, template, transform, seed }),
   exportPng: (name: string, png: string) => call<{ ok: true; path: string; backup: string | null }>("POST", "exports", { name, png }),
 };
