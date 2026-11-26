@@ -1,4 +1,5 @@
-import { ABBEY_GROUNDS_RADIUS, CASTLE_RUIN_GROUNDS_RADIUS } from './constants.js';
+import { ABBEY_GROUNDS_RADIUS } from './constants.js';
+import { CASTLE_RUIN_GROUNDS_RADIUS } from './poiTemplates.js';
 import {overgrownLandmark} from './overgrownLandmarks.js';
 import {enteredLandmark} from './regionLandmarks.js';
 import {ruralHomestead,banditRegion,expandRuins,marshTile} from './regionDetails.js';

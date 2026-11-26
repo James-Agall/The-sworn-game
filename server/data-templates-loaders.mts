@@ -123,6 +123,39 @@ const quiet = <T,>(fn: () => T): T => {
   rmSync(userDir, { recursive: true, force: true });
 }
 
+// ---- C. the Castle Ruin ----
+{
+  const P = await import("@colony/shared/poiTemplates");
+  const store = await import("./src/poiTemplates.js");
+  const { MOB_KIND_CONFIG } = await import("./src/constants.js");
+  const mobKinds = Object.keys(MOB_KIND_CONFIG);
+  const files = builtinFiles("castle-ruins");
+  check(files.join() === "castle-ruin.json", `castle-ruins: the built-in file (${files.join(", ")})`);
+  const raw = readJson("castle-ruins", "castle-ruin.json");
+  const errs = P.validateCastleRuin(raw, { mobKinds });
+  check(errs.length === 0, `castle-ruins/castle-ruin.json: valid ${errs.join("; ")}`);
+  check(JSON.stringify(P.normaliseCastleRuinFile(raw), null, 2) + "\n" === text("castle-ruins", "castle-ruin.json"), "castle-ruins/castle-ruin.json: round-trips byte for byte");
+  check(store.CASTLE_RUIN_LAYOUT.length === 9 && store.CASTLE_RUIN_FOOTPRINT_RADIUS === 4 && store.CASTLE_RUIN_GROUNDS_RADIUS === 5 && store.CASTLE_RUIN_BOSS_KIND === "ogre", "castle-ruins: 9x9, radius 4 / grounds 5, the Ogre Warlord");
+  const bad = (edit: (o: any) => void) => { const o = clone(raw); edit(o); return P.validateCastleRuin(o, { mobKinds }); };
+  rejects(bad((o) => { o.rows[4] = o.rows[4].replace("B", "."); }), "a Castle Ruin without the boss spot", /exactly one boss/);
+  rejects(bad((o) => { o.rows[1] = "2B.....2".padEnd(9, "2"); }), "a boss spot off the centre", /centre/);
+  rejects(bad((o) => { o.rows[2] = o.rows[2].replace("R", "?"); }), "an unknown Castle Ruin symbol", /unknown symbol "\?"/);
+  rejects(bad((o) => { o.rows[3] += "."; }), "a Castle Ruin row of the wrong width", /row 3: 10 wide/);
+  rejects(bad((o) => { o.rows = o.rows.slice(0, 8).map((r: string) => r.slice(0, 8)); }), "an even-sized Castle Ruin", /odd/);
+  rejects(bad((o) => { o.tiles.A = "NoSuchTile"; }), "an unknown Castle Ruin tile", /unknown tile "NoSuchTile"/);
+  rejects(bad((o) => { o.boss = "dragon"; }), "an unknown boss kind", /boss/);
+  rejects(bad((o) => { o.guardians = [12, 8]; }), "an inverted guardian count", /guardians/);
+  rejects(bad((o) => { o.spawnDistFractions = [1.5]; }), "a spawn distance beyond the map", /spawnDistFractions/);
+  const userDir = path.join(scratch, "castle-user");
+  process.env.COLONY_CASTLE_RUIN_USER_DIR = userDir;
+  check(store.saveUserCastleRuin({ ...clone(raw), id: "my-castle" }) === null, "castle-ruins: a user layout saves");
+  check(/built-in/.test(store.saveUserCastleRuin(clone(raw)) ?? ""), "castle-ruins: saving over the built-in is refused");
+  quiet(() => store.loadPoiTemplates());
+  check(store.castleRuinFiles().map((t) => t.id).join() === "castle-ruin,my-castle", "castle-ruins: the user layout loads beside the built-in");
+  check(store.deleteUserCastleRuin("my-castle") === null, "castle-ruins: a user layout deletes");
+  rmSync(userDir, { recursive: true, force: true });
+}
+
 // ---- the older template stores still load; every settlement profile is a site template ----
 {
   const { loadCampTemplates } = await import("./src/camps.js");

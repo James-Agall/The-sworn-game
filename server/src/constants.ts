@@ -1398,43 +1398,11 @@ export const HEARTH_AUTO_TARGET_TILES = 8;
 // STRUCTURE_TARGET_PREFIX + tile index). Colonist.targetHearthId holds either id.
 export const STRUCTURE_TARGET_PREFIX = "tile:";
 // ---- The Castle Ruin, its Ogre Warlord, and mini-boss packs (ROADMAP Phase 5) ----
-// The Castle Ruin: exactly one per world, a 9x9 walled ruin (existing ruin tiles, no new art) placed
-// as far from the starting Town Center as world-gen can manage. Gaps in the middle of each wall let
-// units in and out. Its guardians stand inside, dormant; the Ogre Warlord holds the centre ("B").
-// 1/2 ruin walls, A arch, S statue, R rubble, "." open ground (Empty).
-export const CASTLE_RUIN_LAYOUT = [
-  "12A1.1A21",
-  "2.......2",
-  "A..R.R..A",
-  "1.S...S.1",
-  "....B....",
-  "1.S...S.1",
-  "A..R.R..A",
-  "2.......2",
-  "12A1.1A21",
-];
-export const CASTLE_RUIN_LAYOUT_TILES: Record<string, TileType> = {
-  "1": TileType.RuinWall1,
-  "2": TileType.RuinWall2,
-  A: TileType.RuinArch,
-  S: TileType.RuinStatue,
-  R: TileType.RuinRubble,
-};
-export const CASTLE_RUIN_FOOTPRINT_RADIUS = Math.floor(CASTLE_RUIN_LAYOUT.length / 2);
-// The footprint plus a one-tile apron kept clear (like the Abbey's), so the gates are never blocked.
-export const CASTLE_RUIN_GROUNDS_RADIUS = CASTLE_RUIN_FOOTPRINT_RADIUS + 1;
-// Preferred minimum distances from the Town Center, as fractions of the map width, tried in order
-// (a crowded or small map falls back to the next); last resort is just clear of the spawn area.
-export const CASTLE_RUIN_SPAWN_DIST_FRACTIONS = [0.4, 0.33, 0.25];
-export const CASTLE_RUIN_GUARDIANS_MIN = 8;
-export const CASTLE_RUIN_GUARDIANS_MAX = 12;
-// Ruin-weighted, with heavier hitters than an ordinary ruin.
-export const CASTLE_RUIN_GUARDIAN_WEIGHTS: { kind: MobKind; weight: number }[] = [
-  { kind: "skeleton", weight: 4 },
-  { kind: "orc", weight: 2 },
-  { kind: "armoredOrc", weight: 2 },
-  { kind: "darkShaman", weight: 2 },
-];
+// The Castle Ruin: exactly one per world, a 9x9 walled ruin (existing ruin tiles, no new art). Its layout, tiles,
+// boss, spawn distances and guardians (CASTLE_RUIN_LAYOUT, CASTLE_RUIN_LAYOUT_TILES, CASTLE_RUIN_FOOTPRINT_RADIUS,
+// CASTLE_RUIN_GROUNDS_RADIUS, CASTLE_RUIN_SPAWN_DIST_FRACTIONS, CASTLE_RUIN_GUARDIANS_MIN / MAX,
+// CASTLE_RUIN_GUARDIAN_WEIGHTS) are data since Stage B (2026-11-26): server/data/castle-ruins/castle-ruin.json,
+// loaded by poiTemplates.ts (format and validator in shared/src/poiTemplates.ts).
 // ---- Forts phase B (PLAN-forts-diplomacy-moats.md §2, §8, §10 "B"): stamped NPC forts ----
 // The fort / human-site templates (SITE_TEMPLATES) and their legends (SITE_TEMPLATE_TILES, HUMAN_SITE_SYMBOLS) are
 // data since Stage B (2026-11-26): server/data/sites/<id>.json, loaded by siteTemplates.ts (format and validator in

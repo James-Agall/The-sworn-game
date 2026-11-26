@@ -11,9 +11,7 @@ import type { Mob, PoiSiteKind, ResourceKey, TileCoord } from "./types.js";
 import {
   ABBEY_CLERGY_OFFSETS, ABBEY_FOOTPRINT_RADIUS, ABBEY_GROUNDS_RADIUS, ABBEY_LAYOUT, ABBEY_LAYOUT_TILES,
   ABBEY_MIN_SPAWN_DIST, BIOME_EDGE_JITTER_TILES, BIOME_NOISE_CELL_TILES, BIOME_SEED_MIN_SPACING,
-  BIOME_SEED_RADIUS_MAX, BIOME_SEED_RADIUS_MIN, BOSS_EQUIP_LOOT, CASTLE_RUIN_FOOTPRINT_RADIUS,
-  CASTLE_RUIN_GROUNDS_RADIUS, CASTLE_RUIN_GUARDIANS_MAX, CASTLE_RUIN_GUARDIANS_MIN, CASTLE_RUIN_GUARDIAN_WEIGHTS,
-  CASTLE_RUIN_LAYOUT, CASTLE_RUIN_LAYOUT_TILES, CASTLE_RUIN_SPAWN_DIST_FRACTIONS, ELITE_DAMAGE_MULT, ELITE_HP_MULT,
+  BIOME_SEED_RADIUS_MAX, BIOME_SEED_RADIUS_MIN, BOSS_EQUIP_LOOT, ELITE_DAMAGE_MULT, ELITE_HP_MULT,
   CAMP_MIN_START_DIST_MAX_FRACTION, ELITE_REWARD, NEAR_START_CAMP_RING, NEAR_START_CAMPS, MINI_BOSS_KINDS, MOB_KIND_CONFIG, MOB_MARK_DEFAULTS,
   NEIGHBORS_8, POI_SITE_FOOTPRINT_RADIUS, POI_SITE_MIN_SPACING, POI_SITE_WATER_CLEARANCE, POND_EDGE_JITTER_TILES,
   POND_MIN_SPACING, POND_NOISE_CELL_TILES, POND_RADIUS_MAX, POND_RADIUS_MIN,
@@ -29,7 +27,11 @@ import {
   TOWN_CENTER_TILE, isAbbeyClergy, spawnColonistForPost, spawnStartingPeople, townCenterMaxHp,
 } from "./colonists.js";
 import { applyMobSize } from "./mobs.js";
-import { ENCAMPMENT_GUARDIAN_WEIGHTS, ENCAMPMENT_POI, RUIN_GUARDIAN_WEIGHTS, RUIN_POI } from "./poiTemplates.js";
+import {
+  CASTLE_RUIN_BOSS_KIND, CASTLE_RUIN_FOOTPRINT_RADIUS, CASTLE_RUIN_GROUNDS_RADIUS, CASTLE_RUIN_GUARDIANS_MAX, CASTLE_RUIN_GUARDIANS_MIN,
+  CASTLE_RUIN_GUARDIAN_WEIGHTS, CASTLE_RUIN_LAYOUT, CASTLE_RUIN_LAYOUT_TILES, CASTLE_RUIN_SPAWN_DIST_FRACTIONS,
+  ENCAMPMENT_GUARDIAN_WEIGHTS, ENCAMPMENT_POI, RUIN_GUARDIAN_WEIGHTS, RUIN_POI,
+} from "./poiTemplates.js";
 import { clearSites, generateForts, isInSiteGrounds, nearSiteGrounds } from "./sites.js";
 import { generateSettlements } from "./settlementTemplates.js";
 import { registerHearth } from "./hearths.js";
@@ -612,7 +614,7 @@ export function placeCastleRuin(placedSites: TileCoord[]) {
       else if (CASTLE_RUIN_LAYOUT[ry][rx] === "." && rx > 0 && ry > 0 && rx < CASTLE_RUIN_LAYOUT.length - 1 && ry < CASTLE_RUIN_LAYOUT.length - 1) open.push(t);
     }
   }
-  makeBoss(spawnGuardian("ogre", center, siteId, "castleRuin", false), "warlord");
+  makeBoss(spawnGuardian(CASTLE_RUIN_BOSS_KIND, center, siteId, "castleRuin", false), "warlord");
   const count = randInt(CASTLE_RUIN_GUARDIANS_MIN, CASTLE_RUIN_GUARDIANS_MAX);
   for (const spot of shuffled(open).slice(0, count)) {
     spawnGuardian(pickWeightedGuardianKind(CASTLE_RUIN_GUARDIAN_WEIGHTS), spot, siteId, "castleRuin");

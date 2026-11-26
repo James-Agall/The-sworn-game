@@ -8,7 +8,8 @@
 import type { MobKind } from "@colony/shared/protocol";
 import { TileType } from "@colony/shared/protocol";
 import {
-  type PoiTemplateFile, normalisePoiTemplateFile, poiTileByName, validatePoiTemplate,
+  type CastleRuinFile, type PoiTemplateFile, normaliseCastleRuinFile, normalisePoiTemplateFile, poiTileByName,
+  validateCastleRuin, validatePoiTemplate,
 } from "@colony/shared/poiTemplates";
 import { MOB_KIND_CONFIG } from "./constants.js";
 import { makeTemplateStore } from "./templateStore.js";
@@ -19,6 +20,12 @@ const poiStore = makeTemplateStore<PoiTemplateFile>({
   userEnv: "COLONY_POI_USER_DIR",
   validate: (raw) => validatePoiTemplate(raw, { mobKinds: mobKinds() }),
   normalise: normalisePoiTemplateFile,
+});
+const castleStore = makeTemplateStore<CastleRuinFile>({
+  kind: "castle-ruins",
+  userEnv: "COLONY_CASTLE_RUIN_USER_DIR",
+  validate: (raw) => validateCastleRuin(raw, { mobKinds: mobKinds() }),
+  normalise: normaliseCastleRuinFile,
 });
 
 function builtin<T extends { id: string; builtin?: boolean }>(all: T[], id: string, kind: string): T {
@@ -56,12 +63,35 @@ export const RUIN_GUARDIAN_WEIGHTS = RUIN_POI.guardians;
 // Clubman is the rank-and-file guard, Archer the support, Elite a rare mini-boss.
 export const ENCAMPMENT_GUARDIAN_WEIGHTS = ENCAMPMENT_POI.guardians;
 
-// Boot: reload and validate the store (user files are listed for editors; world-gen keeps the built-ins above).
+// The Castle Ruin: exactly one per world, placed as far from the starting Town Center as world-gen can manage. Gaps in
+// the middle of each wall let units in and out. Its guardians stand inside, dormant; the boss (the Ogre Warlord) holds
+// the centre ("B").
+const castle = builtin(castleStore.all(), "castle-ruin", "castle-ruins");
+export const CASTLE_RUIN_LAYOUT: string[] = castle.rows.slice();
+export const CASTLE_RUIN_LAYOUT_TILES: Record<string, TileType> = Object.fromEntries(Object.entries(castle.tiles).map(([c, n]) => [c, poiTileByName(n)!]));
+export const CASTLE_RUIN_BOSS_KIND = castle.boss as MobKind;
+export const CASTLE_RUIN_FOOTPRINT_RADIUS = Math.floor(CASTLE_RUIN_LAYOUT.length / 2);
+// The footprint plus a one-tile apron kept clear (like the Abbey's), so the gates are never blocked.
+export const CASTLE_RUIN_GROUNDS_RADIUS = CASTLE_RUIN_FOOTPRINT_RADIUS + 1;
+// Preferred minimum distances from the Town Center, as fractions of the map width, tried in order (a crowded or small
+// map falls back to the next); last resort is just clear of the spawn area.
+export const CASTLE_RUIN_SPAWN_DIST_FRACTIONS: number[] = castle.spawnDistFractions.slice();
+export const CASTLE_RUIN_GUARDIANS_MIN = castle.guardians[0];
+export const CASTLE_RUIN_GUARDIANS_MAX = castle.guardians[1];
+// Ruin-weighted, with heavier hitters than an ordinary ruin.
+export const CASTLE_RUIN_GUARDIAN_WEIGHTS = weighted(castle.guardianWeights);
+
+// Boot: reload and validate both stores (user files are listed for editors; world-gen keeps the built-ins above).
 export function loadPoiTemplates() {
   const a = poiStore.load();
-  console.log(`[pois] ${a.builtins} built-in + ${a.users} user POI pools`);
+  const b = castleStore.load();
+  console.log(`[pois] ${a.builtins} built-in + ${a.users} user POI pools, ${b.builtins} built-in + ${b.users} user castle ruins`);
 }
 export const poiTemplateFiles = () => poiStore.all();
+export const castleRuinFiles = () => castleStore.all();
 export const saveUserPoiTemplate = (raw: unknown) => poiStore.save(raw);
 export const deleteUserPoiTemplate = (id: string) => poiStore.remove(id);
+export const saveUserCastleRuin = (raw: unknown) => castleStore.save(raw);
+export const deleteUserCastleRuin = (id: string) => castleStore.remove(id);
 export const userPoiDir = () => poiStore.userDir();
+export const userCastleRuinDir = () => castleStore.userDir();
