@@ -168,3 +168,14 @@ Notes for the next agent:
   unmodified tree at the start of this session. `client/render-depth-test.mjs` passes.
 - `npm run smoke` was not run.
 - HANDOVER-CODEX.md section 2 has not been updated yet.
+
+## 7. Round 2 (2026-11-27, continuing from c0d1c72)
+
+Baseline rebuilt in the real checkout at c0d1c72 (not from `git archive`: an exported copy lacks untracked local
+files, which changes the generated world). Every comparison below is against that baseline: `split-smoke.mjs --port
+31950 --baseline <scratch>/baseline`. The smoke builds the client itself into `<out>/dist` (vite, scratch dir),
+so that build doubles as the per-commit production build check. Baseline main chunk: 983,323 bytes.
+
+| Commit | Module | Module lines | main.ts after | Smoke | Max pixel diff (frozen / running) | Main chunk |
+|--------|--------|--------------|---------------|-------|-----------------------------------|------------|
+| (seam 14) | `game/strategyView.ts` | 744 | 5391 | PASS | 0.56% / 0.86% | 988254 |
