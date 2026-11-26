@@ -103,7 +103,6 @@ import { ORDER_COLORS, ORDER_LABEL, OrderMarkers } from "./strategy/orders";
 import { BAND_COLORS, enemyBannerLabel, IntelOverlay, strengthBand } from "./strategy/intel";
 import type { ObjectiveMarker, Threat } from "./strategy/intel";
 import type { EnemyRegimentSnapshot } from "@colony/shared/protocol";
-import { TIME_SCALES } from "@colony/shared/protocol";
 import {
   MAX_CHUNKS_PER_REQUEST, decodeByteRuns,
 } from "@colony/shared/streaming";
@@ -159,6 +158,7 @@ import { createMinimap } from "./game/minimap";
 import { createHeroSheet } from "./game/heroSheet";
 import { createSpellBar } from "./game/spellBar";
 import { createHudPanels } from "./game/hudPanels";
+import { createTimeControls } from "./game/timeControls";
 
 const SERVER_URL = import.meta.env.VITE_SERVER_URL || "ws://localhost:8080";
 // The same server answers plain HTTP: GET /saves lists the save slots (the menu has no socket yet).
@@ -4937,85 +4937,14 @@ async function main() {
     onBackToMenu: () => location.reload(),
   });
   let loadingSnapshotSeen = false;
-
-  const pauseBtn = document.getElementById("pause-btn") as HTMLButtonElement;
-  const restartBtn = document.getElementById("restart-btn") as HTMLButtonElement;
-
-  pauseBtn.addEventListener("click", () => {
-    if (socket.readyState === socket.OPEN) {
-      socket.send(JSON.stringify({ type: "pause" }));
-    }
-    pauseBtn.blur();
+  const timeControlsApi = createTimeControls({
+    socket, pausedBanner, creativeUi, get myId() { return myId; },
   });
-
-  // ---- Strategy mode phase 5: global time controls. Pause and speed are the server's, for everyone (no
-  // handshake: whoever changes them last wins); the status line says who it was. Shift+Space pauses /
-  // resumes, Shift+[ / Shift+] step the speed down / up (plain [ ] stay build hotkeys).
-  const timeControlsEl = document.getElementById("time-controls")!;
-  const timeStatusEl = document.getElementById("time-status")!;
-  let currentTimeScale = 1;
-  let currentPaused = false;
+  const { pauseBtn, syncTimeControls } = timeControlsApi;
   const townPets=createTownPets(tileSpriteLayer,(x,y)=>groundDepth(x,y,worldTilesX,tileSize));
   app.ticker.add(ticker=>{
     const me=latestPlayersForSpells.find(p=>p.id===myId);
-    townPets.update(fortMarkers,worldTilesX,tileSize,ticker.deltaMS/1000,currentPaused,!interiorRef.ui?.active()&&!strategyCam.inStrategy,me?.x??0,me?.y??0);
-  });
-  function sendTimeScale(scale: number) {
-    if (socket.readyState === socket.OPEN) socket.send(JSON.stringify({ type: "setTimeScale", scale }));
-  }
-  for (const b of Array.from(timeControlsEl.querySelectorAll<HTMLButtonElement>("button[data-scale]"))) {
-    b.addEventListener("click", () => {
-      b.blur();
-      sendTimeScale(Number(b.dataset.scale));
-    });
-  }
-  window.addEventListener("keydown", (e) => {
-    if (!e.shiftKey || e.ctrlKey || e.altKey || e.metaKey) return;
-    if (e.code === "Space") {
-      e.preventDefault();
-      if (!e.repeat && socket.readyState === socket.OPEN) socket.send(JSON.stringify({ type: "pause", paused: !currentPaused }));
-      return;
-    }
-    const step = e.code === "BracketLeft" ? -1 : e.code === "BracketRight" ? 1 : 0;
-    if (!step) return;
-    e.preventDefault();
-    if (e.repeat) return;
-    const scales = TIME_SCALES as readonly number[];
-    const i = Math.max(0, scales.indexOf(currentTimeScale));
-    const next = scales[Math.max(0, Math.min(scales.length - 1, i + step))];
-    if (next !== currentTimeScale) sendTimeScale(next);
-  });
-
-  function whoLabel(id: string | undefined, players: PlayerSnapshot[]): string {
-    if (!id) return "";
-    if (id === myId) return "you";
-    const i = players.findIndex((p) => p.id === id);
-    return i >= 0 ? `Player ${i + 1}` : "a player who left";
-  }
-
-  function syncTimeControls(paused: boolean, pausedBy: string | undefined, scale: number, scaleBy: string | undefined, players: PlayerSnapshot[]) {
-    currentPaused = paused;
-    currentTimeScale = scale;
-    for (const b of Array.from(timeControlsEl.querySelectorAll<HTMLButtonElement>("button[data-scale]"))) {
-      b.classList.toggle("active", Number(b.dataset.scale) === scale);
-    }
-    const speed = scale === 1 ? "" : `${scale === 0.25 ? "¼" : scale === 0.5 ? "½" : `${scale}x`} speed`;
-    const parts: string[] = [];
-    if (paused) parts.push(`Paused${pausedBy ? ` by ${whoLabel(pausedBy, players)}` : ""}`);
-    if (speed) parts.push(`${speed}${scaleBy ? ` (set by ${whoLabel(scaleBy, players)})` : ""}`);
-    const text = parts.join(" · ");
-    timeStatusEl.hidden = text === "";
-    if (timeStatusEl.textContent !== text) timeStatusEl.textContent = text;
-    const banner = paused && pausedBy ? `PAUSED by ${whoLabel(pausedBy, players)}` : "PAUSED";
-    if (pausedBanner.text !== banner) pausedBanner.text = banner;
-  }
-
-  restartBtn.addEventListener("click", () => {
-    restartBtn.blur();
-    if (!window.confirm("Restart the world for everyone connected?")) return;
-    if (socket.readyState === socket.OPEN) {
-      socket.send(JSON.stringify({ type: "restart", difficulty: menuPrefs.preferredDifficulty, worldSize: menuPrefs.preferredWorldSize, creative: creativeUi.on, solo: menuPrefs.preferredSolo && !creativeUi.on }));
-    }
+    townPets.update(fortMarkers,worldTilesX,tileSize,ticker.deltaMS/1000,timeControlsApi.currentPaused,!interiorRef.ui?.active()&&!strategyCam.inStrategy,me?.x??0,me?.y??0);
   });
   const hudPanelsApi = createHudPanels({
     setGoodCount, toolButtonEls,
@@ -5864,7 +5793,7 @@ async function main() {
   combatControls=setupPlayerCombat({send:sendMessage,swing:()=>sound.play("sword_swing"),context:()=>{
     const me=latestPlayersForSpells.find(p=>p.id===myId),inside=!!interiorRef.ui?.active();
     const menu=document.getElementById("main-menu"),talk=document.getElementById("hl-dialogue");
-    return{me,inside,enabled:!!me&&!me.dead&&!strategyCam.inStrategy&&!currentPaused&&heroModal.hidden&&!!menu?.hidden&&(talk?.hidden??true)&&!spellBarApi.spellAim&&(inside||buildPanel.classList.contains("collapsed")&&selectedIds.size===0&&(heroToolsRef.ui?.combatReady()??true))};
+    return{me,inside,enabled:!!me&&!me.dead&&!strategyCam.inStrategy&&!timeControlsApi.currentPaused&&heroModal.hidden&&!!menu?.hidden&&(talk?.hidden??true)&&!spellBarApi.spellAim&&(inside||buildPanel.classList.contains("collapsed")&&selectedIds.size===0&&(heroToolsRef.ui?.combatReady()??true))};
   }});
   const combatCues=new Graphics();combatCues.zIndex=1e7;worldLayer.addChild(combatCues);
   app.ticker.add(()=>{
