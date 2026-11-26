@@ -221,6 +221,10 @@ import {
   HORSE_MOVING_MIN_SPEED, HORSE_RATE_MIN, HORSE_RATE_MAX, HORSE_TELEPORT_SPEED, HORSE_WHINNY_IDLE_MS,
   HORSE_WHINNY_CHANCE, AMBIENT_SCAN_MS, AMBIENT_TILE_LOOPS, DAWN_BELL_DELAY_S, PLACEMENT_CONFIRM_MS, workSoundKey,
 } from "./soundTriggers";
+import type {
+  AnimSet, FacingMap, MobVariant, AnimMode, AnimState, SiteView, FireOverlay, CritterKind, Critter, WildlifeSet,
+  ActiveEffect, FightArrow, ArmedOrder, StrategySetting, LeftPress, OrderPress,
+} from "./game/types";
 
 const SERVER_URL = import.meta.env.VITE_SERVER_URL || "ws://localhost:8080";
 // The same server answers plain HTTP: GET /saves lists the save slots (the menu has no socket yet).
@@ -500,17 +504,6 @@ async function main() {
   const BATTERED_POSE_TEXTURES = new Map<string, Texture>(
     Object.entries(BATTERED_POSE_URLS).flatMap(([kind, url]) => (loadedTextures[url] ? [[kind, loadedTextures[url]] as const] : []))
   );
-  // Frames within one set come from one source sheet, so they share a pixel scale: one constant
-  // `scale` per set (sized from the first walk frame) keeps the body the same size while weapons
-  // swing out, instead of re-fitting every frame's canvas to a fixed height.
-  interface AnimSet {
-    walk: Texture[];
-    action: Texture[];
-    // Optional carry-home walk (hunter/forager); falls back to `walk`.
-    carry?: Texture[];
-    scale: number;
-    refHeight: number;
-  }
   // `renderSize` is the first walk frame's rendered height, or its longer side with `fitLongerSide`.
   function opaqueWidthPx(tex: Texture): number {
     try {
@@ -557,7 +550,6 @@ async function main() {
   // >0.5px threshold used for walk-vs-idle elsewhere) avoids flicker from sub-pixel jitter while
   // genuinely stationary; moving purely vertically keeps the last facing instead of snapping back
   // to a default.
-  type FacingMap = Map<string, { lastX: number; facingRight: boolean }>;
   const colonistFacing: FacingMap = new Map();
   const mobFacing: FacingMap = new Map();
   const playerFacing: FacingMap = new Map();
@@ -716,14 +708,6 @@ async function main() {
   const BLACKSMITH_FORGE_TEXTURES = BLACKSMITH_FORGE_URLS.every((u) => optionalTextures[u])
     ? BLACKSMITH_FORGE_URLS.map((u) => optionalTextures[u])
     : undefined;
-  interface MobVariant {
-    idle: Texture;
-    idleScale: number;
-    anim: AnimSet | null;
-    // Ogre Warlord only: a standing pose shown instead of walk frame 0, and the roar frames.
-    idlePose?: Texture;
-    roar?: Texture[];
-  }
   const MOB_VARIANTS = Object.fromEntries(
     Object.entries(MOB_VARIANT_URLS).map(([kind, variants]) => {
       const size = MOB_VISUALS[kind as MobKind].radius * MOB_SPRITE_SIZE_PER_RADIUS;
@@ -792,14 +776,6 @@ async function main() {
     : null;
   // Ticks (snapshots, ~20/s) each animation frame holds before advancing.
   const ANIM_TICKS_PER_FRAME = 4;
-  type AnimMode = "walk" | "action" | "carry" | null;
-  interface AnimState {
-    mode: AnimMode;
-    frame: number;
-    ticksInFrame: number;
-    lastX: number;
-    lastY: number;
-  }
   // Advances `anim` one snapshot tick; returns the frame to show, or null for the static pose.
   function stepAnim(anim: AnimState, set: AnimSet, mode: AnimMode): Texture | null {
     if (mode !== anim.mode) {
@@ -1022,12 +998,6 @@ async function main() {
   let buildingLevels = new Map<number, number>();
   // Blacksmith tile indices forging right now (snapshot `forgeBusy`).
   let forgeBusy = new Set<number>();
-  interface SiteView {
-    target: number;
-    progress: number;
-    upgrade: boolean;
-    builders: number;
-  }
   let constructionSites = new Map<number, SiteView>();
   // Damaged buildings (snapshot `damagedBuildings`): tile index -> HP permille. See syncDamagedBuildings.
   let damagedBuildings = new Map<number, number>();
@@ -1256,13 +1226,6 @@ async function main() {
   // building, at most MAX_FIRE_OVERLAYS) and animated by the shared tile clock below.
   function fireTier(permille: number): number {
     return permille < 250 ? 3 : permille < 500 ? 2 : permille < 750 ? 1 : 0;
-  }
-  interface FireOverlay {
-    flame: Sprite;
-    bar: Graphics;
-    tier: number;
-    phase: number;
-    nextSmokeAt: number;
   }
   const fireOverlays = new Map<number, FireOverlay>();
   const firePool: FireOverlay[] = [];
@@ -1948,24 +1911,6 @@ async function main() {
   // Frogs sit and hop around swamp and water edges; crows perch anywhere and flap off to a new perch. Each critter only ever targets a tile
   // that's Empty right now, so it doesn't stroll into a building that already exists; one ticker
   // moves all of them and one shared clock picks their animation frames.
-  type CritterKind = keyof typeof WILDLIFE;
-  interface Critter {
-    kind: CritterKind;
-    sprite: Sprite;
-    homeX: number;
-    homeY: number;
-    x: number;
-    y: number;
-    fromX: number;
-    fromY: number;
-    toX: number;
-    toY: number;
-    moving: boolean;
-    moveMs: number;
-    elapsedMs: number;
-    restMs: number;
-    phase: number;
-  }
   const WILDLIFE_TEXTURES = {
     crow: WILDLIFE.crow.frames.map((u) => loadedTextures[u]),
     frog: WILDLIFE.frog.frames.map((u) => loadedTextures[u]),
@@ -2092,12 +2037,6 @@ async function main() {
   });
 
   // ---- Server wildlife (huntable game; see WILDLIFE_ART) ----
-  interface WildlifeSet {
-    walk: Texture[];
-    idle: Texture[];
-    run: Texture[];
-    tint: number;
-  }
   const deerWalkTextures = DEER_WALK_URLS.map((u) => loadedTextures[u]);
   const deerGrazeTextures = DEER_GRAZE_URLS.map((u) => loadedTextures[u]);
   const loadedAll = (urls: string[]) => urls.length > 0 && urls.every((u) => optionalTextures[u]);
@@ -3170,15 +3109,6 @@ async function main() {
     for (const m of snapshot){upsertMob(m);const e=mobSprites.get(m.id)!;e.groundX=m.x;e.groundY=m.y+(MOB_VISUALS[m.kind]??MOB_VISUALS.goblin).radius;}
   }
 
-  // Client-only, short-lived combat VFX. `update` gets progress 0..1 each frame; `onEnd` can chain
-  // a follow-up effect (an arrow's impact spark).
-  interface ActiveEffect {
-    sprite: Sprite;
-    startedAt: number;
-    durationMs: number;
-    update: (sprite: Sprite, t: number) => void;
-    onEnd?: () => void;
-  }
   const activeEffects: ActiveEffect[] = [];
   // Rendered size (px, longest side) of each effect sprite in world space.
   const FX_SIZE = { slash: 22, spark: 14, poof: 30, arrow: 18, shamanBolt: 12 };
@@ -4145,14 +4075,6 @@ async function main() {
   // movement key returns it to the player). The minimap pings every listed fight, and the first time a
   // fight begins off-screen a toast names it (at most one per FIGHT_TOAST_THROTTLE_MS).
   const fightArrowLayer = document.getElementById("fight-arrows")!;
-  interface FightArrow {
-    fight: FightSnapshot;
-    el: HTMLButtonElement;
-    chevron: HTMLElement;
-    title: HTMLElement;
-    sub: HTMLElement;
-    goneAt: number;
-  }
   const fightArrows = new Map<number, FightArrow>();
   const FIGHT_ARROW_FADE_MS = 600;
   // Kept clear of the top button row / toasts and the bottom command bar.
@@ -7573,9 +7495,7 @@ async function main() {
   // Phase 4: Shift+C then right-click an enemy = charge, Shift+B then right-click = bombard that point;
   // right-clicking a camp hearth = attackHearth. Settings: Shift+T hold fire, Shift+V skirmish, Alt+C cycle
   // charge (toggles), Shift+Q cycles the shape.
-  type ArmedOrder = "attackMove" | "follow" | "charge" | "bombard";
   const ORDER_HOTKEYS: Record<string, ArmyOrderKind> = { f: "attackMove", g: "follow", h: "hold", r: "retreat", c: "charge", b: "bombard" };
-  type StrategySetting = "holdFire" | "skirmish" | "cycleCharge" | "shape";
   const SETTING_HOTKEYS: Record<string, StrategySetting> = { t: "holdFire", v: "skirmish", q: "shape" };
   let armedOrder: ArmedOrder | null = null;
   // Strategy mode phase 5: enemy summaries (snapshot enemyRegiments, kept until the next), their banners,
@@ -8494,29 +8414,7 @@ async function main() {
 
   app.canvas.addEventListener("contextmenu", (e) => e.preventDefault());
 
-  // Left button is resolved on pointerup (it may become a drag-select); other buttons act on down.
-  interface LeftPress {
-    pointerId: number;
-    screenX: number;
-    screenY: number;
-    worldX: number;
-    worldY: number;
-    dragging: boolean;
-  }
   let leftPress: LeftPress | null = null;
-  // Right-button order in progress for a multi-unit selection (see computeLineFormationTargets).
-  interface OrderPress {
-    pointerId: number;
-    screenX: number;
-    screenY: number;
-    worldX: number;
-    worldY: number;
-    dragging: boolean;
-    order: number;
-    // Strategy mode: the regiment order a release sends (Shift at press = queue it).
-    kind?: "move" | "attackMove";
-    queue?: boolean;
-  }
   let orderPress: OrderPress | null = null;
   const lineGuide = new Graphics();
   function cancelOrderPress() {
