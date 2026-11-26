@@ -1565,7 +1565,7 @@ async function main() {
     const scenery=LANDMARK_ART[artTile as TileType];
     const landmarkName=artTile===TileType.CaveEntrance?'cave-entrance':(artTile===TileType.RuinEntrance||artTile===TileType.RuinSideEntrance)?'ruin-entrance':artTile===TileType.CaveRock?((tx+ty)%2?'rock-block':'rock-ridge'):undefined;
     const landmarkTexture=scenery?optionalTextures[scenery.url]:landmarkName?optionalTextures[`/sprites/regions-v3/${landmarkName}.png`]:undefined;
-    const natureName=artTile===TileType.CampEntrance?'tent':artTile===TileType.Tree?treeSpeciesAt(tx,ty,biomes[index]===Biome.Swamp):artTile===TileType.MarshGround?'marsh':artTile===TileType.MarshReeds?'reeds':artTile===TileType.PrisonCage?'cage':artTile===TileType.Tent?'tent':artTile===TileType.RiverBridge?(isRoadAt(tx-1,ty)||isRoadAt(tx+1,ty)?'bridge-h':'bridge-v'):undefined;
+    const natureName=artTile===TileType.CampEntrance?'tent':artTile===TileType.Tree?treeSpeciesAt(tx,ty,biomes[index]===Biome.Swamp):artTile===TileType.MarshGround?'marsh':artTile===TileType.MarshReeds?'reeds':artTile===TileType.PrisonCage?'cage':artTile===TileType.Tent?'tent':artTile===TileType.RiverBridge?riverBridgeDeck(tx,ty):undefined;
     let natureTexture=landmarkTexture??(!site&&natureName?optionalTextures[`/sprites/regions-v2/${natureName}.png`]:undefined);
     if(artTile===TileType.RiverBridge&&natureTexture&&TILE_TEXTURES.get(TileType.Water))natureTexture=riverBridgeTexture(natureTexture,TILE_TEXTURES.get(TileType.Water)!,app.renderer);
     const texture = tile === TileType.BuildingPart || isFortPart(tile)
@@ -1807,6 +1807,12 @@ async function main() {
     return pieces[(joins(n) ? 1 : 0) | (joins(e) ? 2 : 0) | (joins(s) ? 4 : 0) | (joins(w) ? 8 : 0)];
   }
 
+  // A bridge deck runs along the axis with more road / bridge neighbours (two parallel bridges across a pond stay
+  // north-south); a tie keeps the old rule: east-west when a road joins from either side.
+  function riverBridgeDeck(tx: number, ty: number): 'bridge-h' | 'bridge-v' {
+    const lr = +isRoadAt(tx - 1, ty) + +isRoadAt(tx + 1, ty), ud = +isRoadAt(tx, ty - 1) + +isRoadAt(tx, ty + 1);
+    return lr > 0 && lr >= ud ? 'bridge-h' : 'bridge-v';
+  }
   function isRoadAt(tx: number, ty: number): boolean {
     if (tx < 0 || ty < 0 || tx >= worldTilesX || ty >= worldTilesY) return false;
     const t=tiles[ty * worldTilesX + tx] as TileType;
