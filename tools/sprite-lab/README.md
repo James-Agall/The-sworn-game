@@ -35,7 +35,8 @@ Uses the repo's own `vite` and `typescript`; no extra dependencies. Node 22 runs
   with its pivot at the centre-bottom. The side strip shows the drawing at the in-game size (x0.275 = body.html x1.08
   times game x0.255) beside the hero sprite `autumn/frames/heroes/base-05.png` (x0.255) on grass, 1x/2x/4x.
 - **Rig**: clips (`client/public/rig/clips/*.json`) on the human skeleton, played on the assembled body. See "Rig tab".
-- **Area (coming next)**: placeholder for the next round.
+- **Area**: the game's bandit camp, building and settlement templates (`server/data/<kind>/`), painted with the game's
+  tile art, validated live by the game's validators, previewed with the real server stamper. See "Area tab".
 - **Compare**: set + look (pose, helm, shield, hair, time; or a Clip and its phase `u`, drawn by the Rig renderer) of the
   assembled body beside any reference sprite from
   `client/public/sprites/` at the in-game size, 1x/2x/4x, with a height ruler (game pixels) and grid, and the
@@ -50,7 +51,7 @@ Uses the repo's own `vite` and `typescript`; no extra dependencies. Node 22 runs
 | + / - / 0 | Zoom in / out / fit (Parts view) |
 | G | Grid on/off |
 | Up / Down arrows | Previous / next part |
-| Alt+1 ... Alt+5 | Switch tab |
+| Alt+1 ... Alt+5 | Switch tab (Area = Alt+4; its own keys are in "Area tab") |
 | Mouse wheel | Zoom at the cursor; drag empty space (or middle / right button) to pan |
 
 The orange dot in the header means unsaved changes (the browser also warns before leaving).
@@ -152,6 +153,72 @@ rig-core's `kf`: add an ease such as `catmull` or bake its curves into keys; its
 shield arm and torso fitting); (5) golden contact sheets before / after with `scripts/character-rig-contact.mjs`
 (SPEC stage 0) so the switch is behaviour-preserving.
 
+## Area tab
+
+Left: kind (Bandit camps / Buildings / Settlements), search, tier and built-in / user filters, the template list
+(badges: built-in, user, tier, type, size, `invalid`, `shadowed` = a user file with a built-in's id, which the game skips),
+New (the in-game editors' defaults), Duplicate, Delete (user only), Import JSON, Export JSON. Centre: the toolbar, the
+grid (PixelView: wheel zoom 3-72 px per cell, middle-drag or Space + drag pans), the validation panel and the stats /
+hover line. Right: the palette (every legend symbol with its game sprite; left button paints, right button erases to
+open ground), the building library (settlements), the template's fields, the Save box (the exact file it writes).
+
+- **Files**: built-ins `server/data/{camps,buildings,settlements}/*.json` are READ-ONLY (opening one shows it with a
+  "Duplicate to user…" banner; any edit asks for a new id first). Saves go to `server/data/<kind>/user/<id>.json`, the
+  folder the game's template stores load at boot and the in-game creative editors (campEditor.ts, buildingEditor.ts,
+  settlementEditor.ts) save to; both editors work on the same files. The file is written exactly like the game's store
+  writes it (`normalise` + `JSON.stringify(t, null, 2)`), atomically, the previous file backed up. The server
+  re-validates every save with the game's validator and refuses a built-in's id, an existing user id unless it is the
+  template you opened (and unchanged on disk since, else "reload"), bad ids (`^[a-z0-9][a-z0-9_-]{0,47}$`).
+- **Tools** (keys): Pencil P, Line L, Rectangle R (`filled`, Shift flips it), Fill F (4-way flood), Eyedropper I,
+  Select S (drag a box; drag inside it to move it; Ctrl+C / Ctrl+X, Ctrl+V then click to paste; Delete clears it), Place
+  building B (settlements). M / Shift+M toggle mirror painting left-right / top-bottom (blue axis lines). ⟳ ⟲ ⇋ ⇵ turn or
+  mirror the selection, or the whole template with the game's `transformRows` (camps / buildings turn their entrance /
+  door side with it, settlements use the game's `transformSettlement`, which moves and re-turns the buildings).
+  Resize… (any size, anchor of 9; settlement buildings shift with the content), Clear. Ctrl+Z / Ctrl+Y, Ctrl+S, + / - / 0,
+  G grid, V stamp preview, Esc drops the selection / paste / building.
+- **Single anchors**: a camp has exactly one hearth `H`, a settlement one keep `K` (or a keep building's anchor `Y`):
+  painting `H` / `K` MOVES it (the toast says so). Erasing it is allowed and the validator then says so.
+- **Settlement buildings**: click a library card (or drag it onto the map); a ghost follows the cursor (green fits,
+  red collides) and a click places it centred on the cursor (the game's `buildingOrigin` rule). Click a placed building
+  to select it (thick outline), drag to move (snaps to cells), R / M turn / mirror it (refused when the building
+  template's `rotate` / `mirror` flag forbids it), Delete removes it, "Edit template" opens it in the Buildings kind.
+  Footprints are dashed green, colliding cells red (off the grid, on another building, on a ground symbol: the same
+  rules as the game's `settlementLayout`, which stays the verdict). `spriteBuildings` settlements use the game's 3x3
+  prefab footprint (`spriteBuildingCells`).
+- **Validation**: the game's `validateCampTemplate` / `validateBuildingTemplate` / `validateSettlementTemplate` run
+  ~140 ms after every edit (settlements with the game store's building lookup: built-ins + valid user buildings).
+  Messages naming a cell ("at x,y") or a building ("building 3 ...") are links: the view jumps there and flashes the
+  cell / selects the building. Lab warnings (weight 0, a built-in's id, colliding buildings) are amber. Save is
+  disabled while there are errors.
+- **Stamp preview** (V): a strip of every transform world-gen may use (camps: `pickCampTransform`'s rotate / mirror
+  flags; settlements: `settlementTransforms`; buildings: the placements their flags allow). Source:
+  - "Shared code" (instant): `campCells` around the hearth (camps), `transformSettlement` + `settlementLayout` with the
+    stamper's apron and ownership rule (settlements), `buildingCells` (buildings): the same shared functions the
+    server stamper calls. `test/area-game.test.ts` proves it equals the real stamper cell for cell (tiles + ownership).
+  - "Real server stamper" (camps, settlements): `server/stamper/worker.ts` runs the game's own `stampCamp` /
+    `stampSettlement` (+ the template stores) in a child process with the repo's tsx on an empty 160x160 in-memory map
+    (scratch COLONY_SAVE_DIR, deleted after; no port, no save) and returns tiles, ownership, site grounds, spawned
+    guards, the hearth / site record (name, homes, posts). `seed` drives the stamper's random picks. It uses the
+    repo's built-ins and the Lab root's user buildings.
+  Overlays: ownership (blue), grounds (white), slot / guard / keep / hearth markers, footprints, entrance arrow.
+- **Art** (`app/src/area/art.ts`): imported from the game, not copied: `TILE_SPRITE_FILES`, `TILE_OPTIONAL_ART`,
+  `TILE_STANDIN_TINT` (client/src/worldVisuals.ts) and `STRUCTURE_FURNITURE_ART` + door / window / floor URLs
+  (client/src/spriteRegistry.ts), with the build toolbar's icon rule (furniture art, else optional art, else the tinted
+  stand-in). Doors / windows pick the h / v sprite from their wall neighbours; 2-cell furniture draws across both cells.
+  Not reproduced: wall / fence / road autotiling, floor variants, roofs, campfire animation, tent faction variants.
+  Every legend symbol that stamps a tile has art; the ones without are markers by design (open ground `.`, slots
+  `g m a e p` / `t r v g q`, settlement `u` animal-zone ground). The palette footnote lists it live.
+
+| Key (Area tab) | Action |
+| --- | --- |
+| P L R F I S B | Pencil, line, rectangle, fill, eyedropper, select, place building |
+| Left / right drag | Paint the brush / erase to open ground (right-click a building: remove it) |
+| Middle drag, Space + drag, wheel | Pan, pan, zoom |
+| M, Shift+M | Mirror painting left-right, top-bottom (building tool: R / M turn / mirror the building) |
+| Ctrl+C / X / V, Delete, Esc | Copy / cut / paste (then click) the selection, clear it, drop it |
+| V | Stamp preview on / off |
+| Ctrl+Z, Ctrl+Y, Ctrl+S, + - 0, G | Undo, redo, save, zoom, fit, grid |
+
 ## Validators v1 (`shared/validators.ts`)
 
 Used by the Compare tab, `GET /api/validate/<set>` and the CLI:
@@ -185,13 +252,18 @@ palette size (flat fills warn); no faint semi-transparent noise specks. Threshol
   Writes (POST/PUT only) also need our own `Origin`, `X-Lab: 1` and `Content-Type: application/json`.
 - Writable folders (allow-list, relative to the root): `client/public/rig/parts/<set>/` (set name
   `^[a-z0-9][a-z0-9_-]{0,40}$`; PNGs, `manifest.json`, `lab.json`, `slice-report.json` only),
-  `client/public/rig/clips/<name>.json`, `art-sources/lab/`. Nothing else, ever (no saves, no live copy, no code).
+  `client/public/rig/clips/<name>.json`, `art-sources/lab/`, and (Area tab) `server/data/{camps,buildings,settlements}/user/`
+  (`^[a-z0-9][a-z0-9_-]{0,60}\.json$` only; the built-ins beside them never). Nothing else, ever (no saves, no live
+  copy, no code).
 - Paths are refused when they contain NUL, backslashes, `%` after one decode, `.`, `..` or empty segments, or are
   absolute; writes are refused if any existing component below the root is a symlink (or the target is one); reads
   must resolve inside the root. Bodies are size-limited (1 MB JSON, 24 MB for saves / sheets, 4 MB and 1024 px per PNG).
 - The slicer runs as `node scripts/slice-rig-sheet.mjs` from this repo (never from the root copy) via `execFile`
   without a shell, with only validated arguments (known layout name, set name, `auto|none`, `--merge`).
-- Read-only: `client/public/rig` and `client/public/sprites` of the root, the Piskel bundle, `client/src/heroRig.ts`.
+- Read-only: `client/public/rig` and `client/public/sprites` of the root, the Piskel bundle, `client/src/heroRig.ts`,
+  the template built-ins; the Area tab's Vite may serve `shared/src` and `client/src` of the repo (imports only).
+- The real stamper runs `node --import tsx --import stamper/alias.mjs stamper/worker.ts` (repo tsx, cwd `server/`,
+  no shell, a scratch COLONY_SAVE_DIR, COLONY_TEST_HOOKS=1, one at a time, 60 s timeout).
 
 ## Palette source of truth
 
@@ -205,12 +277,15 @@ the Lab shows "Recolour unavailable" and `test/validators.test.ts` fails, so the
 ```
 tools/sprite-lab/
   server/   main.ts (CLI entry), lab.ts (HTTP + API), paths.ts (allow-list), store.ts (atomic writes, backups),
-            sets.ts, palette.ts, png.ts
+            sets.ts, palette.ts, png.ts, templates.ts (Area API), game.ts (loads shared/area.ts via tsx tsImport),
+            stamp.ts + stamper/ (worker.ts, alias.mjs, alias-hooks.mjs: the real server stamper, headless)
   shared/   names.ts, manifest.ts (format-preserving writer), validators.ts, recolour.ts, clip.ts (clip format,
-            validation, evaluation), pose.ts (pose solver), clipedit.ts (key / pose / mirror edits)   (Node + browser)
+            validation, evaluation), pose.ts (pose solver), clipedit.ts (key / pose / mirror edits),
+            area.ts (template kinds on the game's shared code), grid.ts (painting ops)   (Node + browser)
   app/      index.html, src/ main.ts (shell), project.ts (set model + undo), pixelview.ts, parts.ts, draw.ts,
             compare.ts, rigframe.ts (body.html bridge), png.ts (lossless browser PNG), api.ts, ui.ts, undo.ts,
-            rig/ tab.ts (Rig tab), timeline.ts, render.ts (body.html placement on rig-core), export.ts, hook.ts
+            rig/ tab.ts (Rig tab), timeline.ts, render.ts (body.html placement on rig-core), export.ts, hook.ts,
+            area/ tab.ts (Area tab), render.ts, art.ts (game tile-art tables), pixi-stub.ts
   cli/      validate.ts
   test/     server, manifest, validators, clip (format + maths), rig-golden (equivalence), smoke (headless browser)
   vendor/piskel/   Piskel source (Apache-2.0) + our bridge, see NOTICE.md
@@ -222,6 +297,10 @@ Server API (JSON): `GET /api/info`, `GET|POST /api/sets`, `GET /api/sets/<set>`,
 `GET /api/palettes`, `PUT /api/palettes/<name>`, `GET /api/clips`, `GET|PUT /api/clips/<name>` (validated; built-ins
 refused), `POST /api/clips/<name>/delete`, `POST /api/exports` ({name, png} -> art-sources/lab/exports/), `GET /api/refs`,
 `GET /api/layouts`, `POST /api/slice`, `GET /api/validate/<set>`. Static: `/rig/*`, `/sprites/*`, `/piskel/*`.
+Area: `GET /api/templates/<kind>[?full=1]` (list), `GET /api/templates/<kind>/<builtin|user>/<id>` (template + hash +
+errors), `POST /api/templates/<kind>/save` ({template, overwrite?, baseHash?}), `.../import` ({template}, never
+overwrites), `.../duplicate` ({src, from, id, name?}), `.../delete` ({id}, user only), `.../validate` ({template}),
+`POST /api/stamp` ({kind: camps|settlements, template, transform, seed}: the real stamper).
 
 ## Tests
 
@@ -231,8 +310,11 @@ node --test tools/sprite-lab/test/server.test.ts    # one file
 npx tsc --noEmit -p tools/sprite-lab                 # type check
 ```
 
-Every test works on scratch copies (`mkdtemp` + copy of `client/public/rig`, LAB_ROOT) on ports 31800-31899 and never
-touches the repo. The smoke test needs Playwright and Chromium: by default the module from
+Every test works on scratch copies (`mkdtemp` + copy of `client/public/rig`, LAB_ROOT; the Area tests also copy
+`server/data/{camps,buildings,settlements}` and part of `client/public/sprites`) on ports 31800-31899 and never
+touches the repo. Area: `area-server` (API, allow-list, refusals, backups, every built-in round trip), `area-grid` (grid
+ops vs the game's functions, anchors, placement / collision, previews), `area-game` (the game's own template stores load
+Lab-saved files and write the same bytes; real stamper = shared-code preview), `area-smoke` (headless browser). The smoke test needs Playwright and Chromium: by default the module from
 `/home/james/projects/auto-loan-ff-release/package.json` and the Chromium in this session's scratchpad; override with
 `LAB_PLAYWRIGHT_PKG`, `LAB_CHROME`; screenshots go to `LAB_SHOTS` (default the scratchpad `lab-shots/`).
 
@@ -268,3 +350,8 @@ not used as this tool's name. The rest of the Lab is part of this repo.
   (orange outline instead of the green planted bar). Fix it in a duplicate (shorter stride, lower hips) or in the parts.
 - Import PNG through a non-PNG file goes through a canvas (fine for opaque art; PNGs are decoded losslessly).
 - The draw order in `lab.json` is the Lab's own; the game and body.html still use their hard-coded order.
+- Area: forts / ruins / POIs and building interiors are still code in the game (stage B, see HANDOFF.md). The real
+  stamper uses the repo's built-in templates (not a `--root` copy's) and saved user buildings (not unsaved edits).
+  Tiles are drawn one sprite per cell (no autotiling). A user template whose file name differs from its id is listed
+  and opened by file name; saving writes `<id>.json` (a rename leaves the old file: delete it). The game loads user
+  templates at boot: restart the game server to see a Lab save in game.

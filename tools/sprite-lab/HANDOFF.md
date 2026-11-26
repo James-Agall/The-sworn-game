@@ -1,6 +1,6 @@
 # Sprite Lab: handoff (2026-11-26)
 
-## Round 4: Area tab, stage A (IN PROGRESS; newest last)
+## Round 4: Area tab, stage A (DONE 2026-11-26; README "Area tab" is the user guide; newest last)
 - Step 1 DONE (commit "Area: template API ..."): `shared/area.ts` (kinds, the game stores' normalise + file format,
   validate via the game's validate*, error-cell parsing, placements / collisions, shared-code stamp previews),
   `shared/grid.ts` (pure painting ops), `server/game.ts` (loads area.ts in Node with tsx's `tsImport`: the game's
@@ -17,11 +17,53 @@
   reload; settlement library place + collision + undo + whole turn; shared + REAL stamp previews; building art
   coverage; zero console errors). Main smoke: scratch root also copies ui-questNew / ui-questActive (worldVisuals.ts
   loads them at import).
-- Next: README / MANUAL-TESTS / stage-B findings, full `npm run lab:test`, tsc shared/server/client, `npm run smoke`.
+- Step 3 DONE: dirty state compares with the saved file; smoke covers rect / select-copy-paste / mirror / resize /
+  fill; README "Area tab", MANUAL-TESTS "Sprite Lab: Area tab", stage-B notes below.
+- Next (stage B, a GAME-CODE change, behaviour-preserving, its own round): see "Stage B prerequisites".
 - Finding: the root `node_modules/@colony/shared` link points at the MAIN checkout's shared/; the stamper worker
   re-maps it to this worktree with a resolve hook (`stamper/alias-hooks.mjs`), the result reports `sharedFrom`.
 - Finding: 15 settlement built-ins list `spriteBuildings` before `rotate` / `mirror` (or omit it); the game's store
   (and so the in-game editor and the Lab) writes it last: copies are content-equal, not byte-equal, for those.
+
+## Stage B prerequisites (forts / ruins / POIs and building interiors are CODE today)
+None of these is a data file; each needs a behaviour-preserving move to JSON + a loader (built-ins read-only, `user/`
+overrides like templateStore.ts) + a validator, proven with world-gen tile / ownership hashes (several seeds and sizes)
+and interior maps per template x variant x level BEFORE the Lab edits them (SPEC 9.1). Pointers (this worktree):
+- Forts (bandit / orc) + the settlement behaviour profiles: `SITE_TEMPLATES` server/src/constants.ts:1592-1757
+  (`thornwick`, `grakkar`, `hearthmoor`, `ironhold`, `riverwatch`), type `SiteTemplate` server/src/types.ts:392 and
+  `SiteTemplateId` :391 (a closed union: user ids need it widened), legend `SITE_TEMPLATE_TILES` constants.ts:1456 and
+  `HUMAN_SITE_SYMBOLS` :1475 (per-template `symbols` override), `singleStage()` right below (human templates: every cell
+  tier 1). Fields to keep: id, faction, label, names[], rows, tiers (same-size digit grid: the tier each cell joins at;
+  below it a gate is a wall, a wall a fence), maxTier, startTier, garrison, stock, rebuildCost, symbols, workers, noun.
+  Consumers: `stampSiteTemplate` server/src/sites.ts:167 (validateTemplate, templateSize, apron SITE_APRON_TILES
+  constants.ts:1759), `generateForts` sites.ts:279, sighting toast sites.ts:410 (`noun`), workers sites.ts:720, growth
+  sites.ts:800 / 835 (`maxTier`, tiers), creative `stampSiteSearch` server/src/creative.ts:140 and :592.
+  IMPORTANT: settlement JSON `profile` ("hearthmoor" / "ironhold" / "riverwatch") points INTO SITE_TEMPLATES for the
+  workers / stock / trade / quests / noun / names (stampSettlement settlementTemplates.ts:74 uses
+  `SITE_TEMPLATES[t.profile]`), so those three must stay addressable by the same ids after the move.
+- Ruins / scattered POIs: `placePoiSite` server/src/worldgen.ts:403 (no grid: a centrepiece from `RUIN_CENTERPIECES`
+  constants.ts:1314, 0-2 extras `RUIN_EXTRAS` :1315 / `ENCAMPMENT_EXTRAS` :1316 on the 8 neighbours, 2-3 guardians on
+  free tiles next to them within `POI_SITE_FOOTPRINT_RADIUS` :1311, `pickRuinGuardianKind`; "encampment" already stamps
+  a tier-1 camp template). A data form would be: centrepiece pool, extras pool + count range, guardian kinds/weights +
+  count range, footprint radius, hearth flag (`SITE_KIND_HAS_HEARTH`). All picks run on the seeded Math.random in a
+  fixed order: keep the call order or world-gen output changes (hash test).
+- Castle Ruin: `CASTLE_RUIN_LAYOUT` constants.ts:1417 (9x9 ASCII: 1 / 2 ruin walls, A arch, S statue, R rubble, B = the Ogre
+  Warlord's spot, "." open), `CASTLE_RUIN_LAYOUT_TILES` :1428, `CASTLE_RUIN_FOOTPRINT_RADIUS` / `GROUNDS_RADIUS` :1435-1437, spawn distance fractions + guardian counts
+  :1440-1442, placer `placeCastleRuin` worldgen.ts:589. Mini-boss packs (PoiSiteKind "miniBoss", types.ts:389) are
+  spawn rules, not layouts.
+- Building interiors: shared/src/interiors.ts. `INTERIOR_LEGEND` :105 (props, level-gated props such as `q` bed level 2+ /
+  `Q` fine bed level 3 via `minLevel`, NPC slots `1` / `2` keepers and `v` residents, exit mat `E`, stairs `U` / `D`,
+  mine-only `O P Z N M`), type `InteriorTemplate` {id, label, floor, wall, rows} ~:152,
+  `INTERIOR_VARIANTS = 3`, `INTERIOR_TEMPLATES` :167 (house, tavern, church, smithy, bakery, shop, barracks, hall, barn;
+  an ARRAY per id: the index is the variant `interiorVariantFor(tx, ty, level)` :546 picks from the building anchor +
+  level, so order and count are part of the behaviour), `INTERIOR_UPPER_TEMPLATES` :502 (upper floors, "D" stairs
+  down, no exit mat), `INTERIOR_REQUIRED_PROPS` :530 (stations a type must have), `validateInteriorTemplate(t, upper)`
+  :556 (+ the all-templates check at :645), `INTERIOR_SLEEP_TEMPLATES` :695 (house, hall), `buildInteriorMap(id, level,
+  variant, storey)` :804 (the builder a preview must use). The Town Center hall chest: hall-chest-test.mjs; suites to
+  run after the move: interiors, interior-refresh, furniture, hall-chest, inn, home-design (+ sites/forts, regions,
+  hostile-scatter, save-load, smoke for the fort part). Cave / mine / ruin encounter interiors are out of scope.
+- Lab side once those are data: add kinds to `TEMPLATE_KINDS` (server/paths.ts) and `KINDS` (shared/area.ts) with their
+  legend / validate / normalise; the painter, palette, validation panel, save path and stamper worker are generic.
 
 ## Round 3: Rig tab (DONE 2026-11-26; see README "Rig tab" for the user guide and the clip format)
 - Commits: f4e86f4 (clip format, skeleton, built-in clips, renderer, golden test), e3d322f (Rig tab UI, exports, smoke),

@@ -1681,3 +1681,39 @@ Automated: `npm run lab:test` (server security, manifest round trips, validators
 8. Rename and Delete `walk-test` (the file goes to the backups).
 
 Automated: `npm run lab:test` also checks the Lab renders idle / walk / the sword attack pixel-identically to body.html.
+
+### Sprite Lab: Area tab (26 November 2026)
+
+`npm run lab`, open the Area tab (Alt+4). It edits the game's own template files: built-ins (`server/data/<kind>/*.json`)
+are read-only; saves go to `server/data/<kind>/user/<id>.json` (the folder the game loads at boot and the in-game
+creative editors save to), the old file backed up under `art-sources/lab/backups/`.
+
+1. Bandit camps: click `Forest camp`. The grid shows the game's sprites (tents, crates, campfire); guard / prisoner slots
+   are coloured letters. The yellow banner says built-in, read-only. Wheel zooms, middle-drag (or Space + drag) pans,
+   `0` fits, tick `symbols` to see the ASCII letters.
+2. Click a cell: it asks to "Duplicate to user". Give the id `test-camp`. The Save box shows
+   `server/data/camps/user/test-camp.json (new file)`.
+3. Right-click the hearth (erase): the bottom panel turns red ("exactly one hearth H (has 0)"), Save is disabled.
+   Ctrl+Z. Pick `H` in the palette and click another cell: the hearth moves there (there is only ever one).
+4. Try the tools: Line (L), Rectangle (R, tick `filled`), Fill (F), Eyedropper (I), Select (S) + Ctrl+C / Ctrl+V +
+   click, Delete clears a selection, `mirror ↔` paints both sides, the ⟳ ⟲ ⇋ ⇵ buttons turn / mirror the selection or
+   the whole camp (the entrance turns with it), Resize… with an anchor. Undo / redo every step.
+5. Change Tier / weight / guards / entrance on the right, then Ctrl+S. The toast names the file. Reload the page: pick
+   `User` in the source filter: `test-camp` is there. (Re)start the game server (user templates load at boot): in
+   creative mode the in-game camp editor lists `test-camp` too.
+6. "Preview stamp" (V): the variant strip shows every rotation / mirror world-gen may use. Switch the source to
+   "Real server stamper": the game's own stampCamp runs on an empty scratch map (about a second); guards (A / C / E)
+   stand on guard slots; change the seed and Re-run for another guard pick.
+7. Settlements: open `Chapel hamlet`, "Duplicate to user…" (`test-hamlet`). In the Building library click `Hut`, then
+   click the map: a ghost follows the mouse, green = fits, red = collides. Drag a placed building to move it; R / M turn /
+   mirror it (refused when its template forbids); Delete removes it. Errors in the bottom panel jump to the cell /
+   select the building when clicked.
+8. Preview stamp on the settlement: ownership tint (blue), the 2-tile apron, keep / trader / villager markers; the real
+   stamper shows the spawned garrison and the site name.
+9. Buildings: open `Blacksmith (large)`; doors and windows turn to fit their wall; the door-side arrow shows. Duplicate,
+   paint a room, check the stats line (rooms, beds, slots). "Edit template" in the settlement library jumps here.
+10. Import JSON / Export JSON round-trip a template file; Delete removes a user template (backed up). Built-ins can't be
+    saved or deleted.
+
+Automated: `npm run lab:test` (area API + allow-list, game-store load of Lab files, real stamper = preview, grid
+operations, a headless run of the steps above).
