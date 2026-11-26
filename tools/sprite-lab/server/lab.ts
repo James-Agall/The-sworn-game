@@ -8,7 +8,9 @@ import path from "node:path";
 import { checkManifestShape, writeManifestText, type Manifest } from "../shared/manifest.ts";
 import { formatClip, validateClip } from "../shared/clip.ts";
 import { isDataName, isPngName, isSetName, NON_PART_PNGS, SIDECAR_FILE } from "../shared/names.ts";
-import { HttpError, checkRel, resolveReadable, resolveWritable, CLIPS_BASE, LAB_BASE, PARTS_BASE } from "./paths.ts";
+import { HttpError, checkRel, resolveReadable, resolveWritable, CLIPS_BASE, LAB_BASE, PARTS_BASE, TEMPLATE_KINDS, isTemplateKind, templateUserBase } from "./paths.ts";
+import { TEMPLATE_LIMITS, checkTemplate, deleteTemplate, duplicateTemplate, listTemplates, readTemplate, saveTemplate } from "./templates.ts";
+import { realStamp } from "./stamp.ts";
 import { Backup, atomicWrite, deleteWithBackup, ensureDir, writeWithBackup } from "./store.ts";
 import { listSets, readManifest, setDir, setFiles, sha256, validateSetOnDisk } from "./sets.ts";
 import { decodePNG, isPng, REPO_DIR } from "./png.ts";
@@ -18,6 +20,7 @@ export const CODE_DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url)
 const APP_DIR = path.join(CODE_DIR, "app"), PISKEL_DIST = path.join(CODE_DIR, "piskel-dist");
 const SLICER = path.join(REPO_DIR, "scripts", "slice-rig-sheet.mjs"), LAYOUTS = path.join(REPO_DIR, "scripts", "rig-layouts");
 const HERO_RIG = path.join(REPO_DIR, "client", "src", "heroRig.ts");
+const GAME_READ_DIRS = [path.join(REPO_DIR, "shared", "src"), path.join(REPO_DIR, "client", "src")];
 
 export const LIMITS = { jsonBody: 1 << 20, saveBody: 24 << 20, png: 4 << 20, maxPngSide: 1024, exportPng: 16 << 20, maxExportSide: 8192, refs: 6000 };
 const EXPORT_NAME_RE = /^[a-z0-9][a-z0-9_-]{0,80}$/;
@@ -93,7 +96,7 @@ export async function startLab(opts: LabOptions): Promise<Lab> {
   async function api(req: http.IncomingMessage, res: http.ServerResponse, segs: string[]): Promise<void> {
     const m = req.method || "GET";
     const [a, b, c] = segs;
-    if (a === "info" && m === "GET") return json(res, 200, { root, repo: REPO_DIR, sameRoot: root === REPO_DIR, writable: [PARTS_BASE.join("/") + "/<set>/", CLIPS_BASE.join("/") + "/", LAB_BASE.join("/") + "/"] });
+    if (a === "info" && m === "GET") return json(res, 200, { root, repo: REPO_DIR, sameRoot: root === REPO_DIR, writable: [PARTS_BASE.join("/") + "/<set>/", CLIPS_BASE.join("/") + "/", LAB_BASE.join("/") + "/", ...TEMPLATE_KINDS.map((k) => templateUserBase(k).join("/") + "/")] });
     if (a === "sets" && !b && m === "GET") return json(res, 200, await listSets(root));
     if (a === "sets" && !b && m === "POST") return json(res, 200, await createSet(await readJson(req)));
     if (a === "sets" && b && !c && m === "GET") return json(res, 200, await getSet(b));
@@ -109,7 +112,27 @@ export async function startLab(opts: LabOptions): Promise<Lab> {
     if (a === "layouts" && m === "GET") return json(res, 200, await layouts());
     if (a === "slice" && m === "POST") return json(res, 200, await slice(await readJson(req, LIMITS.saveBody)));
     if (a === "validate" && b && m === "GET") return json(res, 200, await validateSetOnDisk(root, b));
+    if (a === "templates") return templatesApi(req, res, segs.slice(1));
+    if (a === "stamp" && !b && m === "POST") return json(res, 200, await realStamp(root, await readJson(req, TEMPLATE_LIMITS.body)));
     throw new HttpError(404, "no such API route");
+  }
+
+  // ---------------- Area tab: game templates (built-ins read-only, user/ writable), see templates.ts
+  async function templatesApi(req: http.IncomingMessage, res: http.ServerResponse, segs: string[]): Promise<void> {
+    const m = req.method || "GET";
+    const [kind, b, c, d] = segs;
+    if (!isTemplateKind(kind)) throw new HttpError(404, "template kind must be one of " + TEMPLATE_KINDS.join(", "));
+    if (!b && m === "GET") return json(res, 200, await listTemplates(root, kind, (req.url || "").includes("full=1")));
+    if ((b === "builtin" || b === "user") && c && !d && m === "GET") return json(res, 200, await readTemplate(root, kind, b, c));
+    if (b && !c && m === "POST") {
+      const body = await readJson(req, TEMPLATE_LIMITS.body);
+      if (b === "save") { const r = await saveTemplate(root, kind, body); log(`template saved ${r.path}`); return json(res, 200, r); }
+      if (b === "import") { const r = await saveTemplate(root, kind, { template: body.template }); log(`template imported ${r.path}`); return json(res, 200, r); }
+      if (b === "duplicate") { const r = await duplicateTemplate(root, kind, body); log(`template duplicated ${r.path}`); return json(res, 200, r); }
+      if (b === "delete") { const r = await deleteTemplate(root, kind, body); log(`template deleted ${r.path}`); return json(res, 200, r); }
+      if (b === "validate") return json(res, 200, await checkTemplate(root, kind, body.template));
+    }
+    throw new HttpError(404, "no such template route");
   }
 
   async function getSet(set: string) {
@@ -375,7 +398,14 @@ export async function startLab(opts: LabOptions): Promise<Lab> {
     vite = await createServer({
       configFile: false, root: APP_DIR, appType: "spa", logLevel: "warn", clearScreen: false,
       cacheDir: path.join(CODE_DIR, ".vite-cache"),
-      server: { middlewareMode: true, hmr: { server }, fs: { strict: true, allow: [APP_DIR, path.join(CODE_DIR, "shared")] } },
+      server: { middlewareMode: true, hmr: { server }, fs: { strict: true, allow: [APP_DIR, path.join(CODE_DIR, "shared"), ...GAME_READ_DIRS] } },
+      // Area tab: the game's shared code and its tile-art tables (client/src/worldVisuals.ts, spriteRegistry.ts) are
+      // imported read-only. @colony/shared/* -> this repo's shared/src (not the node_modules link); pixi.js -> a stub
+      // (the art tables' files import pixi for textures the Lab never creates).
+      resolve: { alias: [
+        { find: /^@colony\/shared\/(.+)$/, replacement: path.join(REPO_DIR, "shared", "src") + "/$1.ts" },
+        { find: /^pixi\.js$/, replacement: path.join(APP_DIR, "src", "area", "pixi-stub.ts") },
+      ] },
     });
   }
   return {

@@ -8,12 +8,15 @@ import { REPO_DIR } from "../server/png.ts";
 
 export { REPO_DIR };
 export const PUBLIC = path.join(REPO_DIR, "client", "public");
+export const TEMPLATE_DIRS = ["camps", "buildings", "settlements"];
 
 /** A scratch Lab root with client/public/rig copied in (and optionally the hero frames the rig pages load). */
-export async function scratchRoot(opts: { sprites?: boolean } = {}): Promise<string> {
+export async function scratchRoot(opts: { sprites?: boolean; templates?: boolean } = {}): Promise<string> {
   const dir = await mkdtemp(path.join(os.tmpdir(), "sprite-lab-test-"));
   await mkdir(path.join(dir, "client", "public"), { recursive: true });
   await cp(path.join(PUBLIC, "rig"), path.join(dir, "client", "public", "rig"), { recursive: true });
+  // Area tab: the game's template folders (built-ins + their user/ folders, which are empty in the repo)
+  if (opts.templates) for (const k of TEMPLATE_DIRS) await cp(path.join(REPO_DIR, "server", "data", k), path.join(dir, "server", "data", k), { recursive: true });
   if (opts.sprites) {
     const heroes = path.join("sprites", "autumn", "frames", "heroes");
     await cp(path.join(PUBLIC, heroes), path.join(dir, "client", "public", heroes), { recursive: true });

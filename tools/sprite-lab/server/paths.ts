@@ -29,10 +29,18 @@ export function checkRel(rel: string): string[] {
 export const PARTS_BASE = ["client", "public", "rig", "parts"];
 export const CLIPS_BASE = ["client", "public", "rig", "clips"];
 export const LAB_BASE = ["art-sources", "lab"];
+/** Area tab: the game's template kinds. Only their `user/` folders are writable; the built-ins beside them never are. */
+export const TEMPLATE_KINDS = ["camps", "buildings", "settlements"] as const;
+export type TemplateKind = (typeof TEMPLATE_KINDS)[number];
+export const isTemplateKind = (k: unknown): k is TemplateKind => typeof k === "string" && (TEMPLATE_KINDS as readonly string[]).includes(k);
+export const TEMPLATE_FILE_RE = /^[a-z0-9][a-z0-9_-]{0,60}\.json$/;
+export const templateBase = (kind: TemplateKind) => ["server", "data", kind];
+export const templateUserBase = (kind: TemplateKind) => ["server", "data", kind, "user"];
 
 /** The write allow-list. Paths are segment arrays relative to the Lab root. */
 export function isWritable(segs: string[]): boolean {
   const eq = (base: string[]) => base.every((b, i) => segs[i] === b);
+  if (segs.length === 5 && segs[0] === "server" && segs[1] === "data" && isTemplateKind(segs[2]) && segs[3] === "user") return TEMPLATE_FILE_RE.test(segs[4]);
   if (eq(PARTS_BASE) && segs.length === PARTS_BASE.length + 2) {
     const [set, file] = segs.slice(PARTS_BASE.length);
     return isSetName(set) && (isPngName(file) || file === "manifest.json" || file === SIDECAR_FILE || file === "slice-report.json");
@@ -47,6 +55,13 @@ export function isWritable(segs: string[]): boolean {
 /** A set folder itself (for mkdir). */
 export function isWritableDir(segs: string[]): boolean {
   const eq = (base: string[]) => segs.length >= base.length && base.every((b, i) => segs[i] === b);
+  // server, server/data, server/data/<kind> (existing folders on the way) and server/data/<kind>/user
+  if (segs[0] === "server" && segs.length <= 4) {
+    if (segs.length === 1) return true;
+    if (segs[1] !== "data") return false;
+    if (segs.length === 2) return true;
+    return isTemplateKind(segs[2]) && (segs.length === 3 || segs[3] === "user");
+  }
   if (eq(PARTS_BASE)) return segs.length === PARTS_BASE.length || (segs.length === PARTS_BASE.length + 1 && isSetName(segs[PARTS_BASE.length]));
   if (eq(CLIPS_BASE)) return segs.length === CLIPS_BASE.length;
   if (eq(LAB_BASE)) return segs.length <= LAB_BASE.length + 7;

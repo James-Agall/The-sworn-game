@@ -1,5 +1,22 @@
 # Sprite Lab: handoff (2026-11-26)
 
+## Round 4: Area tab, stage A (IN PROGRESS; newest last)
+- Step 1 DONE (commit "Area: template API ..."): `shared/area.ts` (kinds, the game stores' normalise + file format,
+  validate via the game's validate*, error-cell parsing, placements / collisions, shared-code stamp previews),
+  `shared/grid.ts` (pure painting ops), `server/game.ts` (loads area.ts in Node with tsx's `tsImport`: the game's
+  shared code has enums + ".js" specifiers that Node's type stripping can't run), `server/templates.ts` (list / read /
+  save / delete / duplicate / import / validate; built-ins read-only), allow-list `server/data/<kind>/user/<f>.json`
+  in `server/paths.ts`, `server/stamp.ts` + `server/stamper/{worker.ts,alias.mjs,alias-hooks.mjs}` (the REAL
+  stampCamp / stampSettlement in a child process: repo tsx, cwd server/, scratch COLONY_SAVE_DIR, ~0.8 s), Vite
+  aliases (`@colony/shared/*` -> this repo's shared/src; `pixi.js` -> `app/src/area/pixi-stub.ts`).
+  Tests: `area-server.test.ts`, `area-grid.test.ts`, `area-game.test.ts` (game store loads Lab files, byte-equal
+  saves; real stamper == shared-code preview for camps + settlements incl. ownership).
+- Next: art map (`app/src/area/art.ts`), PixelView zoom range + tool hooks, the Area tab UI, smoke, docs.
+- Finding: the root `node_modules/@colony/shared` link points at the MAIN checkout's shared/; the stamper worker
+  re-maps it to this worktree with a resolve hook (`stamper/alias-hooks.mjs`), the result reports `sharedFrom`.
+- Finding: 15 settlement built-ins list `spriteBuildings` before `rotate` / `mirror` (or omit it); the game's store
+  (and so the in-game editor and the Lab) writes it last: copies are content-equal, not byte-equal, for those.
+
 ## Round 3: Rig tab (DONE 2026-11-26; see README "Rig tab" for the user guide and the clip format)
 - Commits: f4e86f4 (clip format, skeleton, built-in clips, renderer, golden test), e3d322f (Rig tab UI, exports, smoke),
   then docs / Compare clip poses / editing tests (this commit).
