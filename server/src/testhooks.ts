@@ -5,6 +5,8 @@ import {registerHearth} from './hearths.js';
 import { livestockDebug } from "./animals.js";
 import { paddocksDebug } from "./paddocks.js";
 import { childrenOf, spouseOf } from "./family.js";
+import { handleDropGear, handleDropGood, handlePickupGround, groundDebug, resetGroundItems } from "./groundItems.js";
+import { PACK_GOODS, type PackGood } from "@colony/shared/herolife";
 import { handleDialogueChoice, handleGatherStop, handleHeroAction, handleHeroTool, handleInteract, heroLifeDebug, heroSpeedMult, lifeOf, setNeedsOverride } from "./herolife.js";
 import { dressFromStores, heroCold, updateWinter, winterDawn, winterDebug } from "./winter.js";
 import type { Wardrobe } from "@colony/shared/winter";
@@ -1251,6 +1253,20 @@ export function handleTestHook(player: Player, msg: Record<string, unknown>) {
       ? Array.from(tileIndicesOf(msg.find as TileType), (i) => ({ tx: i % state.WORLD_TILES_X, ty: Math.floor(i / state.WORLD_TILES_X), owner: ownerAt(i), clan: clanIdAt(i % state.WORLD_TILES_X, Math.floor(i / state.WORLD_TILES_X)) }))
       : undefined;
     reply({ ...(why !== undefined ? { why } : {}), ...(found ? { found } : {}), ...interiorDebug(player), world: { x: player.x, y: player.y }, cycleTick: state.cycleTick, night: isNightNow() });
+  } else if (msg.op === "groundItems") {
+    // Inventory 2026-11-26: the ground stacks (+ caps); `clear` empties them, `spawn` {n, good, x, y} adds n stacks
+    // of 1 without the drop rules (the per-world cap), `drop` {good, qty} / `dropGear` / `pickup` act as the messages
+    // (in the player's clan context).
+    if (msg.clear === true) resetGroundItems();
+    const sp = msg.spawn as { n?: unknown; good?: unknown; x?: unknown; y?: unknown } | undefined;
+    const spawn = sp && typeof sp.n === "number" && (PACK_GOODS as unknown[]).includes(sp.good) && typeof sp.x === "number" && typeof sp.y === "number"
+      ? { n: Math.max(0, Math.min(1000, Math.floor(sp.n))), good: sp.good as PackGood, x: sp.x, y: sp.y } : undefined;
+    withClan(clanOf(player), () => {
+      if ("drop" in msg) { const d = msg.drop as { good?: unknown; qty?: unknown }; handleDropGood(player, d?.good, d?.qty); }
+      if ("dropGear" in msg) handleDropGear(player, msg.dropGear);
+      if ("pickup" in msg) handlePickupGround(player, msg.pickup);
+    });
+    reply({ ...groundDebug(spawn), cycleTick: state.cycleTick });
   } else if (msg.op === "mine") {
     // Deep mines (mines.ts mineDebug): pick a mine {tx, ty}; infest / clear / roll / dawn / sync / set / wakeAll /
     // place; replies its record, live monsters, work multiplier, panel info and every mine's status.

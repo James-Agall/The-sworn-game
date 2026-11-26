@@ -70,6 +70,7 @@ import { spawnMobAt } from "./creative.js";
 import { refreshGoalSnapshot } from "./goals.js";
 import { SOLO_SCOUT_DIST_TILES, SOLO_SCOUT_FIRST_DAY, SOLO_SCOUT_KIND } from "@colony/shared/herolife";
 import { heroCold, heroColdRestGain, heroColdSpeedMult, heroColdWorkMult } from "./winter.js";
+import { tryPickupNearest } from "./groundItems.js";
 
 // ---- profile state ----
 export function lifeOf(player: Player): HeroLife {
@@ -780,6 +781,8 @@ export function handleDialogueChoice(p: Player, idx: unknown) {
     case "nap":
     case "chestPut":
     case "chestTake":
+    case "hallDeposit":
+    case "chestPrivate":
       return interiorFurnitureChoice(p, c.action, c.arg);
     case "kinLevy": {
       if (!s) return closeTalk(p);
@@ -1080,14 +1083,15 @@ function learnSkill(p: Player, t: Talk, s: SiteState, k: HeroSkill) {
   showMasters(p, t, s, `You train for a while. ${HERO_SKILL_LABEL[k]} is now level ${MASTER_MAX_LEVEL}.`);
 }
 
-// Pack goods into the clan stock (fish keeps as meat). Only `good` when given ("<id>:<good>" from a quest choice).
-function packToStock(life: HeroLife, arg?: string): number {
+// Pack goods into the clan stock (fish keeps as meat). Only `good` when given ("<id>:<good>" from a quest choice);
+// only the carried good `packGood` when given (Inventory 2026-11-26: per-good deposit).
+export function packToStock(life: HeroLife, arg?: string, packGood?: PackGood): number {
   const only = arg?.includes(":") ? arg.split(":")[1] : undefined;
   let n = 0;
   for (const g of PACK_GOODS) {
     const q = life.pack[g] ?? 0;
     const key = g === "fish" ? "meat" : g;
-    if (q <= 0 || (only && key !== only)) continue;
+    if (q <= 0 || (only && key !== only) || (packGood && g !== packGood)) continue;
     state.stock[key] = (state.stock[key] ?? 0) + q;
     delete life.pack[g];
     n += q;
@@ -1159,6 +1163,8 @@ export function handleInteract(p: Player, m: Record<string, unknown> = {}) {
     const tied = near.filter((x) => x.d - near[0].d <= TALK_TIE_TILES);
     return tied.length > 1 ? startTalkChooser(p, tied) : startTalk(p, near[0]);
   }
+  // Inventory 2026-11-26: nobody to talk to: a stack dropped on the ground within reach is picked up.
+  if (tryPickupNearest(p)) return;
   // Gap closure G6: a rider only talks; doors, tools, animals and work need the hero on foot.
   if (isMounted(p)) return toast(p, "Dismount first (X): no doors, tools or work from the saddle");
   // Stardew phase 5c: nobody to talk to: at a prefab building's door E enters it (walking into it always does).
@@ -1376,7 +1382,7 @@ function nearOwnStore(p: Player, tiles: number, chestOnly = false): boolean {
   return life.builds.some((b) => b.kind === "chest" && state.tiles[tileIndex(b.x, b.y)] === PERSONAL_BUILDS.chest.tile && tileCenterDist(p, b.x, b.y) <= tiles);
 }
 
-export function handleHeroAction(p: Player, action: unknown, build: unknown) {
+export function handleHeroAction(p: Player, action: unknown, build: unknown, good?: unknown) {
   if (p.dead) return;
   const life = lifeOf(p);
   const b = busyOf(p);
@@ -1401,8 +1407,11 @@ export function handleHeroAction(p: Player, action: unknown, build: unknown) {
   }
   if (action === "deposit") {
     if (!nearOwnStore(p, 3)) return toast(p, "Stand next to your Town Center or a storage chest to deposit");
-    const n = packToStock(life);
-    return toast(p, n > 0 ? `Deposited ${n} goods into your stores` : "Your pack is empty");
+    // Inventory 2026-11-26: `good` deposits only that carried good.
+    const only = (PACK_GOODS as unknown[]).includes(good) ? (good as PackGood) : undefined;
+    if (good !== undefined && !only) return;
+    const n = packToStock(life, undefined, only);
+    return toast(p, n > 0 ? `Deposited ${n} ${only ? PACK_LABEL[only].toLowerCase() : "goods"} into your stores` : only ? `You carry no ${PACK_LABEL[only].toLowerCase()}` : "Your pack is empty");
   }
   if (action === "build" && typeof build === "string" && build in PERSONAL_BUILDS) return personalBuild(p, build as PersonalBuild);
   if (action === "foundCamp") return foundCamp(p);

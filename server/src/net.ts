@@ -206,6 +206,9 @@ export function sendChunks(player: Player, ids: unknown) {
 export function sendWelcome(player: Player) {
   // Delta snapshots: the client starts over on a welcome, so the next snapshot is a keyframe.
   if (player.delta) player.delta.keyframe = true;
+  // Inventory 2026-11-26: the client clears its ground stacks on a welcome; resend them.
+  player.groundSent = undefined;
+  player.groundKey = undefined;
   const chunked = !!player.chunked && streamingOn();
   const welcome: ServerMessage = {
     type: "welcome",

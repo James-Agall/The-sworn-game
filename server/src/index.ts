@@ -84,6 +84,7 @@ import { handleCraftItem, handleProspect, progressionSnapshot } from "./progress
 import { handleMineAssault, mineHeroAttack } from "./mines.js";
 import { handleDialogueChoice, handleGatherStop, handleHeroAction, handleHeroTool, handleInteract, withPlayerLife } from "./herolife.js";
 import { handleInteriorEdit,handleInteriorUse,handleInteriorExit, playerInside } from "./interiors.js";
+import { groundPayloadFor, handleDropGear, handleDropGood, handlePickupGround } from "./groundItems.js";
 
 setTile(tileIndex(TOWN_CENTER_TILE.x, TOWN_CENTER_TILE.y), TileType.TownCenter);
 
@@ -445,7 +446,13 @@ function handleMessage(player: Player, message: ClientMessage) {
   } else if (message.type === "dialogueChoice") {
     handleDialogueChoice(player, message.choice);
   } else if (message.type === "heroAction") {
-    handleHeroAction(player, message.action, message.build);
+    handleHeroAction(player, message.action, message.build, message.good);
+  } else if (message.type === "dropGood") {
+    handleDropGood(player, message.good, message.qty);
+  } else if (message.type === "dropGear") {
+    handleDropGear(player, message.itemId);
+  } else if (message.type === "pickupGround") {
+    handlePickupGround(player, message.id);
   } else if(message.type==="interiorEdit"){
     handleInteriorEdit(player,message);
   } else if(message.type==="adventureJournal"){
@@ -736,6 +743,9 @@ setInterval(() => {
           : null;
         const lj = livestockPayloadFor(player, nearFn);
         if (lj !== null) payload = payload.slice(0, -1) + ',"livestock":' + lj + "}";
+        // Inventory 2026-11-26: dropped stacks near the player, only when that list changed.
+        const gj = groundPayloadFor(player);
+        if (gj !== null) payload = payload.slice(0, -1) + ',"ground":' + gj + "}";
       }
       // Clans: every player building's clan (CLAN_TILE_SNAPSHOT_STRIDE), resent when it changed.
       if (clans.length > 1 && player.clanTilesVersion !== state.clanTilesVersion) {
