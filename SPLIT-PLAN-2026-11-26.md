@@ -179,3 +179,4 @@ so that build doubles as the per-commit production build check. Baseline main ch
 | Commit | Module | Module lines | main.ts after | Smoke | Max pixel diff (frozen / running) | Main chunk |
 |--------|--------|--------------|---------------|-------|-----------------------------------|------------|
 | (seam 14) | `game/strategyView.ts` | 744 | 5391 | PASS | 0.56% / 0.86% | 988254 |
+| (seam 15) | `game/selection.ts` | 282 | 5144 | PASS | 0.62% / 0.78% | 989819 |
