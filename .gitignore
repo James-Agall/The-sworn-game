@@ -17,3 +17,7 @@ client/public/atlas/
 # Over GitHub's 100 MB file limit: kept locally only
 art-sources/autumn-style-v1/colony2d-autumn-art-pack.zip
 art-sources/autumn-style-v1/colony2d-autumn-complete.zip
+
+# Sprite Lab: local backups and the Vite dep cache
+art-sources/lab/backups/
+tools/sprite-lab/.vite-cache/

@@ -1,0 +1,14 @@
+{
+  "name": "sprite-lab",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Local Sprite Lab for The Sworn Game: parts, drawing, compare (not shipped with the game).",
+  "scripts": {
+    "start": "node server/main.ts",
+    "test": "node --test \"test/*.test.ts\"",
+    "validate": "node cli/validate.ts",
+    "build:piskel": "node scripts/build-piskel.mjs",
+    "typecheck": "tsc --noEmit -p ."
+  }
+}

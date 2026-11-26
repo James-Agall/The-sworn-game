@@ -1,4 +1,12 @@
-# Sprite Lab: handoff (2026-11-26, round stopped early because usage ran out)
+# Sprite Lab: handoff (2026-11-26)
+
+## Progress (round 2, newest last)
+- Steps 1-4 DONE: package.json + root scripts (`lab`, `lab:test`, `lab:validate`), server (`server/lab.ts`, `paths.ts`,
+  `store.ts`, `sets.ts`, `palette.ts`, `png.ts`, `main.ts`), validators (`shared/validators.ts`) + CLI, recolour
+  (`shared/recolour.ts`, constants extracted from heroRig.ts), tests (`test/*.test.ts`, 37 pass).
+
+(Original round-1 notes follow.)
+
 
 Spec: `/home/james/docs/colony2d/SPEC-sprite-lab.md`. This round's brief covered spec stages 2 and 3 plus a basic Compare tab.
 Worktree: `/home/james/projects/the-sworn-game-lab`, branch `sprite-lab` (off `integration-test` 89abd3e). Never commit the

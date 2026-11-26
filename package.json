@@ -9,7 +9,10 @@
   "scripts": {
     "dev": "concurrently -n server,client -c blue,green \"npm:dev -w server\" \"npm:dev -w client\"",
     "test": "node scripts/run-tests.mjs",
-    "smoke": "node server/smoke-test.mjs"
+    "smoke": "node server/smoke-test.mjs",
+    "lab": "node tools/sprite-lab/server/main.ts",
+    "lab:test": "node --test \"tools/sprite-lab/test/*.test.ts\"",
+    "lab:validate": "node tools/sprite-lab/cli/validate.ts"
   },
   "devDependencies": {
     "concurrently": "^9.1.0"

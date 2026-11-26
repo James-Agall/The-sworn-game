@@ -23,3 +23,10 @@ export const isDataName = (s: unknown): s is string => typeof s === "string" && 
 export const variantOf = (name: string): string => (name.includes(".") ? name.split(".").slice(1).join(".") : "");
 /** The family of a part: the text before the first dot. */
 export const familyOf = (name: string): string => name.split(".")[0];
+
+/** Families drawn "upright" (rig-core uprightAt): the bone points UP from the pivot (torso: waist -> neck). Limbs hang down. */
+export const UPRIGHT_FAMILIES = new Set(["torso", "torsoF", "pelvis", "head", "headF", "hair", "hairBack", "helm"]);
+/** Overlays anchored at another part's pivot (hair / helm sit on the head's neck point), so their pivot may lie outside the image. */
+export const OVERLAY_FAMILIES = new Set(["hair", "hairBack", "helm"]);
+/** Bone direction along the part axis: +1 = down (limbs), -1 = up (upright parts). The joint handle is at pivot + dir * len. */
+export const boneDir = (name: string): 1 | -1 => (UPRIGHT_FAMILIES.has(familyOf(name)) ? -1 : 1);
