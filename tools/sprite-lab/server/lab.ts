@@ -11,6 +11,7 @@ import { isDataName, isPngName, isSetName, NON_PART_PNGS, SIDECAR_FILE } from ".
 import { HttpError, checkRel, resolveReadable, resolveWritable, CLIPS_BASE, LAB_BASE, PARTS_BASE, TEMPLATE_KINDS, isTemplateKind, templateUserBase } from "./paths.ts";
 import { TEMPLATE_LIMITS, checkTemplate, deleteTemplate, duplicateTemplate, listTemplates, readTemplate, saveTemplate } from "./templates.ts";
 import { realStamp } from "./stamp.ts";
+import { INTERIOR_DIR, INTERIOR_LIMITS, interiorHead, listInteriors, readInterior, saveInterior } from "./interiors.ts";
 import { Backup, atomicWrite, deleteWithBackup, ensureDir, writeWithBackup } from "./store.ts";
 import { listSets, readManifest, setDir, setFiles, sha256, validateSetOnDisk } from "./sets.ts";
 import { decodePNG, isPng, REPO_DIR } from "./png.ts";
@@ -96,7 +97,7 @@ export async function startLab(opts: LabOptions): Promise<Lab> {
   async function api(req: http.IncomingMessage, res: http.ServerResponse, segs: string[]): Promise<void> {
     const m = req.method || "GET";
     const [a, b, c] = segs;
-    if (a === "info" && m === "GET") return json(res, 200, { root, repo: REPO_DIR, sameRoot: root === REPO_DIR, writable: [PARTS_BASE.join("/") + "/<set>/", CLIPS_BASE.join("/") + "/", LAB_BASE.join("/") + "/", ...TEMPLATE_KINDS.map((k) => templateUserBase(k).join("/") + "/")] });
+    if (a === "info" && m === "GET") return json(res, 200, { root, repo: REPO_DIR, sameRoot: root === REPO_DIR, writable: [PARTS_BASE.join("/") + "/<set>/", CLIPS_BASE.join("/") + "/", LAB_BASE.join("/") + "/", ...TEMPLATE_KINDS.map((k) => templateUserBase(k).join("/") + "/"), INTERIOR_DIR + "/<the 9 building files> (BUILT-INS: edits the game)"] });
     if (a === "sets" && !b && m === "GET") return json(res, 200, await listSets(root));
     if (a === "sets" && !b && m === "POST") return json(res, 200, await createSet(await readJson(req)));
     if (a === "sets" && b && !c && m === "GET") return json(res, 200, await getSet(b));
@@ -113,6 +114,14 @@ export async function startLab(opts: LabOptions): Promise<Lab> {
     if (a === "slice" && m === "POST") return json(res, 200, await slice(await readJson(req, LIMITS.saveBody)));
     if (a === "validate" && b && m === "GET") return json(res, 200, await validateSetOnDisk(root, b));
     if (a === "templates") return templatesApi(req, res, segs.slice(1));
+    if (a === "interiors" && !b && m === "GET") return json(res, 200, await listInteriors(root));
+    if (a === "interiors" && b && !c && m === "GET") return json(res, 200, await readInterior(root, b));
+    if (a === "interiors" && b && c === "head" && m === "GET") return json(res, 200, await interiorHead(root, b));
+    if (a === "interiors" && b && c === "save" && m === "POST") {
+      const r = await saveInterior(root, b, await readJson(req, INTERIOR_LIMITS.body));
+      log(`BUILT-IN interior ${r.changed ? "written" : "unchanged"} ${r.path}${r.backup ? " (backup " + r.backup + ")" : ""}`);
+      return json(res, 200, r);
+    }
     if (a === "stamp" && !b && m === "POST") return json(res, 200, await realStamp(root, await readJson(req, TEMPLATE_LIMITS.body)));
     throw new HttpError(404, "no such API route");
   }

@@ -16,6 +16,11 @@ import {
 } from "../../../shared/src/buildingTemplates.ts";
 import { ROOM_ROLE_LABEL } from "../../../shared/src/rooms.ts";
 import {
+  type CastleRuinFile, type DataKind, type InteriorFile, type LegendSymbolX, type PoiTemplateFile, type SiteTemplateFile,
+  dataGrid, dataLayers, dataLegend, dataLinked, dataNormalise, dataSizeLimits, dataStatsLine, dataUnique, dataValidate, newDataTemplate,
+  withDataGrid,
+} from "./areaData.ts";
+import {
   SETTLEMENT_GUARDS, SETTLEMENT_LEGEND, SETTLEMENT_PROFILES, SETTLEMENT_SIZE_MAX, SETTLEMENT_SIZE_MIN, SETTLEMENT_TIER_LABEL,
   type BuildingLookup, type SettlementTemplate, composeTransforms, settlementLayout, settlementStats, settlementTransforms,
   spriteBuildingCells, transformSettlement, validateSettlementTemplate,
@@ -29,22 +34,52 @@ export {
   validateCampTemplate, validateBuildingTemplate, validateSettlementTemplate,
 };
 export type { CampTemplate, BuildingTemplate, SettlementTemplate, BuildingLookup, CampEntrance };
+export * from "./areaData.ts";
 
-export const KINDS = ["camps", "buildings", "settlements"] as const;
+/** Stage A kinds (camps, buildings, settlements) and the stage B data kinds (areaData.ts). */
+export const GRID_KINDS = ["camps", "buildings", "settlements"] as const;
+export type GridKind = (typeof GRID_KINDS)[number];
+export const KINDS = ["camps", "buildings", "settlements", "sites", "castle-ruins", "pois", "interiors"] as const;
 export type Kind = (typeof KINDS)[number];
-export type AnyTemplate = CampTemplate | BuildingTemplate | SettlementTemplate;
-export const KIND_LABEL: Record<Kind, string> = { camps: "Bandit camps", buildings: "Buildings", settlements: "Settlements" };
+/** The kinds with a server/data/<kind>/ store (built-ins read-only + user/); interiors are shared/src/data/interiors. */
+export const STORE_KINDS = ["camps", "buildings", "settlements", "sites", "pois", "castle-ruins"] as const;
+export const isDataKind = (k: Kind): k is DataKind => !(GRID_KINDS as readonly string[]).includes(k);
+export type DataTemplate = SiteTemplateFile | PoiTemplateFile | CastleRuinFile | InteriorFile;
+export type AnyTemplate = CampTemplate | BuildingTemplate | SettlementTemplate | DataTemplate;
+export const KIND_LABEL: Record<Kind, string> = {
+  camps: "Bandit camps", buildings: "Buildings", settlements: "Settlements", sites: "Forts / sites", "castle-ruins": "Castle Ruin",
+  pois: "POI pools", interiors: "Interiors",
+};
 export const ID_RE = /^[a-z0-9][a-z0-9_-]{0,47}$/;
 /** Building template roles the game's validator accepts (every RoomRole but the role-less "room"). */
 export const BUILDING_ROLES = Object.keys(ROOM_ROLE_LABEL).filter((r) => r !== "room");
 
-export type LegendSymbol = { label: string; color: string; tile?: TileType; slot?: string; guard?: string; kind?: string; cells?: 2 };
+export type LegendSymbol = { label: string; color: string; tile?: TileType; slot?: string; guard?: string; kind?: string; cells?: 2 } & Omit<LegendSymbolX, "tile">;
 export function legendOf(kind: Kind): Record<string, LegendSymbol> {
-  return (kind === "camps" ? CAMP_LEGEND : kind === "buildings" ? BUILDING_LEGEND : SETTLEMENT_LEGEND) as Record<string, LegendSymbol>;
+  return (kind === "camps" ? CAMP_LEGEND : kind === "buildings" ? BUILDING_LEGEND : kind === "settlements" ? SETTLEMENT_LEGEND : {}) as Record<string, LegendSymbol>;
+}
+/** The legend of one grid of a document (stage B kinds: the file's own symbols / tiles; a site's tier grid: digits). */
+export function legendFor(kind: Kind, t: AnyTemplate, layer: string): Record<string, LegendSymbol> {
+  return (isDataKind(kind) ? dataLegend(kind, t, layer) : legendOf(kind)) as Record<string, LegendSymbol>;
 }
 export function sizeLimits(kind: Kind): [number, number] {
+  if (isDataKind(kind)) return dataSizeLimits(kind);
   return kind === "camps" ? [CAMP_SIZE_MIN, CAMP_SIZE_MAX] : kind === "buildings" ? [BUILDING_SIZE_MIN, BUILDING_SIZE_MAX] : [SETTLEMENT_SIZE_MIN, SETTLEMENT_SIZE_MAX];
 }
+// ---- the grids of a document: "rows" for stage A kinds; areaData.ts for the others (sites rows + tiers, interior layouts)
+export function layersOf(kind: Kind, t: AnyTemplate): string[] { return isDataKind(kind) ? dataLayers(kind, t) : ["rows"]; }
+/** The grids that resize / turn / select together with `layer` (a site's tiles and tiers). */
+export function linkedLayers(kind: Kind, layer: string): string[] { return isDataKind(kind) ? dataLinked(kind, layer) : ["rows"]; }
+export function gridOf(kind: Kind, t: AnyTemplate, layer: string): string[] { return isDataKind(kind) ? dataGrid(kind, t, layer) : (t as CampTemplate).rows; }
+export function withGrid(kind: Kind, t: AnyTemplate, layer: string, rows: string[]): AnyTemplate {
+  return isDataKind(kind) ? withDataGrid(kind, t, layer, rows) : ({ ...t, rows } as AnyTemplate);
+}
+/** The single-instance symbol the pencil moves (camp hearth, settlement / site keep, castle boss, interior exit / stairs down). */
+export function uniqueSymbol(kind: Kind, layer: string): string | undefined {
+  return isDataKind(kind) ? dataUnique(kind, layer) : kind === "camps" ? "H" : kind === "settlements" ? "K" : undefined;
+}
+/** A display name (stage A templates have `name`). */
+export const nameOf = (t: AnyTemplate): string => (typeof (t as { name?: unknown }).name === "string" ? (t as { name: string }).name : t.id);
 /** The symbol the eraser / "clear" / resize padding uses: open ground. */
 export const BLANK = ".";
 
@@ -52,6 +87,7 @@ export const BLANK = ".";
 // settlementTemplates.ts) and their writer, JSON.stringify(t, null, 2) + "\n". test/area-loader.test.ts saves through
 // the game's own store in a scratch folder and requires byte-identical files.
 export function normalise(kind: Kind, raw: AnyTemplate): AnyTemplate {
+  if (isDataKind(kind)) return dataNormalise(kind, raw) as AnyTemplate;
   if (kind === "camps") {
     const o = raw as CampTemplate;
     return {
@@ -78,6 +114,7 @@ export const formatTemplate = (t: AnyTemplate) => JSON.stringify(t, null, 2) + "
 
 /** The game's validator for the kind (settlements need the building lookup). */
 export function validate(kind: Kind, t: unknown, lookup: BuildingLookup): string[] {
+  if (isDataKind(kind)) return dataValidate(kind, t);
   if (kind === "camps") return validateCampTemplate(t);
   if (kind === "buildings") return validateBuildingTemplate(t);
   return validateSettlementTemplate(t, lookup);
@@ -85,6 +122,8 @@ export function validate(kind: Kind, t: unknown, lookup: BuildingLookup): string
 
 /** A new template, the same defaults as the in-game editors (campEditor.ts, buildingEditor.ts, settlementEditor.ts). */
 export function newTemplate(kind: Kind): AnyTemplate {
+  if (kind === "interiors") throw new Error("interiors are a fixed set of files: edit one");
+  if (isDataKind(kind)) return newDataTemplate(kind) as unknown as AnyTemplate;
   if (kind === "camps") {
     const rows = Array.from({ length: 11 }, () => ".".repeat(11));
     rows[5] = rows[5].slice(0, 5) + "H" + rows[5].slice(6);
@@ -109,7 +148,8 @@ export function makeLookup(builtins: BuildingTemplate[], users: BuildingTemplate
 
 // ---- validation messages -> cells. The game's validators name a cell as "at x,y" (or "yard at x,y", "door at x,y").
 export function errorCell(msg: string): { x: number; y: number } | null {
-  const m = /\bat (\d+),(\d+)\b/.exec(msg);
+  // the interior validator also says "tile x,y cannot be reached"
+  const m = /\bat (\d+),(\d+)\b/.exec(msg) ?? /\btile (\d+),(\d+)\b/.exec(msg);
   return m ? { x: Number(m[1]), y: Number(m[2]) } : null;
 }
 /** The building index a settlement message is about ("building 3 (house-hut) ..."), 0-based, or -1. */
@@ -171,7 +211,7 @@ export function placements(t: Pick<SettlementTemplate, "rows" | "buildings" | "s
 // transformSettlement + settlementLayout (server/src/settlementTemplates.ts generateSettlements / stampSettlement).
 export type PreviewCell = { tile: number; owned: boolean; ch: string; building: number; slot?: string; guard?: string };
 export type Preview = {
-  kind: Kind; transform: number; w: number; h: number;
+  kind: GridKind; transform: number; w: number; h: number;
   // grid origin in template-local coordinates (camps: the hearth is at (-ox, -oy) + ... see `hearth`)
   cells: PreviewCell[];
   apron: number;
@@ -253,19 +293,20 @@ export function settlementPreview(t0: SettlementTemplate, transform: number, loo
   };
 }
 
-export function preview(kind: Kind, t: AnyTemplate, transform: number, lookup: BuildingLookup): Preview {
+export function preview(kind: GridKind, t: AnyTemplate, transform: number, lookup: BuildingLookup): Preview {
   if (kind === "camps") return campPreview(t as CampTemplate, transform);
   if (kind === "buildings") return buildingPreview(t as BuildingTemplate, transform);
   return settlementPreview(t as SettlementTemplate, transform, lookup);
 }
 /** The transforms world-gen may stamp `t` with (buildings: the placements its flags allow). */
-export function previewTransforms(kind: Kind, t: AnyTemplate, lookup: BuildingLookup): number[] {
+export function previewTransforms(kind: GridKind, t: AnyTemplate, lookup: BuildingLookup): number[] {
   if (kind === "settlements") return settlementTransforms(t as SettlementTemplate, lookup);
   return campTransforms(t as CampTemplate);
 }
 
 /** Short stats line for the editor (the game's own stats functions). */
 export function statsLine(kind: Kind, t: AnyTemplate, lookup: BuildingLookup): string {
+  if (isDataKind(kind)) return dataStatsLine(kind, t);
   try {
     if (kind === "camps") {
       const s = campStats(t as CampTemplate);

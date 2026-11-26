@@ -9,6 +9,7 @@ import { Backup, deleteWithBackup, ensureDir, writeWithBackup } from "./store.ts
 import { sha256 } from "./sets.ts";
 import { loadArea } from "./game.ts";
 import type { AnyTemplate, BuildingTemplate } from "../shared/area.ts";
+import type { DataKind } from "../shared/area.ts";
 
 export const TEMPLATE_LIMITS = { body: 512 << 10, files: 2000 };
 
@@ -53,14 +54,16 @@ export async function listTemplates(root: string, kind: TemplateKind, withTempla
   const users = await readFolder(root, templateUserBase(kind));
   const builtinIds = new Set(builtins.map((l) => idOf(l.raw)));
   const entry = (l: Loaded, src: Src): Entry => {
-    const o = (l.raw ?? {}) as Partial<AnyTemplate> & { rows?: unknown };
+    const o = (l.raw ?? {}) as { rows?: unknown; name?: unknown };
     const rows = Array.isArray(o.rows) ? (o.rows as string[]) : [];
     const errors = l.parseError ? [l.parseError] : A.validate(kind, l.raw, lookup);
     const id = idOf(l.raw) || l.file.slice(0, -5);
+    const data = A.isDataKind(kind);
     const e: Entry = {
-      id, name: typeof o.name === "string" ? o.name : id, file: l.file, src,
+      id, name: data ? A.dataEntryName(kind as DataKind, l.raw) : typeof o.name === "string" ? o.name : id, file: l.file, src,
       path: [...(src === "builtin" ? templateBase(kind) : templateUserBase(kind)), l.file].join("/"),
-      tier: typeof (o as { tier?: unknown }).tier === "number" ? (o as { tier: number }).tier : undefined,
+      tier: typeof (o as { tier?: unknown }).tier === "number" ? (o as { tier: number }).tier
+        : kind === "sites" && typeof (o as { maxTier?: unknown }).maxTier === "number" ? (o as { maxTier: number }).maxTier : undefined,
       w: typeof rows[0] === "string" ? rows[0].length : 0, h: rows.length, errors,
     };
     if (kind === "buildings") e.buildingType = (o as Partial<BuildingTemplate>).buildingType;
@@ -156,6 +159,6 @@ export async function duplicateTemplate(root: string, kind: TemplateKind, body: 
   if (typeof id !== "string" || !A.ID_RE.test(id)) throw new HttpError(400, "bad new id (1-48 of a-z 0-9 - _, starting with a letter / digit)");
   if (name !== undefined && (typeof name !== "string" || !name.trim() || name.length > 40)) throw new HttpError(400, "name: 1-40 characters");
   const orig = await readTemplate(root, kind, src, from);
-  const t = { ...(orig.template as AnyTemplate), id, ...(typeof name === "string" ? { name } : {}) };
+  const t = { ...(orig.template as AnyTemplate), id, ...(typeof name === "string" && !A.isDataKind(kind) ? { name } : {}) };
   return saveTemplate(root, kind, { template: t });
 }

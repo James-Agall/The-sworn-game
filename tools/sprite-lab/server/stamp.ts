@@ -15,8 +15,10 @@ export const STAMP_WORLD_SIZE = 160;
 let busy = false;
 
 export async function realStamp(root: string, body: Record<string, unknown>) {
-  const { kind, template, transform = 0, seed = 1 } = body as { kind?: unknown; template?: unknown; transform?: unknown; seed?: unknown };
-  if (kind !== "camps" && kind !== "settlements") throw new HttpError(400, "the real stamper previews camps and settlements");
+  const { kind, template, transform = 0, seed = 1, tier = 1, samples = 6 } = body as { kind?: unknown; template?: unknown; transform?: unknown; seed?: unknown; tier?: unknown; samples?: unknown };
+  if (kind !== "camps" && kind !== "settlements" && kind !== "sites" && kind !== "pois") throw new HttpError(400, "the real stamper previews camps, settlements, sites and POI pools");
+  if (!Number.isInteger(tier) || (tier as number) < 1 || (tier as number) > 4) throw new HttpError(400, "tier: 1-4");
+  if (!Number.isInteger(samples) || (samples as number) < 1 || (samples as number) > 12) throw new HttpError(400, "samples: 1-12");
   if (!template || typeof template !== "object" || Array.isArray(template)) throw new HttpError(400, "template must be an object");
   if (!Number.isInteger(transform) || (transform as number) < 0 || (transform as number) > 7) throw new HttpError(400, "transform: 0-7");
   if (!Number.isInteger(seed) || (seed as number) < 1 || (seed as number) > 2 ** 31) throw new HttpError(400, "seed: a positive integer");
@@ -31,6 +33,9 @@ export async function realStamp(root: string, body: Record<string, unknown>) {
       COLONY_CAMP_USER_DIR: path.join(root, ...templateUserBase("camps")),
       COLONY_BUILDING_USER_DIR: path.join(root, ...templateUserBase("buildings")),
       COLONY_SETTLEMENT_USER_DIR: path.join(root, ...templateUserBase("settlements")),
+      COLONY_SITE_USER_DIR: path.join(root, ...templateUserBase("sites")),
+      COLONY_POI_USER_DIR: path.join(root, ...templateUserBase("pois")),
+      COLONY_CASTLE_RUIN_USER_DIR: path.join(root, ...templateUserBase("castle-ruins")),
     };
     const out = await new Promise<string>((resolve, reject) => {
       const child = execFile(process.execPath, ["--import", tsx, "--import", ALIAS, WORKER], {
@@ -39,7 +44,7 @@ export async function realStamp(root: string, body: Record<string, unknown>) {
         if (err && !String(stdout).includes("@@RESULT@@")) reject(new HttpError(500, `stamper process failed: ${String(stderr).slice(-1500) || err.message}`));
         else resolve(String(stdout));
       });
-      child.stdin!.end(JSON.stringify({ kind, template, transform, seed }));
+      child.stdin!.end(JSON.stringify({ kind, template, transform, seed, tier, samples }));
     });
     const i = out.lastIndexOf("@@RESULT@@");
     if (i < 0) throw new HttpError(500, "stamper printed no result");

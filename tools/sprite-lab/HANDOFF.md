@@ -1,4 +1,26 @@
-# Sprite Lab: handoff (2026-11-26)
+# Sprite Lab: handoff (2026-11-27)
+
+## Round 5: Area tab, stage B part 2 (the content migrated to JSON; IN PROGRESS, newest last)
+- Step 0 DONE: after merging `data-templates` the Lab built and `npm run lab:test` passed (82/82); added
+  `"resolveJsonModule": true` to tools/sprite-lab/tsconfig.json (shared/src/interiors.ts imports JSON); tsx and Vite
+  already handle `import ... with { type: "json" }` (no hook change needed).
+- Step 1 DONE (commit "Area stage B: ..."): kinds `sites`, `castle-ruins`, `pois` (server/data/<kind>/, user/ writable)
+  and `interiors` (shared/src/data/interiors/<9 building ids>.json, BUILT-INS WRITTEN DIRECTLY).
+  Model `shared/areaData.ts` (+ dispatch in `shared/area.ts`: `KINDS`, `STORE_KINDS`, `GRID_KINDS`, `layersOf` /
+  `gridOf` / `withGrid` / `linkedLayers` / `legendFor` / `uniqueSymbol`); `MOB_KINDS` = keys of shared `MOB_ROLE`
+  (test: equal to server `MOB_KIND_CONFIG`); interior preview `interiorPreviewMap` = the game's `buildInteriorMap` with
+  the file's layouts swapped into `INTERIOR_TEMPLATES` / `INTERIOR_UPPER_TEMPLATES` for the call (restored).
+  Server: `server/paths.ts` (TEMPLATE_KINDS + the 9 interior names exactly; `shared/...` dirs for ensureDir),
+  `server/interiors.ts` (list / read / save with validateInteriorFile + baseHash 409 + backup + atomic + the game's
+  normalise / format; `git show HEAD:./<path>` for the diff), routes in `server/lab.ts`, stamper worker: `sites`
+  (stampSiteTemplate at a tier, the edited file put into SITE_TEMPLATES in the scratch child) and `pois`
+  (placePoiSite("ruin") with the edited pool in RUIN_POI's fields, N seeded samples). `shared/interiorArt.ts` reads the
+  room renderer's furniture tables from client/src/interior.ts TEXT (module-private there); `shared/textdiff.ts`.
+  UI: `app/src/area/{forms,interior}.ts` + tab.ts (layer bar: site Tiles / Tiers, interior Variant 1-3 / Upstairs +
+  move / add / remove variant, + / - upstairs; red interiors banner; amber "not used by world-gen yet"; POI form in the
+  middle panel; previews; diff modal). Tests: `test/area-data.test.ts` (new), `area-game.test.ts` (+2: game stores load
+  Lab-saved sites / pois / castle files byte-equal; real stamper for sites + pois). 94/94 pass.
+- NEXT: smoke test for the new kinds (+ screenshots), README / MANUAL-TESTS, final tsc / smoke / vite build.
 
 ## Round 4: Area tab, stage A (DONE 2026-11-26; README "Area tab" is the user guide; newest last)
 - Step 1 DONE (commit "Area: template API ..."): `shared/area.ts` (kinds, the game stores' normalise + file format,

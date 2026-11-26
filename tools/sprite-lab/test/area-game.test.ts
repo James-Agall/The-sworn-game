@@ -125,3 +125,76 @@ test("the stamper refuses invalid templates with the game validator's reasons", 
   const res = await write(base, "api/stamp", { kind: "buildings", template: {}, transform: 0 });
   assert.equal(res.status, 400);
 });
+
+test("stage B: Lab-saved user sites / POI pools / castle ruins load through the game's own stores; the game's save writes the same bytes", async () => {
+  const site = { ...(await builtin("sites", "thornwick")), id: "lab-fort", names: ["Labmoor", "Testwick"] };
+  const poi = { ...(await builtin("pois", "ruin")), id: "lab-ruin", extraCount: [1, 2] };
+  const castle = { ...(await builtin("castle-ruins", "castle-ruin")), id: "lab-castle", guardians: [6, 9] };
+  for (const [k, t] of [["sites", site], ["pois", poi], ["castle-ruins", castle]] as const) {
+    const r = await write(base, `api/templates/${k}/save`, { template: t });
+    assert.equal(r.status, 200, `${k}: ${r.body.toString()}`);
+  }
+  const scratch = await mkdtemp(path.join(os.tmpdir(), "sprite-lab-probe-"));
+  try {
+    const user = (k: string) => path.join(root, "server/data", k, "user");
+    const out = (k: string) => path.join(scratch, "store-" + k);
+    const r = await probe({
+      COLONY_SAVE_DIR: path.join(scratch, "saves"), COLONY_WORLD_SIZE: "96",
+      COLONY_SITE_USER_DIR: user("sites"), COLONY_POI_USER_DIR: user("pois"), COLONY_CASTLE_RUIN_USER_DIR: user("castle-ruins"),
+      PROBE_SAVE_SITES: out("sites"), PROBE_SAVE_POIS: out("pois"), PROBE_SAVE_CASTLE_RUINS: out("castle-ruins"),
+    }, { save: [{ kind: "sites", template: site }, { kind: "pois", template: poi }, { kind: "castle-ruins", template: castle }] });
+    assert.deepEqual(r.loaded.sites.map((t: { id: string }) => t.id), ["lab-fort"]);
+    assert.deepEqual(r.loaded.pois.map((t: { id: string }) => t.id), ["lab-ruin"]);
+    assert.deepEqual(r.loaded["castle-ruins"].map((t: { id: string }) => t.id), ["lab-castle"]);
+    assert.ok(r.loaded.siteIds.includes("lab-fort"), "in SITE_TEMPLATES (stampable), after the built-ins");
+    assert.deepEqual(r.loaded.siteIds.slice(0, 5), ["thornwick", "grakkar", "hearthmoor", "ironhold", "riverwatch"]);
+    assert.ok(!/skipping user template/.test(r.log), r.log);
+    assert.deepEqual(r.saved, [null, null, null]);
+    for (const [k, id] of [["sites", "lab-fort"], ["pois", "lab-ruin"], ["castle-ruins", "lab-castle"]]) {
+      assert.equal(await readFile(path.join(user(k), id + ".json"), "utf8"), await readFile(path.join(out(k), id + ".json"), "utf8"), `${k}: Lab file = game store file`);
+    }
+    // the Lab's mob-kind list (shared MOB_ROLE keys) is the server's MOB_KIND_CONFIG
+    const A = await loadArea();
+    assert.deepEqual([...A.MOB_KINDS].sort(), [...r.mobKinds].sort());
+  } finally { await rm(scratch, { recursive: true, force: true }); }
+});
+
+test("stage B: the real stamper stamps sites (stampSiteTemplate per tier) and POI pools (placePoiSite) from the edited file", async () => {
+  const A = await loadArea();
+  for (const id of ["thornwick", "hearthmoor"]) {
+    const t = await builtin("sites", id);
+    for (const tier of [1, t.maxTier]) {
+      const real = await realStamp(root, { kind: "sites", template: t, tier, seed: 2 });
+      assert.equal(real.ok, true, `${id}/${tier}: ${real.errors}`);
+      assert.equal(real.site.tier, tier);
+      const m = real.margin, legend = A.siteLegend(t);
+      assert.equal(real.tiles[real.site.keep.y * real.w + real.site.keep.x], A.TileType.SiteKeep);
+      assert.equal(real.mobs.length, Object.values(t.garrison as Record<string, number>).reduce((a, b) => a + b, 0));
+      if (tier === t.maxTier) for (let y = 0; y < t.rows.length; y++) for (let x = 0; x < t.rows[0].length; x++) {
+        const c = t.rows[y][x], got = real.tiles[(y + m) * real.w + x + m];
+        assert.equal(got, c === "." ? A.TileType.Empty : legend[c].tile, `${id} at max tier: ${x},${y} "${c}"`);
+        assert.equal(real.owned[(y + m) * real.w + x + m], c === "." ? 0 : 1);
+      }
+    }
+  }
+  // an edited (unsaved) site: the stamper uses the file sent, not the built-in
+  const t = await builtin("sites", "thornwick");
+  const edited = { ...t, id: "edit-fort", garrison: { banditArcher: 2 } };
+  const r = await realStamp(root, { kind: "sites", template: edited, tier: 1, seed: 1 });
+  assert.equal(r.mobs.length, 2);
+  assert.ok(r.mobs.every((q: { kind: string }) => q.kind === "banditArcher"));
+  // POI pool: placePoiSite with the edited pool (a single centrepiece: no draw)
+  const poi = { ...(await builtin("pois", "ruin")), centerpieces: ["RuinArch"], guardians: [{ kind: "orc", weight: 1 }], guardianCount: [2, 2] };
+  const p = await realStamp(root, { kind: "pois", template: poi, seed: 4, samples: 5 });
+  assert.equal(p.ok, true, String(p.errors));
+  assert.equal(p.samples.length, 5);
+  for (const s of p.samples) {
+    assert.equal(s.tiles[p.centre.y * s.w + p.centre.x], A.TileType.RuinArch);
+    assert.equal(s.mobs.length, 2);
+    assert.ok(s.mobs.every((q: { kind: string }) => q.kind === "orc"));
+    const extras = s.tiles.filter((x: number, i: number) => i !== p.centre.y * s.w + p.centre.x && x !== A.TileType.Empty);
+    assert.ok(extras.length <= 2 && extras.every((x: number) => [A.TileType.RuinStatue, A.TileType.RuinRubble].includes(x)));
+  }
+  const bad = await realStamp(root, { kind: "pois", template: { ...poi, guardians: [] }, seed: 1 });
+  assert.equal(bad.ok, false);
+});

@@ -4,7 +4,8 @@
 // the template stores), lays the template on an empty in-memory map exactly as world-gen / creative "Stamp here" do,
 // then prints the stamped window as JSON: tiles, ownership, site grounds, spawned guards, the hearth / site record.
 // Nothing is saved: no game server boots, no port is opened, the save folder is a scratch folder that stamp.ts deletes.
-// Input (stdin JSON): { kind: "camps" | "settlements", template, transform, seed }.
+// Input (stdin JSON): { kind: "camps" | "settlements" | "sites" | "pois", template, transform, seed, tier? (sites), samples? (pois) }.
+// Sites: server/src/sites.ts stampSiteTemplate at the chosen tier; POI pools: server/src/worldgen.ts placePoiSite("ruin").
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
@@ -32,7 +33,7 @@ function seedRandom(seed: number) {
 }
 
 async function main() {
-  const input = JSON.parse(await stdin()) as { kind: string; template: any; transform: number; seed: number };
+  const input = JSON.parse(await stdin()) as { kind: string; template: any; transform: number; seed: number; tier?: number; samples?: number };
   seedRandom(Number(input.seed) || 1);
   const { TileType, TILE_SIZE } = await mod("shared/src/protocol.ts");
   const { state, mobs, hearths, gates, sites } = await mod("server/src/state.ts");
@@ -107,7 +108,53 @@ async function main() {
       sites: sites.size,
     };
   }
-  return { ok: false, errors: ["kind must be camps or settlements"] };
+  if (input.kind === "sites") {
+    // Site templates: the game's stampSiteTemplate(id, x0, y0, { tier }) reads SITE_TEMPLATES[id], so the edited file
+    // goes in under its id first (this scratch process only), turned into the game's form by siteTemplateFromFile.
+    const ST = await mod("shared/src/siteTemplates.ts");
+    const { MOB_KIND_CONFIG, SITE_APRON_TILES } = await mod("server/src/constants.ts");
+    const { SITE_TEMPLATES } = await mod("server/src/siteTemplates.ts");
+    const errs = ST.validateSiteTemplate(input.template, { mobKinds: Object.keys(MOB_KIND_CONFIG) });
+    if (errs.length) return { ok: false, errors: errs };
+    SITE_TEMPLATES[input.template.id] = ST.siteTemplateFromFile(input.template);
+    reset();
+    const t = input.template, w = t.rows[0].length, h = t.rows.length;
+    const x0 = (W - w) >> 1, y0 = (W - h) >> 1;
+    const site = sitesMod.stampSiteTemplate(t.id, x0, y0, { tier: input.tier });
+    const m = SITE_APRON_TILES + 1, wx = x0 - m, wy = y0 - m;
+    return {
+      ok: true, kind: "sites", tier: site.tier, seed: input.seed, ...window(wx, wy, w + 2 * m, h + 2 * m, site.num), margin: m,
+      site: { name: site.name, faction: site.faction, tier: site.tier, apron: site.apron, keep: { x: site.keepX - wx, y: site.keepY - wy }, garrisonRoster: site.garrisonRoster, stock: site.stock },
+      mobs: mobList(site.garrison, wx, wy),
+    };
+  }
+  if (input.kind === "pois") {
+    // POI pools: world-gen's own placePoiSite("ruin", centre) with the edited pool in RUIN_POI's fields (this scratch
+    // process only). One sample per seed, each on an empty map: the same draw order world-gen uses.
+    const PT = await mod("shared/src/poiTemplates.ts");
+    const { MOB_KIND_CONFIG } = await mod("server/src/constants.ts");
+    const P = await mod("server/src/poiTemplates.ts");
+    const wg = await mod("server/src/worldgen.ts");
+    const errs = PT.validatePoiTemplate(input.template, { mobKinds: Object.keys(MOB_KIND_CONFIG) });
+    if (errs.length) return { ok: false, errors: errs };
+    const f = input.template;
+    Object.assign(P.RUIN_POI, {
+      centerpieces: f.centerpieces.map((n: string) => PT.poiTileByName(n)), extras: f.extras.map((n: string) => PT.poiTileByName(n)),
+      extraCount: [f.extraCount[0], f.extraCount[1]], guardianCount: [f.guardianCount[0], f.guardianCount[1]],
+      guardians: f.guardians.map((g: { kind: string; weight: number }) => ({ kind: g.kind, weight: g.weight })), footprintRadius: f.footprintRadius,
+    });
+    const samples = [];
+    const n = Math.max(1, Math.min(12, Number(input.samples) || 6)), r = 3;
+    for (let k = 0; k < n; k++) {
+      seedRandom((Number(input.seed) || 1) + k);
+      reset();
+      const C = { x: W >> 1, y: W >> 1 };
+      wg.placePoiSite("ruin", C);
+      samples.push({ seed: (Number(input.seed) || 1) + k, ...window(C.x - r, C.y - r, 2 * r + 1, 2 * r + 1, 0), mobs: mobList(null, C.x - r, C.y - r) });
+    }
+    return { ok: true, kind: "pois", seed: input.seed, centre: { x: r, y: r }, samples };
+  }
+  return { ok: false, errors: ["kind must be camps, settlements, sites or pois"] };
 }
 
 // Game modules may leave timers behind: exit once the result is written.

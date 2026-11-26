@@ -11,6 +11,7 @@ export type TemplateEntry = {
   id: string; name: string; file: string; src: "builtin" | "user"; path: string; tier?: number; w: number; h: number;
   buildingType?: string; weight?: number; errors: string[]; shadowed?: boolean; template?: Record<string, unknown>;
 };
+export type InteriorEntry = { id: string; path: string; hash?: string; errors: string[]; variants?: number; upper?: boolean; missing?: boolean };
 export type TemplateRead = { kind: string; src: "builtin" | "user"; id: string; path: string; hash: string; template: Record<string, unknown>; errors: string[] };
 export type TemplateSaved = { ok: true; kind: string; id: string; path: string; hash: string; backup: string | null };
 
@@ -51,6 +52,13 @@ export const api = {
   saveTemplate: (kind: string, template: unknown, overwrite: boolean, baseHash?: string | null) =>
     call<TemplateSaved>("POST", `templates/${kind}/save`, { template, overwrite, ...(baseHash ? { baseHash } : {}) }),
   deleteTemplate: (kind: string, id: string) => call<TemplateSaved>("POST", `templates/${kind}/delete`, { id }),
-  stamp: (kind: string, template: unknown, transform: number, seed: number) => call<Record<string, any>>("POST", "stamp", { kind, template, transform, seed }),
+  stamp: (kind: string, template: unknown, transform: number, seed: number, extra: { tier?: number; samples?: number } = {}) =>
+    call<Record<string, any>>("POST", "stamp", { kind, template, transform, seed, ...extra }),
+  // building interiors: the game's BUILT-IN files (server/interiors.ts)
+  interiors: () => call<InteriorEntry[]>("GET", "interiors"),
+  readInterior: (id: string) => call<{ id: string; path: string; hash: string; file: Record<string, unknown>; errors: string[] }>("GET", "interiors/" + encodeURIComponent(id)),
+  saveInterior: (id: string, file: unknown, baseHash: string) =>
+    call<{ ok: true; id: string; path: string; hash: string; changed: boolean; backup: string | null }>("POST", `interiors/${encodeURIComponent(id)}/save`, { file, baseHash }),
+  interiorHead: (id: string) => call<{ id: string; path: string; head: string | null; error?: string }>("GET", `interiors/${encodeURIComponent(id)}/head`),
   exportPng: (name: string, png: string) => call<{ ok: true; path: string; backup: string | null }>("POST", "exports", { name, png }),
 };

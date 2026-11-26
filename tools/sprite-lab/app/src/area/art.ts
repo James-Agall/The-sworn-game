@@ -7,7 +7,7 @@
 // roofs, animated campfire frames, tents' per-faction variants. Each cell draws its one sprite, fitted to the cell.
 import { TILE_OPTIONAL_ART, TILE_SPRITE_FILES, TILE_STANDIN_TINT } from "../../../../../client/src/worldVisuals.ts";
 import { STRUCTURE_FURNITURE_ART, structureDoorUrl, structureFloorUrl, structureWindowUrl } from "../../../../../client/src/spriteRegistry.ts";
-import { TileType, legendOf, type Kind } from "../../../shared/area.ts";
+import { TileType, type LegendSymbol } from "../../../shared/area.ts";
 
 export const GROUND_URL = "/sprites/grassFloor1.png";
 const spriteUrl = (name: string) => `/sprites/${name}.png`;
@@ -88,6 +88,11 @@ export function drawable(spec: ArtSpec): CanvasImageSource | null {
   }
   return null;
 }
+/** "loading" until the preferred files have answered, then "ok" (something drew) or "none" (every url failed). */
+export function specState(spec: ArtSpec): "loading" | "ok" | "none" {
+  for (const u of spec.urls) { const s = slot(u); if (s.ok === null) return "loading"; if (s.ok) return "ok"; }
+  return "none";
+}
 /** Which url a spec ended up using (for the coverage report), or null if none loaded (yet). */
 export function usedUrl(spec: ArtSpec): string | null {
   for (const u of spec.urls) { const s = slot(u); if (s.ok === null) return null; if (s.ok) return u; }
@@ -104,9 +109,13 @@ export function drawFitted(g: CanvasRenderingContext2D, src: CanvasImageSource, 
 
 export type Coverage = { ch: string; label: string; tile: number | null; art: string | null; note: string };
 /** Per legend symbol: the sprite it draws with, or why it has none (no tile = a slot / open ground; or no art). */
-export function coverage(kind: Kind): Coverage[] {
-  return Object.entries(legendOf(kind)).map(([ch, s]) => {
-    if (s.tile === undefined) return { ch, label: s.label, tile: null, art: null, note: s.slot ? "slot marker (no tile)" : "open ground (no tile)" };
+export function coverage(legend: Record<string, LegendSymbol>, propArt?: (prop: string) => ArtSpec | null): Coverage[] {
+  return Object.entries(legend).map(([ch, s]) => {
+    if (s.prop && propArt) {
+      const spec = propArt(s.prop), u = spec && usedUrl(spec);
+      return { ch, label: s.label, tile: null, art: u, note: u ? "interior furniture art (client/src/interior.ts tables)" : spec ? "art loading / missing: stand-in" : "drawn in code / stand-in" };
+    }
+    if (s.tile === undefined) return { ch, label: s.label, tile: null, art: null, note: s.slot ? "slot marker (no tile)" : s.tier ? "tier digit (no tile)" : "open ground / structure (no tile)" };
     const spec = tileArt(s.tile);
     if (!spec) return { ch, label: s.label, tile: s.tile, art: null, note: "no art in the game's tables: swatch" };
     const u = usedUrl(spec);

@@ -9,7 +9,12 @@ import { REPO_DIR } from "../server/png.ts";
 export { REPO_DIR };
 export const PUBLIC = path.join(REPO_DIR, "client", "public");
 export const TEMPLATE_DIRS = ["camps", "buildings", "settlements"];
-const AREA_ART_DIRS = ["structure", "regions-v2", "regions-v3", "regions-v4", "towns-v2", "animals", "fortifications"];
+/** Stage B data folders (server/data/<kind>) and the building interiors (shared/src/data/interiors). */
+export const DATA_DIRS = ["sites", "pois", "castle-ruins"];
+export const INTERIORS_REL = "shared/src/data/interiors";
+const AREA_ART_DIRS = ["structure", "regions-v2", "regions-v3", "regions-v4", "towns-v2", "animals", "fortifications", "interiors-v2", "adventure"];
+// single files the interior renderer uses from big folders
+const AREA_ART_FILES = ["autumn/frames/square-terrain/cobble-rugs-07.png"];
 
 /** A scratch Lab root with client/public/rig copied in (and optionally the hero frames the rig pages load). */
 export async function scratchRoot(opts: { sprites?: boolean; templates?: boolean; areaArt?: boolean } = {}): Promise<string> {
@@ -17,7 +22,10 @@ export async function scratchRoot(opts: { sprites?: boolean; templates?: boolean
   await mkdir(path.join(dir, "client", "public"), { recursive: true });
   await cp(path.join(PUBLIC, "rig"), path.join(dir, "client", "public", "rig"), { recursive: true });
   // Area tab: the game's template folders (built-ins + their user/ folders, which are empty in the repo)
-  if (opts.templates) for (const k of TEMPLATE_DIRS) await cp(path.join(REPO_DIR, "server", "data", k), path.join(dir, "server", "data", k), { recursive: true });
+  if (opts.templates) {
+    for (const k of [...TEMPLATE_DIRS, ...DATA_DIRS]) await cp(path.join(REPO_DIR, "server", "data", k), path.join(dir, "server", "data", k), { recursive: true });
+    await cp(path.join(REPO_DIR, INTERIORS_REL), path.join(dir, INTERIORS_REL), { recursive: true });
+  }
   // Area tab art: the top-level sprites and the folders the tile tables use (~26 MB; not autumn / hero-npc)
   if (opts.areaArt) {
     const src = path.join(PUBLIC, "sprites"), dst = path.join(dir, "client", "public", "sprites");
@@ -26,6 +34,7 @@ export async function scratchRoot(opts: { sprites?: boolean; templates?: boolean
       if (e.isFile() && e.name.endsWith(".png")) await cp(path.join(src, e.name), path.join(dst, e.name));
       else if (e.isDirectory() && AREA_ART_DIRS.includes(e.name)) await cp(path.join(src, e.name), path.join(dst, e.name), { recursive: true });
     }
+    for (const f of AREA_ART_FILES) { await mkdir(path.dirname(path.join(dst, f)), { recursive: true }); await cp(path.join(src, f), path.join(dst, f)); }
   }
   if (opts.sprites) {
     const heroes = path.join("sprites", "autumn", "frames", "heroes");

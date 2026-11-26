@@ -30,17 +30,28 @@ export const PARTS_BASE = ["client", "public", "rig", "parts"];
 export const CLIPS_BASE = ["client", "public", "rig", "clips"];
 export const LAB_BASE = ["art-sources", "lab"];
 /** Area tab: the game's template kinds. Only their `user/` folders are writable; the built-ins beside them never are. */
-export const TEMPLATE_KINDS = ["camps", "buildings", "settlements"] as const;
+export const TEMPLATE_KINDS = ["camps", "buildings", "settlements", "sites", "pois", "castle-ruins"] as const;
 export type TemplateKind = (typeof TEMPLATE_KINDS)[number];
 export const isTemplateKind = (k: unknown): k is TemplateKind => typeof k === "string" && (TEMPLATE_KINDS as readonly string[]).includes(k);
 export const TEMPLATE_FILE_RE = /^[a-z0-9][a-z0-9_-]{0,60}\.json$/;
 export const templateBase = (kind: TemplateKind) => ["server", "data", kind];
 export const templateUserBase = (kind: TemplateKind) => ["server", "data", kind, "user"];
 
+/**
+ * Area tab, building interiors: the game's BUILT-IN files shared/src/data/interiors/<id>.json (static imports of
+ * shared/src/interiors.ts; there is no user/ layer). Only these exact existing names are writable: never legend.json,
+ * never a new name (server/interiors.ts also requires the file to exist). The list is BUILDING_INTERIOR_IDS
+ * (test/area-data.test.ts checks it against the game's).
+ */
+export const INTERIOR_BASE = ["shared", "src", "data", "interiors"];
+export const INTERIOR_IDS = ["house", "tavern", "church", "smithy", "bakery", "shop", "barracks", "hall", "barn"] as const;
+export const isInteriorId = (id: unknown): id is (typeof INTERIOR_IDS)[number] => typeof id === "string" && (INTERIOR_IDS as readonly string[]).includes(id);
+
 /** The write allow-list. Paths are segment arrays relative to the Lab root. */
 export function isWritable(segs: string[]): boolean {
   const eq = (base: string[]) => base.every((b, i) => segs[i] === b);
   if (segs.length === 5 && segs[0] === "server" && segs[1] === "data" && isTemplateKind(segs[2]) && segs[3] === "user") return TEMPLATE_FILE_RE.test(segs[4]);
+  if (segs.length === INTERIOR_BASE.length + 1 && eq(INTERIOR_BASE)) return segs[4].endsWith(".json") && isInteriorId(segs[4].slice(0, -5));
   if (eq(PARTS_BASE) && segs.length === PARTS_BASE.length + 2) {
     const [set, file] = segs.slice(PARTS_BASE.length);
     return isSetName(set) && (isPngName(file) || file === "manifest.json" || file === SIDECAR_FILE || file === "slice-report.json");
@@ -62,6 +73,8 @@ export function isWritableDir(segs: string[]): boolean {
     if (segs.length === 2) return true;
     return isTemplateKind(segs[2]) && (segs.length === 3 || segs[3] === "user");
   }
+  // shared, shared/src, shared/src/data, shared/src/data/interiors: existing folders on the way to the interior files
+  if (segs[0] === "shared") return segs.length <= INTERIOR_BASE.length && INTERIOR_BASE.slice(0, segs.length).every((b, i) => segs[i] === b);
   if (eq(PARTS_BASE)) return segs.length === PARTS_BASE.length || (segs.length === PARTS_BASE.length + 1 && isSetName(segs[PARTS_BASE.length]));
   if (eq(CLIPS_BASE)) return segs.length === CLIPS_BASE.length;
   if (eq(LAB_BASE)) return segs.length <= LAB_BASE.length + 7;

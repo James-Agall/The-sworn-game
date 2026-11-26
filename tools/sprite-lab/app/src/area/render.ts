@@ -1,8 +1,9 @@
 // Drawing templates, previews and thumbnails with the game's tile art (art.ts) onto canvases: one cell = `cell` px.
 import {
-  TileType, legendOf, buildingCells, buildingPieceTiles, spriteBuildingCells, type BuildingLookup, type Kind, type AnyTemplate,
-  type SettlementTemplate, type Preview,
+  TileType, legendFor, gridOf, interiorLayout, buildingCells, buildingPieceTiles, spriteBuildingCells, TIER_COLOR, type BuildingLookup, type Kind,
+  type AnyTemplate, type InteriorFile, type SettlementTemplate, type SiteTemplateFile, type Preview,
 } from "../../../shared/area.ts";
+import { renderInteriorRows } from "./interior.ts";
 import { GROUND_URL, drawFitted, drawable, image, tileArt } from "./art.ts";
 
 const WALLISH = new Set<number>([TileType.Wall, TileType.StoneWall, TileType.WoodWindow, TileType.StoneWindow, TileType.WoodDoor, TileType.StoneDoor, TileType.Gate]);
@@ -52,13 +53,18 @@ const horizontalAt = (tg: TileGrid, x: number, y: number) => {
  * The editor's grid: every cell's symbol drawn with its tile art over grass (slots / no-tile symbols as markers, symbols
  * without art as swatches); settlements also draw their building refs (the buildings' own cells, or the 3x3 prefab).
  */
-export function renderTemplate(kind: Kind, t: AnyTemplate, lookup: BuildingLookup, cell: number): HTMLCanvasElement {
-  const rows = t.rows, h = rows.length, w = rows[0]?.length ?? 0;
+export function renderTemplate(kind: Kind, t: AnyTemplate, lookup: BuildingLookup, cell: number, layer = "rows"): HTMLCanvasElement {
+  if (kind === "interiors") {
+    const l = interiorLayout(t as InteriorFile, layer);
+    return renderInteriorRows(l?.rows ?? [], l?.floor ?? "wood", l?.wall ?? "wood", cell);
+  }
+  // a site's tier grid: the tile art (dimmed) under each cell's tier digit
+  const rows = gridOf(kind, t, "rows"), h = rows.length, w = rows[0]?.length ?? 0;
   const cv = document.createElement("canvas");
   cv.width = Math.max(1, w * cell); cv.height = Math.max(1, h * cell);
   const g = cv.getContext("2d")!;
   g.imageSmoothingEnabled = true; g.imageSmoothingQuality = "high";
-  const legend = legendOf(kind);
+  const legend = legendFor(kind, t, "rows");
   const pieces = kind === "buildings" ? buildingPieceTiles(rows).tiles : null;
   const tileOf = (x: number, y: number) => {
     const ch = rows[y]?.[x];
@@ -79,7 +85,21 @@ export function renderTemplate(kind: Kind, t: AnyTemplate, lookup: BuildingLooku
     else if (ch !== ".") { g.fillStyle = s.color + "88"; g.fillRect(x * cell, y * cell, cell, cell); }
   }
   if (kind === "settlements") drawRefs(g, t as SettlementTemplate, lookup, cell);
+  if (kind === "sites" && layer === "tiers") drawTiers(g, t as SiteTemplateFile, cell);
   return cv;
+}
+
+function drawTiers(g: CanvasRenderingContext2D, t: SiteTemplateFile, cell: number) {
+  const tiers = Array.isArray(t.tiers) ? t.tiers : [];
+  g.fillStyle = "rgba(10,12,16,0.55)"; g.fillRect(0, 0, g.canvas.width, g.canvas.height);
+  g.font = `bold ${Math.max(9, Math.floor(cell * 0.55))}px system-ui, sans-serif`; g.textAlign = "center"; g.textBaseline = "middle";
+  for (let y = 0; y < tiers.length; y++) for (let x = 0; x < (tiers[y]?.length ?? 0); x++) {
+    const ch = tiers[y][x];
+    if (ch === ".") continue;
+    const n = Number(ch);
+    g.fillStyle = (TIER_COLOR[n] ?? "#ff00ff") + "99"; g.fillRect(x * cell + 1, y * cell + 1, cell - 2, cell - 2);
+    if (cell >= 10) { g.fillStyle = "#fff"; g.fillText(ch, x * cell + cell / 2, y * cell + cell / 2 + 1); }
+  }
 }
 
 function drawRefs(g: CanvasRenderingContext2D, t: SettlementTemplate, lookup: BuildingLookup, cell: number) {
