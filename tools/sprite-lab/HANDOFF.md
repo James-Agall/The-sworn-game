@@ -1,14 +1,23 @@
 # Sprite Lab: handoff (2026-11-26)
 
-## Round 3: Rig tab (in progress, newest last)
-- DONE (commit "Rig: clip format..."): `shared/clip.ts` (format `sworn-clip/1`, strict validator, rig-core-based evaluation:
-  keys with eases, loop wrap, waves, gait), `shared/pose.ts` (body.html skeleton() as a solver + FK/IK modes),
-  `client/public/rig/skeletons/human.json`, built-in clips in `client/public/rig/clips/` (generator
-  `scripts/make-builtin-clips.ts`), server: clip PUT validates + refuses built-ins, `POST /api/clips/<n>/delete`,
-  `POST /api/exports` (art-sources/lab/exports/<name>.png), `app/src/rig/render.ts` (body.html build/drawFrame mirror,
-  loads /rig/rig-core.js), `app/src/rig/hook.ts` (window.__labRig), tests `clip.test.ts`, `rig-golden.test.ts`
-  (idle / walk / sword: 0 px differ vs body.html; axe / spear / bow: 504 channel checks vs index.html, worst 1e-13 deg).
-- NEXT: Rig tab UI (`app/src/rig/tab.ts`, timeline), export contact sheet / bake, smoke test, docs, MANUAL-TESTS.
+## Round 3: Rig tab (DONE 2026-11-26; see README "Rig tab" for the user guide and the clip format)
+- Commits: f4e86f4 (clip format, skeleton, built-in clips, renderer, golden test), e3d322f (Rig tab UI, exports, smoke),
+  then docs / Compare clip poses / editing tests (this commit).
+- Files: `shared/clip.ts` (format `sworn-clip/1`, strict validator, `formatClip`, evaluation on rig-core: keys + eases,
+  loop wrap, waves, gait), `shared/pose.ts` (body.html `skeleton()` as a solver + FK / IK / grip / string modes),
+  `shared/clipedit.ts` (set / move / remove keys, copy / paste pose, mirror), `app/src/rig/{tab,timeline,render,export,hook}.ts`,
+  `client/public/rig/skeletons/human.json`, `client/public/rig/clips/*.json` (generator `scripts/make-builtin-clips.ts`).
+  Server: clip PUT validates and refuses built-ins, `POST /api/clips/<n>/delete`, `POST /api/exports`.
+- Tests: `clip.test.ts` (schema, interpolation, wrap, waves, IK, planted feet, pose modes, editing), `rig-golden.test.ts`
+  (idle / walk / sword attack: 0 px differ vs body.html over 53 frames; axe / spear / bow: 504 channel checks vs
+  index.html, worst 1e-13 deg), `server.test.ts` (clips, exports), `smoke.test.ts` (Rig: play, scrub, frame step,
+  duplicate, drag-key, undo / redo, save, reload, contact sheet, bake, onion; Compare with a clip). All 52 pass.
+- Findings: (1) body.html's walk on grounded-v2 bones: the stance foot reaches the ground only ~75% of the stance; at
+  the stride ends the IK clamps and the foot hovers up to 3.4 px (true in body.html too; the Rig tab shows it with the
+  orange outline / red cross). (2) The spear off hand and the bow string hand cannot always reach their IK targets with
+  grounded-v2's arm lengths (13 + 16 + 3; index.html used 15 + 14). (3) heroRig.ts uses a different curve
+  (`motion()`, cubic with neighbour tangents) and different attack tables than body.html / index.html.
+- Next: the runtime step (README "How the game will use clips"), bending-limb meshes, Area tab.
 
 ## Progress (round 2, newest last)
 - Steps 1-7 DONE (see README.md for the user-facing description, NOTICE.md for Piskel).

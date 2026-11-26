@@ -1656,3 +1656,28 @@ every overwritten file is copied to `art-sources/lab/backups/` first. Try it on 
 9. Terminal: `npm run lab:validate -- grounded-v2` prints the same report and exits 0 (warnings only).
 
 Automated: `npm run lab:test` (server security, manifest round trips, validators, one headless browser run).
+
+### Sprite Lab: Rig tab (26 November 2026)
+
+`npm run lab`, open the Rig tab (Alt+3). Clips are saved to `client/public/rig/clips/<name>.json` (backed up first).
+
+1. Clip list: `idle`, `walk`, `attack-sword|axe|spear|bow` carry a `ref` badge (converted from `rig/body.html` and
+   `rig/index.html`; read-only). Click `walk`, press Space: he walks with planted feet (green bar under a planted foot);
+   Space again pauses. Left / Right step one frame. Tick `onion`: red / blue ghosts of the previous / next phase.
+2. Look: switch Weapon (the attack clips switch it for you), Helm, Armour tier, Gender, Build, shield, hair. The x2 / x1
+   inset at the top right is the in-game size. Compare `walk` side by side with `rig/body.html?parts=grounded-v2`.
+3. `walk` selected: Duplicate, name `walk-test`. Drag the ruler at the top of the timeline to scrub. Drag the yellow hand
+   handle on the canvas: the arm follows and two keys appear (armN.shoulder, armN.elbow) at the playhead; the orange dot
+   in the toolbar lights. Drag a foot (blue / purple handle) up: the foot lifts (its IK target is keyed).
+4. Timeline: drag a key sideways (it snaps to frames; Alt = free); double-click a row to add a key; select a key and change
+   Value / Ease on the right; Delete removes it. Ctrl+Z / Ctrl+Y undo / redo (also the header buttons). K keys the
+   selected channel, Shift+K every animated channel. Copy pose / Paste pose at another phase; Mirror L/R swaps sides.
+5. Ctrl+S (or Save clip). `git diff client/public/rig/clips/walk-test.json` (new file) has one key per line. Reload the
+   page: `walk-test` comes back as saved. Try Save on `walk`: refused (read-only).
+6. Export contact sheet (rows: this look / armour tiers / genders x builds): save it, then open
+   `art-sources/lab/exports/walk-test-contact.png`. Bake atlas preview: the clip animates at 1x / 2x / 4x of the in-game
+   size; save it to `art-sources/lab/exports/walk-test-atlas.png`. Judge the 1x one: can you read the action at 25 px?
+7. Compare tab: Clip = `attack-axe`, slide `u`: the clip pose stands next to the reference sprite.
+8. Rename and Delete `walk-test` (the file goes to the backups).
+
+Automated: `npm run lab:test` also checks the Lab renders idle / walk / the sword attack pixel-identically to body.html.

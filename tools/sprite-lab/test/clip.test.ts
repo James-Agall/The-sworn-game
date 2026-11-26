@@ -9,6 +9,7 @@ import { pathToFileURL } from "node:url";
 import { REPO_DIR } from "./helpers.ts";
 import { CHANNELS, formatClip, keysAt, newClip, phaseAt, sampleClip, validateClip, validateSkeleton, waveAt, channelAt, type Clip, type RigCore, type Skeleton } from "../shared/clip.ts";
 import { poseAt, solvePose, type Dims } from "../shared/pose.ts";
+import { copyPose, mirrorClip, moveKey, pastePose, removeKey, setKey, wavesAt } from "../shared/clipedit.ts";
 
 await import(pathToFileURL(path.join(REPO_DIR, "client/public/rig/rig-core.js")).href);
 const R = (globalThis as unknown as { Rig: RigCore }).Rig;
@@ -167,4 +168,36 @@ test("pose modes: shield pose, FK legs, spear grip IK and bow string IK", async 
   near(rest.armN.target![0], rest.armF.H[0] - 4, 1e-9);
   near(rest.armF.H[0], rest.shoulder[0] + 26, 1e-6); near(rest.armF.H[1], rest.shoulder[1] + 2, 1e-6);
   void solvePose;
+});
+
+test("editing: set / move / remove keys, copy + paste a pose, mirror swaps sides, results stay valid", async () => {
+  const c = newClip("ed");
+  assert.equal(setKey(c, "spine.lean", 0.5, 4), 0);
+  assert.equal(setKey(c, "spine.lean", 0.1, 1), 0);
+  assert.equal(setKey(c, "spine.lean", 0.50004, 6), 1, "same phase (within 1e-4): updates, no new key");
+  assert.deepEqual(c.tracks["spine.lean"]!.keys.map((k) => [k.u, k.v]), [[0.1, 1], [0.5, 6]]);
+  setKey(c, "spine.lean", 0.9, 0, "easeIn");
+  assert.equal(c.tracks["spine.lean"]!.keys[2].ease, "easeIn");
+  assert.equal(moveKey(c, "spine.lean", 1, 0.95), 0.899, "a key cannot pass its neighbour");
+  assert.equal(moveKey(c, "spine.lean", 0, -1), 0);
+  assert.deepEqual(validateClip(c, "ed"), []);
+  removeKey(c, "spine.lean", 0); removeKey(c, "spine.lean", 0); removeKey(c, "spine.lean", 0);
+  assert.equal(c.tracks["spine.lean"], undefined, "an emptied track is removed");
+  const walk = await loadClip("walk");
+  near(wavesAt(walk, "armN.shoulder", 0.1), Math.sin(6.283 * 0.1 / walk.duration) * 5);
+  const pose = copyPose(R, walk, skel, 0.25);
+  assert.deepEqual(Object.keys(pose).sort(), ["armF.shoulder", "armN.shoulder", "armN.weapon", "head.tilt", "spine.lean"]);
+  const m = newClip("m");
+  assert.equal(pastePose(m, pose, 0.5), 5);
+  near(m.tracks["armN.weapon"]!.keys[0].v, 78);
+  const atk = await loadClip("attack-axe"), before = JSON.parse(JSON.stringify(atk));
+  mirrorClip(atk);
+  assert.deepEqual(atk.tracks["armF.shoulder"], before.tracks["armN.shoulder"]);
+  assert.deepEqual(atk.tracks["armN.shoulder"], before.tracks["armF.shoulder"]);
+  assert.deepEqual(atk.tracks["armN.weapon"], before.tracks["armN.weapon"], "the weapon stays in the near hand");
+  mirrorClip(atk);
+  assert.deepEqual(atk, before, "mirror twice = unchanged");
+  const w2 = await loadClip("walk"); mirrorClip(w2);
+  assert.equal(w2.limbs!.legN!.gait!.phase, 0.5, "gait phases move with their leg");
+  assert.deepEqual(validateClip(w2, "walk"), []);
 });

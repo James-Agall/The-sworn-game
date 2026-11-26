@@ -6,6 +6,8 @@ import { fetchPNG, toCanvas, type RGBA } from "./png.ts";
 import { project } from "./project.ts";
 import { RigFrame, GAME_W, GAME_H, figureBox, type Look } from "./rigframe.ts";
 import { el, toast } from "./ui.ts";
+import type { Clip } from "../../shared/clip.ts";
+import { DEFAULT_LOOK, drawFrame, loadBody, loadRigCore, loadSkeleton, type Body } from "./rig/render.ts";
 
 const DEFAULT_REF = "autumn/frames/heroes/base-05.png";
 
@@ -15,6 +17,8 @@ export function mountCompare(root: HTMLElement, ctx: { isActive: () => boolean }
   const helmSel = el("select", { id: "cmp-helm" }, ...[0, 1, 2, 3].map((h) => el("option", { value: String(h), text: h ? "helm " + h : "no helm" })));
   const shieldChk = el("input", { type: "checkbox", id: "cmp-shield" }), hairChk = el("input", { type: "checkbox", id: "cmp-hair", checked: true });
   const timeIn = el("input", { type: "range", id: "cmp-time", min: "0", max: "2.4", step: "0.05", value: "0.3" });
+  const clipSel = el("select", { id: "cmp-clip", title: "Pose from a clip (Lab renderer) instead of body.html's built-in states" }, el("option", { value: "", text: "body.html pose" }));
+  const phaseIn = el("input", { type: "range", id: "cmp-phase", min: "0", max: "1", step: "0.01", value: "0.25", title: "Clip phase u" });
   const refIn = el("input", { id: "cmp-ref", class: "wide", list: "cmp-refs", value: DEFAULT_REF, title: "Reference sprite under client/public/sprites/" });
   const refList = el("datalist", { id: "cmp-refs" });
   const refScale = el("input", { type: "number", id: "cmp-ref-scale", value: "0.255", step: "0.005", min: "0.05", max: "2", title: "Game scale of the reference (hero frames: 0.255)" });
@@ -23,7 +27,7 @@ export function mountCompare(root: HTMLElement, ctx: { isActive: () => boolean }
   const results = el("div", { class: "validators", id: "validators" });
   const label = (t: string, ...k: HTMLElement[]) => el("label", { class: "inline" }, el("span", { class: "lbl", text: t }), ...k);
   const toolbar = el("div", { class: "toolbar wrap" },
-    label("Set", setSel), label("Pose", stateSel), helmSel, el("label", { class: "check" }, shieldChk, el("span", { text: "shield" })),
+    label("Set", setSel), label("Clip", clipSel), label("u", phaseIn), label("Pose", stateSel), helmSel, el("label", { class: "check" }, shieldChk, el("span", { text: "shield" })),
     el("label", { class: "check" }, hairChk, el("span", { text: "hair" })), label("time", timeIn),
     el("span", { class: "sep" }), label("Reference", refIn, refList), label("scale", refScale), el("label", { class: "check" }, gridChk, el("span", { text: "grid" })),
     el("button", { text: "Refresh", onclick: () => { loadSet(); } }));
@@ -48,6 +52,7 @@ export function mountCompare(root: HTMLElement, ctx: { isActive: () => boolean }
     const set = setSel.value || project.set;
     if (!set) return;
     loadedSet = set;
+    bodies.clear();
     results.replaceChildren(el("p", { class: "hint", text: "running validators..." }));
     rig.load(set).then(render, (e) => toast("rig/body.html: " + e.message, "err"));
     try { showReport(await api.validate(set)); } catch (e) { results.replaceChildren(el("p", { class: "warn-text", text: (e as Error).message })); }
@@ -75,7 +80,7 @@ export function mountCompare(root: HTMLElement, ctx: { isActive: () => boolean }
     try {
       await loadRef();
       const look: Look = { state: stateSel.value as Look["state"], helm: Number(helmSel.value), shield: shieldChk.checked ? 1 : 0, hair: hairChk.checked ? 1 : 0 };
-      const { game, frame } = await rig.still(look, Number(timeIn.value));
+      const { game, frame } = clipSel.value ? await clipStill(loadedSet, clipSel.value, Number(phaseIn.value), look) : await rig.still(look, Number(timeIn.value));
       draw(game, frame);
     } catch { /* rig not ready yet */ }
     busy = false;
@@ -138,7 +143,18 @@ export function mountCompare(root: HTMLElement, ctx: { isActive: () => boolean }
     for (let y = 0; y < c.height; y++) for (let x = 0; x < c.width; x++) if (d[(y * c.width + x) * 4 + 3] >= 128) { if (top < 0) top = y; bottom = y; }
     return top < 0 ? null : { top, bottom };
   }
-  for (const i of [stateSel, helmSel, shieldChk, hairChk, timeIn, refScale, gridChk]) i.addEventListener("input", () => render());
+  for (const i of [stateSel, helmSel, shieldChk, hairChk, timeIn, refScale, gridChk, clipSel, phaseIn]) i.addEventListener("input", () => render());
+  // a clip pose rendered by the Rig tab's renderer (same placement as body.html), at the in-game size like the sheet inset
+  const bodies = new Map<string, Body>(), clipCache = new Map<string, Clip>();
+  async function clipStill(set: string, name: string, u: number, lk: Look) {
+    const [R, skel] = await Promise.all([loadRigCore(), loadSkeleton()]);
+    if (!bodies.has(set)) bodies.set(set, await loadBody(R, set));
+    if (!clipCache.has(name)) clipCache.set(name, (await api.getClip(name)) as unknown as Clip);
+    const c = clipCache.get(name)!, frame = drawFrame(R, bodies.get(set)!, skel, c, { ...DEFAULT_LOOK, weapon: c.weapon?.kind || "sword", helm: lk.helm, shield: lk.shield, hair: lk.hair }, u * c.duration).canvas;
+    const game = el("canvas", { width: GAME_W, height: GAME_H }), gg = game.getContext("2d")!;
+    gg.imageSmoothingEnabled = false; gg.drawImage(frame, 0, 0, GAME_W, GAME_H);
+    return { game, frame };
+  }
   refIn.addEventListener("change", () => render());
   setSel.addEventListener("change", () => loadSet());
   project.on((why) => { if (why === "saved" && setSel.value === project.set && ctx.isActive()) loadSet(); });
@@ -148,6 +164,7 @@ export function mountCompare(root: HTMLElement, ctx: { isActive: () => boolean }
     async activate() {
       await fillSets();
       if (!setSel.value && project.set) setSel.value = project.set;
+      try { const names = await api.clips(), keep = clipSel.value; clipSel.replaceChildren(el("option", { value: "", text: "body.html pose" }), ...names.map((n) => el("option", { value: n, text: n, selected: n === keep }))); clipCache.clear(); } catch (e) { toast("clips: " + (e as Error).message, "err"); }
       if (setSel.value !== loadedSet) await loadSet(); else render();
     },
   };

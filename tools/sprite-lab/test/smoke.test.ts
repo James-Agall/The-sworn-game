@@ -190,6 +190,12 @@ test("Lab smoke: tabs, pivot save + reload, Draw round trip", { timeout: 180_000
   await page.click("#rig-onion");
   await page.waitForTimeout(200);
   await page.screenshot({ path: `${SHOTS}/rig-onion.png` });
+  // Compare: a clip pose beside the reference sprite
+  await page.click("#tab-compare");
+  await page.waitForSelector('#cmp-clip option[value="attack-axe"]', { state: "attached", timeout: 15_000 });
+  await page.selectOption("#cmp-clip", "attack-axe");
+  await page.waitForTimeout(800);
+  await page.screenshot({ path: `${SHOTS}/compare-clip.png` });
 
   assert.deepEqual(errors, [], "console errors:\n" + errors.join("\n"));
   await page.close();
