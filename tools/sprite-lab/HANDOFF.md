@@ -1,6 +1,6 @@
 # Sprite Lab: handoff (2026-11-27)
 
-## Round 5: Area tab, stage B part 2 (the content migrated to JSON; IN PROGRESS, newest last)
+## Round 5: Area tab, stage B part 2 (the content migrated to JSON; DONE 2026-11-27, newest last)
 - Step 0 DONE: after merging `data-templates` the Lab built and `npm run lab:test` passed (82/82); added
   `"resolveJsonModule": true` to tools/sprite-lab/tsconfig.json (shared/src/interiors.ts imports JSON); tsx and Vite
   already handle `import ... with { type: "json" }` (no hook change needed).
@@ -20,7 +20,21 @@
   move / add / remove variant, + / - upstairs; red interiors banner; amber "not used by world-gen yet"; POI form in the
   middle panel; previews; diff modal). Tests: `test/area-data.test.ts` (new), `area-game.test.ts` (+2: game stores load
   Lab-saved sites / pois / castle files byte-equal; real stamper for sites + pois). 94/94 pass.
-- NEXT: smoke test for the new kinds (+ screenshots), README / MANUAL-TESTS, final tsc / smoke / vite build.
+- Step 2 DONE: `test/area-data-smoke.test.ts` (headless: sites duplicate / paint + auto tier / Tiers grid / garrison /
+  keep error + undo / real stamper tier 1 / save; castle boss rule / guardians / preview / save; POI form drag reorder /
+  add / invalid count / 6 placePoiSite samples / save; interiors red banner / paint a layout / blocked-spawn error +
+  undo / buildInteriorMap preview / diff vs HEAD (scratch root git-inited) / confirm + save the scratch built-in file /
+  hall props locked; reload finds every edit; zero console errors). Fixes found by looking at the screenshots:
+  `.toolbar[hidden]` was still displayed (the edit toolbar showed during previews since stage A), "Place building" hidden
+  outside settlements, interior labels without a doubled level, 0-based variant labels (= the validator's "(variant N)"
+  and interiorVariantFor's index), the site preview re-runs when the tier changes mid-run. README "Area tab, stage B
+  kinds", MANUAL-TESTS "Sprite Lab: Area tab, stage B".
+- Verified at the end: `npm run lab:test` 95/95 pass, `npx tsc --noEmit -p` shared / server / client / tools/sprite-lab
+  clean, `npm run smoke` ALL PASS (35 checks), client `vite build` to a scratch out-dir builds. No game code changed.
+- Open (game-side, not this round): world-gen use of user sites / POI pools / castle ruins (`SettlementProfile` is
+  closed; generateForts / placePoiSite / placeCastleRuin read built-in ids only); interior variant semantics beyond
+  "exactly 3" (the game validator refuses other counts); the Castle Ruin preview is shared-code (placeCastleRuin needs a
+  map + Town Center and reads constants derived at import, so a scratch run with an edited file is not cheap).
 
 ## Round 4: Area tab, stage A (DONE 2026-11-26; README "Area tab" is the user guide; newest last)
 - Step 1 DONE (commit "Area: template API ..."): `shared/area.ts` (kinds, the game stores' normalise + file format,

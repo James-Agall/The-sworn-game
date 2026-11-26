@@ -1717,3 +1717,39 @@ creative editors save to), the old file backed up under `art-sources/lab/backups
 
 Automated: `npm run lab:test` (area API + allow-list, game-store load of Lab files, real stamper = preview, grid
 operations, a headless run of the steps above).
+
+### Sprite Lab: Area tab, stage B (forts, Castle Ruin, POI pools, building interiors) (27 November 2026)
+
+`npm run lab`, Area tab. Built-in forts / POI pools / the Castle Ruin are read-only (duplicate to `server/data/<kind>/user/`);
+INTERIORS ARE THE GAME'S OWN FILES (`shared/src/data/interiors/`): try them on a branch and revert with git.
+
+1. Forts / sites: open `Thornwick Palisade`. Real sprites (palisade, gate, tents, keep, fences, farm plots). Click a cell:
+   duplicate as `test-fort`. An amber banner says user site templates are not used by world-gen yet.
+2. Paint a tent `H` on open ground, then click `Tiers` above the grid: the new cell shows tier 1. Pick `3` and paint it:
+   the tent now joins at tier 3. Back on `Tiles`, right-click the keep `K`: red "exactly one keep K (has 0)"; Ctrl+Z.
+3. On the right: change a garrison count, drag `banditElite` to the top (spawn order), add a stock line, edit the names
+   (one per line). Bad values (a startTier above maxTier) turn the panel red.
+4. Preview stamp (V): Tier 1 / 2 / 3 buttons run the game's real stampSiteTemplate (a second each): at tier 1 the walls
+   are fences and some cells are open; the garrison and the keep are marked. Back (V), Ctrl+S, reload: `test-fort` is in
+   the list with a "not in world-gen" badge.
+5. Castle Ruin: open it, duplicate (`test-castle`). Paint `B` off-centre: it moves (one boss) and the panel says it must
+   be at the centre; Ctrl+Z. Change the guardians / spawn distances / weights; Preview shows the boss and the grounds ring.
+6. POI pools: open `ruin pool`: a form, not a grid, with an "ORDER MATTERS" warning. Any edit asks to duplicate
+   (`test-ruin`). Drag an extra above another (or use the arrows), add a centrepiece (type `RuinRubble`), set extra count
+   to 9 (red), back to 3. "Run 6 samples": six small maps from the game's own placePoiSite, guardians marked. Save.
+7. Interiors: open `Hall`. A RED banner: it edits the game's built-in interiors (restart the server, rebuild the
+   client, revert with git). The palette shows the game's furniture (beds, chests, throne, banners...), gold "2+" / "3+"
+   on level-gated pieces; the throne / table / chest boxes on the right are locked.
+8. Click `Variant 1`, paint a barrel `x` on a free floor cell. Paint a wall `#` right above the exit mat: red "the spawn
+   tile is blocked"; Ctrl+Z. Preview stamp: Level 1 / 2 / 3 show the game's buildInteriorMap (beds `q` appear from level 2;
+   extra wall-side furniture is the game's own edge furnishing).
+9. "Show diff vs git HEAD": the one changed row, red / green. Close. Ctrl+S: a confirm names
+   `shared/src/data/interiors/hall.json`; confirm. `git diff shared/src/data/interiors/hall.json` shows exactly that row.
+   Restart the game server and rebuild / reload the client; enter a hall built with that variant (or skip). Then
+   `git checkout shared/src/data/interiors/hall.json` to revert (the Lab also kept a backup under art-sources/lab/backups/).
+10. "◀ Move" on a variant: a toast and an amber warning say existing buildings will show a different layout; "+ Variant"
+    makes 4 and the validator refuses saving until one is removed. Undo both.
+
+Automated: `npm run lab:test` (area-data: API, allow-list incl. interiors, 409, backups, byte round trips of every
+built-in, hall invariant, preview = buildInteriorMap; area-game: the game's stores load Lab-saved sites / pools / castle
+files; area-data-smoke: a headless run of the steps above on a scratch copy).

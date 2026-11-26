@@ -715,7 +715,7 @@ export function mountArea(pane: HTMLElement, deps: Deps) {
     const btn = (l: string, label: string) => el("button", { class: "layerbtn" + (l === layer ? " on" : ""), "data-layer": l, text: label, onclick: () => setLayer(l) });
     if (doc.kind === "sites") { layerBar.append(el("span", { class: "lbl", text: "Grid:" }), btn("rows", "Tiles"), btn("tiers", "Tiers")); return; }
     const f = doc.t as A.InteriorFile;
-    layerBar.append(el("span", { class: "lbl", text: "Layout:" }), ...f.variants.map((_, i) => btn("v" + i, "Variant " + (i + 1))));
+    layerBar.append(el("span", { class: "lbl", text: "Layout (the index interiorVariantFor picks):" }), ...f.variants.map((_, i) => btn("v" + i, "Variant " + i)));
     if (f.upper) layerBar.append(btn("upper", "Upstairs"));
     const vi = layer === "upper" ? -1 : Number(layer.slice(1));
     const edit = (fn: (o: A.InteriorFile) => void, warn?: string) => {
@@ -873,7 +873,7 @@ export function mountArea(pane: HTMLElement, deps: Deps) {
     }
     statsLine.textContent = A.statsLine(doc.kind, doc.t, lookup);
     valList.append(el("div", { class: "val-head " + (errors.length ? "bad" : "ok"), id: "area-val-head", text: errors.length ? `${errors.length} error(s): Save is disabled` : "Valid (the game's validator)" }));
-    if (doc.kind === "interiors" && cellErrors.length) valList.append(el("div", { class: "val-item dim", text: `This layout (${layer === "upper" ? "upstairs" : "variant " + (Number(layer.slice(1)) + 1)}): ${cellErrors.length} problem(s), outlined on the grid.` }));
+    if (doc.kind === "interiors" && cellErrors.length) valList.append(el("div", { class: "val-item dim", text: `This layout (${layer === "upper" ? "upstairs" : "variant " + layer.slice(1)}): ${cellErrors.length} problem(s); the cells they name are outlined.` }));
     for (const e of errors) {
       const c = A.errorCell(e), b = A.errorBuilding(e);
       // an interior message names its layout ("(variant 2)", "upstairs"): jumping switches to it
@@ -1056,7 +1056,7 @@ export function mountArea(pane: HTMLElement, deps: Deps) {
       const own = el("input", { type: "checkbox", onchange: () => { p.owned = own.checked; view.render(); } }); own.checked = p.owned;
       previewBar.append(el("span", { class: "sep" }), el("label", { class: "check" }, "seed", seed), el("button", { text: "Re-run", onclick: () => runReal() }), el("label", { class: "check" }, own, "ownership"));
     } else if (d.kind === "interiors") {
-      previewBar.append(el("span", { class: "lbl", text: `${layer === "upper" ? "Upstairs" : "Variant " + (Number(layer.slice(1)) + 1)}, building level:` }));
+      previewBar.append(el("span", { class: "lbl", text: `${layer === "upper" ? "Upstairs" : "Variant " + layer.slice(1)}, building level:` }));
       for (const lv of [1, 2, 3]) previewBar.append(el("button", { class: "area-variant" + (p.level === lv ? " on" : ""), "data-level": String(lv), text: "Level " + lv, onclick: () => { p.level = lv; renderPreviewBar(); invalidate(true); } }));
     } else previewBar.append(el("span", { class: "lbl", text: "Castle Ruin: the layout as stamped, the boss on B, the grounds ring (radius + 1)" }));
     previewBar.append(el("span", { class: "grow" }), el("button", { class: "on", text: "Back to editing (V)", onclick: () => togglePreview() }));
@@ -1091,7 +1091,8 @@ export function mountArea(pane: HTMLElement, deps: Deps) {
       el("span", { class: "grow" }), el("button", { class: "on", text: "Back to editing (V)", onclick: () => togglePreview() }));
   }
   async function runReal() {
-    if (!preview || !doc || preview.running) return;
+    if (!preview || !doc) return;
+    if (preview.running) { rerun = true; return; }          // run again with the newest settings when this one ends
     if (errors.length) { toast("The real stamper needs a valid template: fix the errors first", "err"); statsLine.textContent = "Fix the validation errors to run the server stamper."; return; }
     const p = preview, d = doc;
     p.running = true; statsLine.textContent = "Running the server stamper…";
@@ -1102,8 +1103,9 @@ export function mountArea(pane: HTMLElement, deps: Deps) {
       p.real = d.kind === "sites" ? siteView(r) : realView(r, p.tf);
       invalidate();
     } catch (e) { toast("Stamper failed: " + (e as Error).message, "err"); }
-    finally { p.running = false; }
+    finally { p.running = false; if (rerun && preview === p) { rerun = false; void runReal(); } }
   }
+  let rerun = false;
   function realView(r: Record<string, any>, tf: number): StampView {
     const markers: StampView["markers"] = [];
     const shared = A.preview(doc!.kind as A.GridKind, doc!.t, tf, lookup);
@@ -1211,14 +1213,14 @@ export function mountArea(pane: HTMLElement, deps: Deps) {
         const v: StampView = {
           w: smp.w, h: smp.h, tiles: smp.tiles, markers: [], footprints: [], info: [], source: "server-stamper",
         };
-        const c = renderStamp(v, 26), g = c.getContext("2d")!;
+        const c = renderStamp(v, 22), g = c.getContext("2d")!;
         for (const m of smp.mobs as { kind: string; x: number; y: number }[]) {
-          g.fillStyle = slotColor("mob"); g.strokeStyle = "#000"; g.beginPath(); g.arc(m.x * 26 + 13, m.y * 26 + 13, 7, 0, Math.PI * 2); g.fill(); g.stroke();
-          g.fillStyle = "#000"; g.font = "bold 9px system-ui"; g.textAlign = "center"; g.textBaseline = "middle"; g.fillText(m.kind.slice(0, 2), m.x * 26 + 13, m.y * 26 + 13);
+          g.fillStyle = slotColor("mob"); g.strokeStyle = "#000"; g.beginPath(); g.arc(m.x * 22 + 11, m.y * 22 + 11, 6, 0, Math.PI * 2); g.fill(); g.stroke();
+          g.fillStyle = "#000"; g.font = "bold 9px system-ui"; g.textAlign = "center"; g.textBaseline = "middle"; g.fillText(m.kind.slice(0, 2), m.x * 22 + 11, m.y * 22 + 11);
         }
         g.strokeStyle = "rgba(255,255,255,0.5)"; g.setLineDash([4, 3]);
         const fr = (doc?.t as A.PoiTemplateFile | undefined)?.footprintRadius ?? 2, cx = poiSamples.r.centre.x;
-        g.strokeRect((cx - fr) * 26 + 0.5, (cx - fr) * 26 + 0.5, (2 * fr + 1) * 26 - 1, (2 * fr + 1) * 26 - 1);
+        g.strokeRect((cx - fr) * 22 + 0.5, (cx - fr) * 22 + 0.5, (2 * fr + 1) * 22 - 1, (2 * fr + 1) * 22 - 1);
         grid.append(el("figure", { class: "area-sample" }, c, el("figcaption", { text: `seed ${smp.seed}: ${smp.mobs.map((m: { kind: string }) => m.kind).join(", ") || "no guardians"}` })));
       }
       box.append(grid);

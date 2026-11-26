@@ -208,7 +208,7 @@ export function dataMeta(ctx: FormCtx): HTMLElement[] {
     out.push(sec("Required stations (every ground-floor layout)", f.id === "hall" ? note("Hall: throne, table and chest are locked (the Town Center hall's chest is its storage).", "warn-text") : null, box));
     const l = A.interiorLayout(f, ctx.layer);
     if (l) {
-      const where = ctx.layer === "upper" ? "upstairs" : "variant " + (Number(ctx.layer.slice(1)) + 1);
+      const where = ctx.layer === "upper" ? "upstairs" : "variant " + Number(ctx.layer.slice(1));
       const setL = (fn: (x: O) => void) => ctx.set((o) => { const x = ctx.layer === "upper" ? o.upper : o.variants[Number(ctx.layer.slice(1))]; fn(x); });
       const label = el("input", { type: "text", value: l.label, "data-key": "layout.label", onchange: () => setL((x) => { x.label = label.value; }) });
       const floor = el("select", { "data-key": "layout.floor", onchange: () => setL((x) => { x.floor = floor.value; }) }, ...["wood", "stone", "dirt"].map((v) => el("option", { value: v, text: v, selected: v === l.floor })));

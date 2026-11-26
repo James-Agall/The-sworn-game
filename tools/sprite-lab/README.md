@@ -155,7 +155,7 @@ shield arm and torso fitting); (5) golden contact sheets before / after with `sc
 
 ## Area tab
 
-Left: kind (Bandit camps / Buildings / Settlements), search, tier and built-in / user filters, the template list
+Left: kind (Bandit camps / Buildings / Settlements; stage B: Forts / sites, Castle Ruin, POI pools, Interiors), search, tier and built-in / user filters, the template list
 (badges: built-in, user, tier, type, size, `invalid`, `shadowed` = a user file with a built-in's id, which the game skips),
 New (the in-game editors' defaults), Duplicate, Delete (user only), Import JSON, Export JSON. Centre: the toolbar, the
 grid (PixelView: wheel zoom 3-72 px per cell, middle-drag or Space + drag pans), the validation panel and the stats /
@@ -208,6 +208,48 @@ open ground), the building library (settlements), the template's fields, the Sav
   Not reproduced: wall / fence / road autotiling, floor variants, roofs, campfire animation, tent faction variants.
   Every legend symbol that stamps a tile has art; the ones without are markers by design (open ground `.`, slots
   `g m a e p` / `t r v g q`, settlement `u` animal-zone ground). The palette footnote lists it live.
+
+### Area tab, stage B kinds (forts / sites, Castle Ruin, POI pools, building interiors)
+
+The game moved this content from TypeScript to JSON (`STAGE-B-DATA-2026-11-26.md`); the same Area tab edits it. Every
+rule is the game's shared code: `validateSiteTemplate` / `validatePoiTemplate` / `validateCastleRuin` (with the mob
+kinds = keys of shared `MOB_ROLE`, tested equal to the server's `MOB_KIND_CONFIG`), `validateInteriorFile` +
+per-layout `validateInteriorTemplate`, the `normalise*` functions, the legends (`SITE_TEMPLATE_TILES` + a file's own
+`symbols`, the castle's `tiles`, `INTERIOR_LEGEND`), `transformRows`, `buildInteriorMap`, and on the server
+`stampSiteTemplate` / `placePoiSite`. Model: `shared/areaData.ts`; UI: `app/src/area/{forms,interior}.ts` + tab.ts.
+
+| Kind | Built-ins (read-only) | Saves to | Editor | Preview |
+| --- | --- | --- | --- | --- |
+| Forts / sites | `server/data/sites/*.json` (thornwick, grakkar, hearthmoor, ironhold, riverwatch) | `server/data/sites/user/<id>.json` | grid with two grids ("Grid: Tiles / Tiers"; they resize / turn together); fields: faction, label, noun, names (pick order), max / start tier, garrison (spawn order, drag), workers, stock, rebuild cost, own symbols (+ "Human set") | the REAL `stampSiteTemplate` at the chosen tier (scratch child process; the edited file is put into `SITE_TEMPLATES` there): tiles, ownership, grounds, garrison, keep |
+| Castle Ruin | `server/data/castle-ruins/castle-ruin.json` | `server/data/castle-ruins/user/<id>.json` | grid (square, odd, 5-15; `B` the boss: exactly one, the centre, the pencil moves it); fields: boss, guardians min-max, spawn distances (ordered), guardian weights (ordered), tiles map | shared-code view (tiles with art, the boss, the grounds ring); `placeCastleRuin` is not run (it reads only the built-in) |
+| POI pools | `server/data/pois/{ruin,encampment}.json` | `server/data/pois/user/<id>.json` | a form (no grid): centrepieces + extras as ordered lists (drag / arrows / add / remove), extra count, guardian count, guardian weights (ordered), footprint radius; "ORDER MATTERS" warning | 6 samples of world-gen's own `placePoiSite("ruin")` with the edited pool (RUIN_POI's fields set in the scratch child), seeded |
+| Interiors | `shared/src/data/interiors/<house…barn>.json` | THE SAME FILE (no user/ layer) | grid per layout ("Layout: Variant 0 / 1 / 2 / Upstairs"; the number is the index `interiorVariantFor` returns), move / add / remove variant, + / − upstairs; fields: required stations (hall: throne / table / chest locked), sleep, the layout's label / floor / wall | the game's `buildInteriorMap(id, level, variant, storey)` at level 1-3 (with the edge furnishings), run with the edited layouts (swapped into the loaded tables for the call, then restored) |
+
+- **World-gen does not use user sites / POI pools / castle ruins yet** (amber banner + list badge "not in world-gen"):
+  user site templates load into `SITE_TEMPLATES` and can be stamped from creative mode, but `generateForts` names its
+  ids and a settlement's `profile` is the closed list hearthmoor / ironhold / riverwatch; user POI files are loaded and
+  validated (`poiTemplateFiles`) but `placePoiSite` reads only the built-in `ruin` pool (`encampment` stamps a tier-1 camp
+  template instead; the encampment pool's extras are the camp-hearth burnable tiles in hearths.ts); `placeCastleRuin`
+  reads only the built-in `castle-ruin`. Changing that is a later game change.
+- **Interiors edit the game** (red banner, always on): "This edits the game's built-in interiors; client and server both
+  read these files at build time; restart the server and rebuild the client; revert with git." Save asks to confirm,
+  then `POST /api/interiors/<id>/save` writes the file after: the nine exact names only (never `legend.json`, never a
+  new file), `validateInteriorFile` (incl. the hall invariant), the hash you opened must still be the file on disk (else
+  409), the game's `normaliseInteriorFile` + `JSON.stringify(f, null, 2) + "\n"` (the files' own format: an untouched
+  file saves byte-identical), a backup in `art-sources/lab/backups/<time>/shared/src/data/interiors/`, an atomic
+  rename. "Show diff vs git HEAD" reads the committed file (`git show HEAD:./<path>`, execFile, fixed arguments) and
+  shows the line diff against the editor's content (unsaved edits included). The game requires exactly 3 variants:
+  "+ Variant" / "− Variant" are allowed while editing (to replace one) but the validator refuses saving another count;
+  moving a variant changes which building gets which layout (warned).
+- **Sites**: painting a tile on open ground gives that cell tier 1 in the Tiers grid (and erasing clears it), so the two
+  grids stay valid; change tiers on the Tiers grid (digits 1..max tier).
+- **Interior art**: the room renderer's own tables (`PROP_TILE` -> `STRUCTURE_FURNITURE_ART`, `PROP_EXTRA`, the oriented
+  `interiors-v2` pieces, the rug, `PROP_COLOR` stand-in blocks, `PROP_HEIGHT_PX`, `FLOOR_COLOR`, `WALL`), read from the
+  text of client/src/interior.ts by `shared/interiorArt.ts` (they are module-private there; a test fails if the text
+  drifts). Not reproduced: the 3/4 wall faces, the autumn-atlas stairs frame (its code-drawn stand-in is used), lighting.
+  Level-gated symbols show a gold "2+" / "3+".
+- API: `GET /api/interiors`, `GET /api/interiors/<id>`, `GET /api/interiors/<id>/head`, `POST /api/interiors/<id>/save`
+  ({file, baseHash}); `POST /api/stamp` also takes `{kind: "sites", tier}` and `{kind: "pois", samples}`.
 
 | Key (Area tab) | Action |
 | --- | --- |
@@ -300,7 +342,8 @@ refused), `POST /api/clips/<name>/delete`, `POST /api/exports` ({name, png} -> a
 Area: `GET /api/templates/<kind>[?full=1]` (list), `GET /api/templates/<kind>/<builtin|user>/<id>` (template + hash +
 errors), `POST /api/templates/<kind>/save` ({template, overwrite?, baseHash?}), `.../import` ({template}, never
 overwrites), `.../duplicate` ({src, from, id, name?}), `.../delete` ({id}, user only), `.../validate` ({template}),
-`POST /api/stamp` ({kind: camps|settlements, template, transform, seed}: the real stamper).
+`POST /api/stamp` ({kind: camps|settlements|sites|pois, template, transform, seed, tier?, samples?}: the real stamper);
+stage B: kinds `sites`, `pois`, `castle-ruins` on the same routes, interiors on `/api/interiors` (see "Area tab").
 
 ## Tests
 
@@ -311,10 +354,15 @@ npx tsc --noEmit -p tools/sprite-lab                 # type check
 ```
 
 Every test works on scratch copies (`mkdtemp` + copy of `client/public/rig`, LAB_ROOT; the Area tests also copy
-`server/data/{camps,buildings,settlements}` and part of `client/public/sprites`) on ports 31800-31899 and never
-touches the repo. Area: `area-server` (API, allow-list, refusals, backups, every built-in round trip), `area-grid` (grid
-ops vs the game's functions, anchors, placement / collision, previews), `area-game` (the game's own template stores load
-Lab-saved files and write the same bytes; real stamper = shared-code preview), `area-smoke` (headless browser). The smoke test needs Playwright and Chromium: by default the module from
+`server/data/{camps,buildings,settlements,sites,pois,castle-ruins}`, `shared/src/data/interiors` and part of
+`client/public/sprites`) on ports 31800-31899 and never touches the repo. Area: `area-server` (API, allow-list,
+refusals, backups, every built-in round trip), `area-grid` (grid ops vs the game's functions, anchors, placement /
+collision, previews), `area-game` (the game's own template stores load Lab-saved files and write the same bytes, stage B
+stores too; real stamper = shared-code preview; real stamper for sites / POI pools), `area-data` (stage B API +
+allow-list incl. the interiors special case, refusals with the validators' reasons, 409, backups, byte-identical round
+trips of every built-in site / POI / castle / interior file, interior grid ops, the hall invariant, interior preview =
+`buildInteriorMap` for every file x layout x level, the art tables, diff vs HEAD), `area-smoke` and `area-data-smoke`
+(headless browser). The smoke test needs Playwright and Chromium: by default the module from
 `/home/james/projects/auto-loan-ff-release/package.json` and the Chromium in this session's scratchpad; override with
 `LAB_PLAYWRIGHT_PKG`, `LAB_CHROME`; screenshots go to `LAB_SHOTS` (default the scratchpad `lab-shots/`).
 
@@ -350,8 +398,11 @@ not used as this tool's name. The rest of the Lab is part of this repo.
   (orange outline instead of the green planted bar). Fix it in a duplicate (shorter stride, lower hips) or in the parts.
 - Import PNG through a non-PNG file goes through a canvas (fine for opaque art; PNGs are decoded losslessly).
 - The draw order in `lab.json` is the Lab's own; the game and body.html still use their hard-coded order.
-- Area: forts / ruins / POIs and building interiors are still code in the game (stage B, see HANDOFF.md). The real
-  stamper uses the repo's built-in templates (not a `--root` copy's) and saved user buildings (not unsaved edits).
+- Area stage B: user sites / POI pools / castle ruins are saved and load in the game's stores but world-gen does not use
+  them yet (see "Area tab"); the Castle Ruin preview is shared-code only; the POI preview runs the `ruin` path of
+  `placePoiSite` (the game stamps a camp template for `encampment`); interiors are saved into the game's built-in files
+  (restart the server, rebuild the client) and must keep exactly 3 variants; a new building TYPE needs game code. The
+  real stamper uses the repo's built-in templates (not a `--root` copy's) and saved user buildings (not unsaved edits).
   Tiles are drawn one sprite per cell (no autotiling). A user template whose file name differs from its id is listed
   and opened by file name; saving writes `<id>.json` (a rename leaves the old file: delete it). The game loads user
   templates at boot: restart the game server to see a Lab save in game.
