@@ -1,5 +1,6 @@
 import {scatterHostileInterior} from './hostileScatter.js';
 import {interiorSolidGrid,type InteriorMap,type InteriorProp} from './interiors.js';
+import {MINE_NODES_MIN,MINE_NODES_MAX} from './mines.js';
 export type UndergroundKind='mine'|'cave';
 export interface UndergroundOptions{seed:number;kind:UndergroundKind;depth:number;levels?:number;layered?:boolean}
 type Point={x:number;y:number};
@@ -47,9 +48,21 @@ export function buildUnderground(o:UndergroundOptions){
   const add=(prop:InteriorProp)=>{for(const p of spots)if(place(prop,p.x,p.y))return p;return undefined;};
   if(o.kind==='mine'){
    if(s.id>0){const ore=add('oreFace');if(ore){const {seen}=reached(),near=dirs.map(([dx,dy])=>({x:ore.x+dx,y:ore.y+dy})).find(p=>seen.has(p.y*w+p.x));if(near&&map.slots.length<5){map.slots.push({...near,slot:map.slots.length?'v':'1'});reserved.add(near.y*w+near.x);}}}
-   add('timberProp');if(s.id===0||s.id===7){add('crates');add('barrel');}else add('mineralNode');
+   add('timberProp');if(s.id===0||s.id===7){add('crates');add('barrel');}
   }else{if(s.id===3||s.id===9)add('chest');else add('stalagmite');if(s.id>0){add('cobweb');add('skullBones');}}
-  add('lamp');if(s.id>0){add('rockBlock');add(o.kind==='cave'?'fallenSkeleton':'mineralNode');}
+  add('lamp');if(o.kind==='cave'&&s.id>0){add('rockBlock');add('fallenSkeleton');}
+ }
+ // Mining rework (2026-11-26; shared/src/mines.ts MINE_NODES_*): a mine level holds 3-5 hand-harvested nodes, one per
+ // chosen chamber (never the entrance): "Mineral outcrop" in a Mine, "Rock outcrop" in the (stone-only) Quarry. Chosen
+ // and placed from a hash of the layout seed and depth (no draws from the dressing stream above).
+ if(o.kind==='mine'){
+  const hash=(n:number)=>{let v=(o.seed^Math.imul(n+depth*977,0x9e3779b9))>>>0;v=Math.imul(v^(v>>>16),0x45d9f3b)>>>0;return (v^(v>>>16))>>>0;};
+  const want=MINE_NODES_MIN+hash(0)%(MINE_NODES_MAX-MINE_NODES_MIN+1),prop:InteriorProp=o.layered?'mineralNode':'rockBlock';let placed=0;
+  for(const s of landmarks.filter(s=>s.id>0).sort((a,b)=>hash(a.id+1)-hash(b.id+1))){
+   if(placed>=want)break;
+   const spots=Array.from({length:81},(_,i)=>({x:s.x-4+i%9,y:s.y-4+Math.floor(i/9)})).filter(p=>p.x>0&&p.y>0&&p.x<w-1&&p.y<h-1&&cells[p.y*w+p.x]==='.'&&!reserved.has(p.y*w+p.x)).sort((a,b)=>hash(100+a.y*w+a.x)-hash(100+b.y*w+b.x));
+   if(spots.some(p=>place(prop,p.x,p.y)))placed++;
+  }
  }
  if(o.kind==='mine'&&o.layered&&depth<levels)place('mineShaft',shaft.x,shaft.y,true);
  if(o.kind==='cave')scatterHostileInterior(map,'cave',o.seed>>>0);

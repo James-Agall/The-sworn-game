@@ -17,7 +17,6 @@ import { GAME_DAY_TICKS, UPGRADE_NAMES } from "./constants.js";
 import { currentBuildingLevel, sendEvent } from "./construction.js";
 import { workshopEffectAt } from "./structures.js";
 import { villagerJobProfession } from "./work.js";
-import { DEPOSIT_MINES, depositMineFor } from "@colony/shared/mines";
 import { mineWorkMult } from "./mines.js";
 import { coldWorkMult } from "./winter.js";
 import { CRAFT_RECIPES } from "./constants.js";
@@ -173,7 +172,7 @@ export function progressionInfo(tx: number, ty: number, t: TileType): string[] |
       if (job) lines.push(`Making: ${PROGRESSION.items[job.recipe.output].label} (${Math.round(100 * (1 - job.left / job.total))}%)`);
     }
     if (workers.length > 0 && stationRecipes(t).length > 0 && ![...workers].some((c) => stationJobs.has(c.id))) lines.push(`${CRAFT_RECIPES[t] ? CRAFT_MEANWHILE[CRAFT_RECIPES[t]!.output] ?? "Meanwhile" : "Idle"}: ${stationIdleReason(t, level)}`);
-    if (t === TileType.IronMinePost || t === TileType.RockMinePost || depositMineFor(t)) lines.push(depositLine(tx, ty));
+    if (t === TileType.IronMinePost || t === TileType.RockMinePost) lines.push(depositLine(tx, ty));
     if (workers.length > 0) lines.push(`Works at tier ${tier} of ${level}: speed x${tierSpeed(tier).toFixed(2)}, quality ${QUALITY_GRADES[Math.min(tier, MAX_QUALITY) - 1].label}`);
   }
   if (!gatesOpen() && level < 3 && (prof || PROGRESSION.buildings[t]?.levels)) {
@@ -387,11 +386,11 @@ const richCarry = new Map<string, number>();
 export function depositBonus(c: Colonist, resource: "iron" | "rock") {
   state.stock[resource] += depositExtra(c);
 }
-// The whole extra units a known fair / rich deposit adds to this load (0 off a mine or unknown). Deep mines: the coal /
-// copper / tin mines too (their batches, progression station recipes).
+// The whole extra units a known fair / rich deposit adds to this load (0 off a mine or unknown): the Quarry and the
+// Mine (its layers' batches too).
 export function depositExtra(c: Colonist): number {
   const t = state.tiles[tileIndex(c.postX, c.postY)] as TileType;
-  if ((t !== TileType.IronMinePost && t !== TileType.RockMinePost && !depositMineFor(t)) || !depositKnown(c.postX, c.postY)) return 0;
+  if ((t !== TileType.IronMinePost && t !== TileType.RockMinePost) || !depositKnown(c.postX, c.postY)) return 0;
   const extra = (richCarry.get(c.id) ?? 0) + (depositRichness(c.postX, c.postY) - 1) * 0.5;
   const whole = Math.floor(extra);
   richCarry.set(c.id, extra - whole);
@@ -428,7 +427,7 @@ export function updateProspecting() {
     state.progress.prospecting = undefined;
     (state.progress.prospected ??= []).push(job.x, job.y, PROSPECT_RADIUS_TILES);
     const counts = [0, 0, 0];
-    for (const t of [TileType.IronOre, TileType.Rock, TileType.IronMinePost, TileType.RockMinePost, ...DEPOSIT_MINES.flatMap((d) => [d.deposit, d.mine])]) {
+    for (const t of [TileType.IronOre, TileType.Rock, TileType.IronMinePost, TileType.RockMinePost]) {
       for (const i of tileIndicesOf(t)) {
         const x = i % state.WORLD_TILES_X;
         const y = Math.floor(i / state.WORLD_TILES_X);

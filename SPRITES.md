@@ -1143,3 +1143,16 @@ No live deployment and no push. Visual taste and prolonged multiplayer animation
 - The way down to a Mine's next level (interior prop `mineShaft`) is drawn with the Mine's own world sprite
   (`/sprites/ironMine.png`), temporarily. Wanted: a ladder / winch-head over a dark shaft in the interiors-v2 style.
 - The Mine keeps the old Iron Mine art in the world; its ore face flecks by level (copper, iron, gold) inside.
+
+## #116 Mining rework placeholders (2026-11-26)
+- **STILL TO SUPPLY: `quarry-pit`** (`client/public/sprites/quarry-pit.png`, used only for the Quarry, TileType.RockMinePost,
+  in `client/src/worldVisuals.ts`). It is a PLACEHOLDER: a byte-for-byte copy of `quarry.png`, so the Quarry looks
+  exactly as before. Wanted: a stepped open-cut stone pit (terraced grey rock walls, a hoist or ramp, a few dressed
+  blocks), 128x128 like `quarry.png`, clearly different from the Mine (`ironMine`). Do NOT change `quarry.png` itself:
+  the Clay Pit, Cellar and the inert legacy Coal / Tin Mine and Lime Quarry stand-ins reuse it.
+- The six deposit tiles (coal seam, copper / tin ore, limestone, gold / lead ore) are retired: world gen no longer makes
+  them and their `rock` / `ironOre` stand-in mappings are gone. Iron ore (`ironOre`, `ironOre2`, `ironOre3`) is the one
+  mineral tile on the map.
+- Mineral nodes inside a Mine reuse the per-ore underground art (`/sprites/underground-v4/<ore>.png`: copperOre,
+  tinOre, limestone, iron, coal, goldOre, leadOre), chosen by the ore each node currently holds; a depleted node is drawn
+  faded. The Quarry's rock nodes reuse `underground-v2/rock-column.png`. No new art.

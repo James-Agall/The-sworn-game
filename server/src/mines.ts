@@ -39,14 +39,14 @@ import { buildInteriorMap, interiorSolidGrid, type InteriorMap } from "@colony/s
 import {
   MINE_LAYER_ENCOUNTER, MINE_LAYER_INFEST_CHANCE, MINE_LAYER_MOB_MULT, MINE_LAYER_REINFEST_CHANCE, MINE_LAYER_YIELDS,
   MINE_RESOURCE_LABEL, isLayeredMine, mineLayerResourcesText, type MineResource,
-  DEPOSIT_MINES, MINE_ASSAULT_MAX_ROUNDS, MINE_ASSAULT_MAX_SOLDIERS, MINE_ASSAULT_RADIUS_TILES, MINE_ATTACK_DEATHS,
+  MINE_ASSAULT_MAX_ROUNDS, MINE_ASSAULT_MAX_SOLDIERS, MINE_ASSAULT_RADIUS_TILES, MINE_ATTACK_DEATHS,
   MINE_BAD_AIR_SPEED, MINE_CAVE_IN_CHANCE, MINE_CAVE_IN_HURT, MINE_CLEAR_GOLD, MINE_CLEAR_GRACE_DAYS, MINE_ENCOUNTER_BY_LEVEL,
   MINE_FLOOD_CHANCE, MINE_FOREMAN_LEVEL, MINE_GUARD_RADIUS_TILES, MINE_HERO_BOW_REACH_TILES, MINE_HERO_REACH_TILES,
   MINE_HERO_SPEAR_REACH_TILES, MINE_INFEST_CHANCE_BY_LEVEL, MINE_LABEL, MINE_LOOT_BONES_CHANCE, MINE_LOOT_GEM_CHANCE,
   MINE_LOOT_ORE, MINE_MOB_AGGRO_TILES, MINE_MOB_REACH_TILES, MINE_MOB_SEND_TICKS, MINE_MOB_STATS, MINE_MOB_WAKE_TILES,
   MINE_PROPS_WEAR_DAYS, MINE_REINFEST_CHANCE, MINE_REINFEST_EVERY_DAYS, MINE_REINFEST_FOREMAN_MULT, MINE_REINFEST_LIT_MULT,
   MINE_REINFEST_PROPPED_MULT, MINE_STATUS_LABEL, MINE_TILES, isMineTile, type MineInfo, type MineMobLive, type MineStatus,
-  type MineView, MINE_LAYER_PICK, MINE_HERO_BAD_AIR_HURT, MINE_HERO_CAVE_IN_CHANCE, MINE_HERO_CAVE_IN_HURT, MINE_DANGER_LABEL, MINE_RISK_LABEL, mineRiskOf,
+  type MineView, MINE_LAYER_PICK, MINE_NODE_RESPAWN_DAYS, MINE_NODE_ROCK, MINE_HERO_BAD_AIR_HURT, MINE_HERO_CAVE_IN_CHANCE, MINE_HERO_CAVE_IN_HURT, MINE_DANGER_LABEL, MINE_RISK_LABEL, mineRiskOf,
 } from "@colony/shared/mines";
 import type { ItemId } from "@colony/shared/progression";
 import type { Colonist, Mob, Player } from "./types.js";
@@ -63,7 +63,12 @@ import { damageColonist, damagePlayer } from "./combat.js";
 import { heroProfileOf, heroRewardsForKill, playerAttackCooldownTicks, playerDamage, playerMaxHp } from "./heroes.js";
 import { isSoldierKind, unitStats } from "./units.js";
 import { addItem, bronzeToolMult, itemCount, takeItem, workerLevel } from "./progression.js";
-import { exitInterior } from "./interiors.js";
+import { exitInterior, refreshInteriorView } from "./interiors.js";
+import { lifeOf, packWeight, toast } from "./herolife.js";
+import { clanOf } from "./clans.js";
+import { PACK_CAP, PACK_WEIGHT } from "@colony/shared/herolife";
+import { PROGRESSION } from "@colony/shared/progression";
+import { undergroundNodeOre } from "@colony/shared/undergroundArt";
 
 interface MineMob extends BossAgent {
   spell?:{appliedTick?:number;burnUntil?:number;burnNext?:number;burnPower?:number;burnPlayer?:string;slowUntil?:number;slow?:number;curseUntil?:number;curse?:number};
@@ -87,7 +92,15 @@ interface MineMob extends BossAgent {
   repathAt: number;
 }
 // One layer (the Quarry has one; a Mine one per open level). Game days: cleared on, last re-infestation roll.
+interface NodeRec {
+  // cycleTick from which the node can be mined again (0 / past: ready).
+  ready: number;
+  // A Mine node: the ore it holds now (rolled again each time it is mined; absent: the layout's default ore).
+  ore?: MineResource;
+}
 interface LayerRec {
+  // Mineral / rock nodes the hero worked ("x,y" on the layer map; mining rework 2026-11-26).
+  nodes?: Record<string, NodeRec>;
   summonsSpawned?:number;
   lastActiveTick?:number;
   status: MineStatus;
@@ -412,6 +425,75 @@ export function mineHeroDigSpeed(tx: number, ty: number, p?: Player): number {
   const air = r.level >= 3 && itemsOf(clanAt(r), "mineVent") < 1 ? MINE_BAD_AIR_SPEED : 1;
   return air * bronzeToolMult("hero");
 }
+// ---- mineral nodes: the hero's hand harvest inside your own Mine / Quarry (mining rework 2026-11-26) ----
+// shared/src/underground.ts puts 3-5 nodes on each level: "Mineral outcrop" (mineralNode) in a Mine, "Rock outcrop"
+// (rockBlock) in the Quarry. E at one (furniture.ts useFurniture) mines it: a Mine node gives one ore of its layer's
+// pool (the ore it shows; a new random one is rolled for when it regrows), a Quarry node MINE_NODE_ROCK rock. Carried
+// goods (iron ore, rock) go into the pack and need room there (a full pack leaves the node untouched); the other ores
+// go to the stores as every adventure find does. Needs the layer's pickaxe (the Quarry: any pickaxe) and a clear /
+// cleared layer that is not closed today; a mined node is depleted for MINE_NODE_RESPAWN_DAYS game days (saved).
+const nodePropOf = (r: MineRec) => (r.layered ? "mineralNode" : "rockBlock");
+function nodeAt(p: Player, x: number, y: number, prop: string) {
+  const I = p.interior;
+  if (!I || I.templateId !== "mine") return undefined;
+  const r = mineRecAt(I.tx, I.ty);
+  if (!r || r.encounter || prop !== nodePropOf(r)) return undefined;
+  const li = layerOfPlayer(r, p);
+  const L = r.layers[li];
+  if (!L) return undefined;
+  const map = layerMap(r, li).map;
+  if (!map.props.some((q) => q.x === x && q.y === y && q.prop === prop)) return undefined;
+  const key = `${x},${y}`;
+  const rec = L.nodes?.[key];
+  const pool = (MINE_LAYER_YIELDS[li] ?? []).map((v) => v.res);
+  const ore: MineResource | undefined = r.layered ? rec?.ore ?? undergroundNodeOre(map, x, y) ?? pool[0] : undefined;
+  return { I, r, li, L, key, ore, pool, left: Math.max(0, (rec?.ready ?? 0) - state.cycleTick) };
+}
+const nodeHours = (ticks: number) => Math.max(1, Math.ceil((ticks / GAME_DAY_TICKS) * 24));
+const nodeName = (ore: MineResource | undefined) => (ore ? `${MINE_RESOURCE_LABEL[ore][0].toUpperCase()}${MINE_RESOURCE_LABEL[ore].slice(1)} outcrop` : "Rock outcrop");
+// furniture.ts furnitureView: a node's line (label, prompt, worked out, the ore it shows); undefined: not a node here.
+export function mineNodeLive(p: Player, x: number, y: number, prop: string): { label: string; prompt: string; empty: boolean; ore?: string } | undefined {
+  const n = nodeAt(p, x, y, prop);
+  if (!n) return undefined;
+  const label = nodeName(n.ore);
+  if (n.left > 0) return { label, prompt: `Worked out (back in ${nodeHours(n.left)} h):`, empty: true, ...(n.ore ? { ore: n.ore } : {}) };
+  return { label, prompt: n.ore ? "Mine" : "Chip stone from", empty: false, ...(n.ore ? { ore: n.ore } : {}) };
+}
+// furniture.ts useFurniture (E at a node, in reach): true when (x, y) is a node of this mine level (handled here).
+export function mineNodeHarvest(p: Player, x: number, y: number, prop: string): boolean {
+  const n = nodeAt(p, x, y, prop);
+  if (!n) return false;
+  const { r, L } = n;
+  if (L.status === "infested") return toast(p, "Monsters still hold this level: clear the nest before working its outcrops"), true;
+  const why = r.layered ? mineDigBlock(r.tx, r.ty, n.li + 1) : !gatesOff() && r.closedDay === today()
+    ? r.closedWhy === "flood" ? "The Quarry is flooded today (a Bucket pump keeps it dry)" : "Cave-in: the Quarry is closed today (keep timber props in store)" : "";
+  if (why) return toast(p, why), true;
+  if (n.left > 0) return toast(p, `This outcrop is worked out. It grows back in about ${nodeHours(n.left)} hours`), true;
+  const clan = clanOf(p);
+  const picks: ItemId[] = r.layered ? (gatesOff() ? [] : [MINE_LAYER_PICK[n.li]]) : ["stonePick", "bronzePick", "ironPick"];
+  if (picks.length && !picks.some((id) => itemsOf(clan, id) > 0)) {
+    return toast(p, r.layered ? `You need a ${PROGRESSION.items[picks[0]].label} in your stores to mine this level's ore` : "You need a pickaxe in your stores to chip stone"), true;
+  }
+  if (p.attackCooldownTicks > 0) return true;
+  const life = lifeOf(p);
+  const carried = !r.layered ? { good: "rock" as const, n: MINE_NODE_ROCK } : n.ore === "iron" ? { good: "iron" as const, n: 1 } : undefined;
+  if (carried && packWeight(life) + carried.n * PACK_WEIGHT[carried.good] > PACK_CAP + 1e-9) {
+    return toast(p, "Your pack is full: make room (deposit at a stockpile) and come back. The outcrop keeps its ore"), true;
+  }
+  p.attackCooldownTicks = 15;
+  if (carried) life.pack[carried.good] = (life.pack[carried.good] ?? 0) + carried.n;
+  else withClan(clan, () => addItem(n.ore as ItemId, 1));
+  (L.nodes ??= {})[n.key] = {
+    ready: state.cycleTick + MINE_NODE_RESPAWN_DAYS * GAME_DAY_TICKS,
+    ...(r.layered ? { ore: n.pool[Math.min(n.pool.length - 1, Math.floor(roll() * n.pool.length))] } : {}),
+  };
+  toast(p, r.layered
+    ? `Mined 1 ${MINE_RESOURCE_LABEL[n.ore!]}${carried ? " (carried)" : " (to your stores)"}. The outcrop grows back in a day`
+    : `Chipped ${MINE_NODE_ROCK} rock (carried). The outcrop grows back in a day`);
+  refreshInteriorView(n.I.key);
+  return true;
+}
+
 // A finished batch in an unpropped shaft (layer 2+, no timber props in store) may bring the roof down: the hero is
 // hurt, the batch is lost and the Mine closes for the day. Returns the toast ("" = no cave-in).
 export function mineHeroCaveIn(p: Player, tx: number, ty: number, layer: number): string {
@@ -502,7 +584,6 @@ function reinfestChance(r: MineRec, clan: Clan, li: number): number {
 function lootFor(r: MineRec, li: number, m: MineMob): string[] {
   const got: string[] = [];
   if(r.encounter){state.stock.gold+=2;return ['2 gold'];}
-  const tile = state.tiles[tileIndex(r.tx, r.ty)];
   if (r.layered) {
     // A Mine: one of the layer's own resources.
     const ys = MINE_LAYER_YIELDS[Math.min(2, li)];
@@ -511,10 +592,9 @@ function lootFor(r: MineRec, li: number, m: MineMob): string[] {
     else addItem(res, MINE_LOOT_ORE);
     got.push(`${MINE_LOOT_ORE} ${MINE_RESOURCE_LABEL[res]}`);
   } else {
-    const dep = DEPOSIT_MINES.find((q) => q.mine === tile);
-    if (dep) addItem(dep.item, MINE_LOOT_ORE);
-    else state.stock.rock += MINE_LOOT_ORE;
-    got.push(`${MINE_LOOT_ORE} ${dep ? dep.item.replace(/[A-Z]/g, (ch) => " " + ch.toLowerCase()) : "rock"}`);
+    // The Quarry: stone only.
+    state.stock.rock += MINE_LOOT_ORE;
+    got.push(`${MINE_LOOT_ORE} rock`);
   }
   if (m.kind === "skeleton" || roll() < MINE_LOOT_BONES_CHANCE) {
     addItem("bones", 1);
@@ -897,6 +977,7 @@ export function handleMineAssault(p: Player, tx: unknown, ty: unknown) {
 
 // ---- saves / reset / tests ----
 interface LayerSave {
+  nodes?: Record<string, { ready: number; ore?: string }>;
   exploration?:ExplorationSave;
   summonsSpawned?:number;
   status: MineStatus;
@@ -926,7 +1007,7 @@ interface MineSave {
 export function minesForSave(): MineSave[] {
   return Array.from(mines.entries(), ([key, r]) => ({
     key, specialCastVersion:r.specialCastVersion, defeatedSpecials:r.defeatedSpecials??[], level: r.level, layered: r.layered,...(r.layoutSeed!==undefined?{layoutSeed:r.layoutSeed,layoutVersion:2 as const}:{}), ...(r.encounter?{encounter:r.encounter,variant:r.variant,...(r.encounter==='cave'||r.encounter==='ruin'?{encounterContentVersion:HOSTILE_CONTENT_VERSION}:{}),...(r.encounter==='ruin'?{ruinLayoutVersion:2 as const}:{})}:{}),
-    layers: r.layers.map((L,li) => ({ exploration:explorationSave(key,li),summonsSpawned:L.summonsSpawned??0, status: L.status, mobs: aliveIn(L).map((m) => ({ kind: m.kind, rallyUsed:m.rallyUsed===true,summon:m.summon===true, ...(m.specialId?{specialId:m.specialId}:{}), x: Math.round(m.x), y: Math.round(m.y), hp: Math.ceil(m.hp) })), clearedDay: L.clearedDay, rollDay: L.rollDay })),
+    layers: r.layers.map((L,li) => ({ ...(L.nodes ? { nodes: structuredClone(L.nodes) } : {}), exploration:explorationSave(key,li),summonsSpawned:L.summonsSpawned??0, status: L.status, mobs: aliveIn(L).map((m) => ({ kind: m.kind, rallyUsed:m.rallyUsed===true,summon:m.summon===true, ...(m.specialId?{specialId:m.specialId}:{}), x: Math.round(m.x), y: Math.round(m.y), hp: Math.ceil(m.hp) })), clearedDay: L.clearedDay, rollDay: L.rollDay })),
     propsDay: r.propsDay, closedDay: r.closedDay, closedWhy: r.closedWhy, unpropped: r.unpropped, turn: r.turn,
   }));
 }
@@ -957,6 +1038,13 @@ export function restoreMines(data: unknown) {
       L.status = s?.status === "infested" || s?.status === "cleared" ? s.status : "clear";
       L.clearedDay = num(s?.clearedDay, -1e9);
       L.rollDay = num(s?.rollDay, L.rollDay);
+      if (s?.nodes && typeof s.nodes === "object") {
+        const pool = (MINE_LAYER_YIELDS[li] ?? []).map((v) => v.res as string);
+        for (const [k, v] of Object.entries(s.nodes).slice(0, 32)) {
+          if (!/^\d{1,3},\d{1,3}$/.test(k) || !v || typeof v !== "object" || typeof v.ready !== "number" || !Number.isFinite(v.ready)) continue;
+          (L.nodes ??= {})[k] = { ready: v.ready, ...(layered && typeof v.ore === "string" && pool.includes(v.ore) ? { ore: v.ore as MineResource } : {}) };
+        }
+      }
       for (const m of Array.isArray(s?.mobs) ? s.mobs : []) {
         const mob = newMob(m?.kind as MobKind, multOf(r, li)*(m.summon===true ? .65 : 1), num(m?.x, 1), num(m?.y, 1), num(m?.hp, 1e9));
         if(mob){mob.rallyUsed=m.rallyUsed===true;mob.summon=m.summon===true;}
@@ -1024,11 +1112,18 @@ export function mineDebug(msg: Record<string, unknown>) {
     mine: rec && L ? {
       tx: rec.tx, ty: rec.ty, level: rec.level, layered: rec.layered, layer: li + 1, status: L.status, mobs: liveOf(L), clearedDay: L.clearedDay, rollDay: L.rollDay,
       propsDay: rec.propsDay, closedDay: rec.closedDay, closedWhy: rec.closedWhy, unpropped: rec.unpropped,
+      // Mining rework: this layer's hand-harvested nodes (layout props) and their state.
+      nodes: rec.encounter ? [] : layerMap(rec, li).map.props.filter((q) => q.prop === nodePropOf(rec)).map((q) => {
+        const n = L.nodes?.[`${q.x},${q.y}`];
+        return { x: q.x, y: q.y, prop: q.prop, ready: n?.ready ?? 0, left: Math.max(0, (n?.ready ?? 0) - state.cycleTick), ore: rec.layered ? n?.ore ?? undergroundNodeOre(layerMap(rec, li).map, q.x, q.y) : undefined };
+      }),
       layers: rec.layers.map((q) => ({ status: q.status, mobs: aliveIn(q).length, maxHp: aliveIn(q).map((m) => m.maxHp), kinds: aliveIn(q).map((m) => m.kind) })),
       workMult: mineWorkMult(rec.tx, rec.ty), foreman: hasForeman(rec), guarded: !!guardedBy(rec), info: mineInfo(rec.tx, rec.ty), chance: reinfestChance(rec, clanAt(rec), li),
     } : null,
     all: Array.from(mines.values(), (q) => ({ key: `${q.tx},${q.ty}`, level: q.level, status: overall(q), mobs: alive(q).length, layered: q.layered })),
     day: today(),
+    dayTicks: GAME_DAY_TICKS,
+    cycleTick: state.cycleTick,
     forcedRoll,
   };
 }

@@ -16,7 +16,9 @@ import { state } from "./state.js";
 // named by the save's own worldgenVersion). 3: bandit camp templates (2026-11-06). 7: gap closure G7 (settlements
 // turned / mirrored, quest slots, 6 more settlement templates). 8: gap closure G8 (town-citadel: a keep building).
 // 10: deep mines (coal / copper / tin veins, scattered last: worldgen.ts scatterDeposits). 11: industry extras
-// (limestone / gold / lead veins after those).
+// (limestone / gold / lead veins after those). 23: mining rework (2026-11-26): no deposit veins; iron ore guaranteed
+// near the start (worldgen.ts ensureStartOre); and roads that cross marsh ponds become bridges, not dirt causeways
+// (regionWorld.ts, ROAD-WATER-2026-11-26.md).
 export const WORLDGEN_VERSION = 23;
 const gzipAsync = promisify(gzip);
 const gunzipAsync = promisify(gunzip);

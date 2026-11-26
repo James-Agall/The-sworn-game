@@ -6,9 +6,16 @@ export const undergroundFloorUrl=(_m:InteriorMap)=>'/sprites/underground-v3/ston
 export const CAVE_WALL_ART={face:root+'cliff-face.png',rim:root+'rock-rim.png',side:root+'side-wall.png',body:root+'rock-body.png'};
 export function undergroundWallUrl(_m:InteriorMap,_mask:number){return CAVE_WALL_ART.face;}
 export function undergroundResources(m:InteriorMap):MineResource[]{return m.underground?.kind==='mine'&&!m.underground.rockOnly?(MINE_LAYER_YIELDS[(m.underground.depth??1)-1]??MINE_LAYER_YIELDS[0]).map(v=>v.res):[];}
+// The ore an ore face / mineral node at (x, y) shows by default (by its order among them): every one of the layer's
+// resources appears. A Mine's mineral node starts with this ore (server mines.ts; rerolled when it regrows).
+export function undergroundNodeOre(m:InteriorMap,x:number,y:number):MineResource|undefined{
+ const resources=undergroundResources(m);if(!resources.length)return undefined;
+ const nodes=m.props.filter(p=>p.prop==='oreFace'||p.prop==='mineralNode'),index=nodes.findIndex(p=>p.x===x&&p.y===y);return resources[(index<0?Math.abs(x*7+y*11):index)%resources.length];
+}
+export const undergroundOreUrl=(ore:MineResource)=>root+ore+'.png';
 export function undergroundMineralUrl(m:InteriorMap,x:number,y:number){
- const resources=undergroundResources(m);if(!resources.length)return m.underground?.rockOnly?'/sprites/regions-v3/rock-block.png':old+'crystals.png';
- const nodes=m.props.filter(p=>p.prop==='oreFace'||p.prop==='mineralNode'),index=nodes.findIndex(p=>p.x===x&&p.y===y),choice=resources[(index<0?Math.abs(x*7+y*11):index)%resources.length];return root+choice+'.png';
+ const ore=undergroundNodeOre(m,x,y);if(!ore)return m.underground?.rockOnly?'/sprites/regions-v3/rock-block.png':old+'crystals.png';
+ return undergroundOreUrl(ore);
 }
 export function undergroundPropUrl(m:InteriorMap,prop:string,tile?:number,x=0,y=0){
  return prop==='crates'?'/sprites/structure/extra/crates_barrels_stack.png':prop==='barrel'?'/sprites/structure/extra/barrel.png':prop==='oreFace'||prop==='mineralNode'?(tile===TileType.RockMinePost?'/sprites/regions-v3/rock-block.png':undergroundMineralUrl(m,x,y))

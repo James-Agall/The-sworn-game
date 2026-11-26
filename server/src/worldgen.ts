@@ -5,7 +5,7 @@ import {expandKeepFootprints} from './keepFootprints.js';
 // Split out of index.ts (ROADMAP "Server module split"); behaviour unchanged.
 import { randomUUID } from "node:crypto";
 import {
-  type ServerMessage, TileType, Biome, type MobKind, type BossTier, bossTitle, VISION_RADIUS_PLAYER, TILE_SIZE, VISION_RADIUS_COLONIST,
+  type ServerMessage, TileType, Biome, isSolidTile, type MobKind, type BossTier, bossTitle, VISION_RADIUS_PLAYER, TILE_SIZE, VISION_RADIUS_COLONIST,
 } from "@colony/shared/protocol";
 import type { Mob, PoiSiteKind, ResourceKey, TileCoord } from "./types.js";
 import {
@@ -23,7 +23,7 @@ import {
 import { colonists, hearths, mobs, players, scaledCount, scaledCountSub, state, wildlife } from "./state.js";
 import { markTileRegistryStale, setTile } from "./chunks.js";
 import { clearOwners, inBounds, ownerAt, tileIndex, tileToPixelCenter } from "./tiles.js";
-import { DEPOSIT_MINES, DEPOSIT_START_CLEAR_TILES, DEPOSIT_VEINS_PER_80, DEPOSIT_VEIN_MAX_TILES, DEPOSIT_VEIN_MIN_TILES } from "@colony/shared/mines";
+import { START_ORE_MIN, START_ORE_MIN_DIST_TILES, START_ORE_RADIUS_TILES } from "@colony/shared/mines";
 import { WILDLIFE_CONFIG, generateForage, spawnInitialWildlife } from "./wildlife.js";
 import {
   TOWN_CENTER_TILE, isAbbeyClergy, spawnColonistForPost, spawnStartingPeople, townCenterMaxHp,
@@ -59,52 +59,73 @@ export function scatterResourceTiles(tileType: TileType, count: number) {
   }
 }
 
-// Deep mines (shared/src/mines.ts): coal seams and copper / tin ore, in small veins grown from a seed tile. Placed
-// last and from their own generator (seeded by the world's noise salt), so no shared RNG draw moves: an older
-// streamed save regenerates its world exactly, plus these. Only onto Empty ground off reserved / owned grounds, clear
-// of the start and of the world's units standing there. Also backfills a loaded world that has none (applyWorld).
-// `only`: just these deposit kinds (a loaded world missing some); default every kind.
-export function scatterDeposits(only?: TileType[]) {
-  let seed = (state.worldNoiseSalt ^ 0x5eedc0a1) >>> 0;
-  const rnd = () => {
-    seed = (seed + 0x6d2b79f5) >>> 0;
-    let t = seed;
-    t = Math.imul(t ^ (t >>> 15), t | 1);
-    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
-    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
-  };
-  const W = state.WORLD_TILES_X;
-  const H = state.WORLD_TILES_Y;
-  const cx = Math.floor(W / 2);
-  const cy = Math.floor(H / 2);
+// Mining rework (2026-11-26; shared/src/mines.ts START_ORE_*): iron ore is the single mineral tile, so the first Town
+// Center always has some within reach: at least START_ORE_MIN outcrops within START_ORE_RADIUS_TILES (Euclidean),
+// START_ORE_MIN_DIST_TILES or more from it, each on open ground (no solid tile or water around it) that the Town
+// Center's surroundings reach on foot, off reserved / owned grounds and not under a unit. Run last in world gen (after
+// every stamp that clears or claims ground, e.g. the countryside farms), from a hash of the world's noise salt (no
+// shared RNG draws: a streamed save regenerates the same base). Existing ore that qualifies counts. Returns how many
+// qualifying outcrops there are afterwards.
+export function ensureStartOre(): number {
+  const tc = state.townCenters[0];
+  if (!tc) return 0;
+  const R = START_ORE_RADIUS_TILES;
   const occupied = new Set<number>();
   // (Players are not counted: the base layer must come out the same when a streamed save regenerates it.)
   for (const list of [colonists.values(), mobs.values(), wildlife.values()] as Iterable<{ x: number; y: number }>[]) {
     for (const u of list) occupied.add(tileIndex(Math.floor(u.x / TILE_SIZE), Math.floor(u.y / TILE_SIZE)));
   }
-  const ok = (x: number, y: number) =>
-    x > 0 && y > 0 && x < W - 1 && y < H - 1 && state.tiles[tileIndex(x, y)] === TileType.Empty && !occupied.has(tileIndex(x, y)) &&
-    Math.max(Math.abs(x - cx), Math.abs(y - cy)) > DEPOSIT_START_CLEAR_TILES && !isInReservedGrounds(x, y) && ownerAt(tileIndex(x, y)) === 0;
-  for (const d of DEPOSIT_MINES) {
-    if (only && !only.includes(d.deposit)) continue;
-    const veins = Math.max(1, Math.round(DEPOSIT_VEINS_PER_80[d.item] * state.WORLD_AREA_SCALE));
-    for (let v = 0, tries = 0; v < veins && tries < veins * 40; tries++) {
-      const x = Math.floor(rnd() * W);
-      const y = Math.floor(rnd() * H);
-      if (!ok(x, y)) continue;
-      v++;
-      const size = DEPOSIT_VEIN_MIN_TILES + Math.floor(rnd() * (DEPOSIT_VEIN_MAX_TILES - DEPOSIT_VEIN_MIN_TILES + 1));
-      const vein = [{ x, y }];
-      setTile(tileIndex(x, y), d.deposit);
-      for (let k = 0; vein.length < size && k < size * 8; k++) {
-        const from = vein[Math.floor(rnd() * vein.length)];
-        const [dx, dy] = ([[1, 0], [-1, 0], [0, 1], [0, -1]] as const)[Math.floor(rnd() * 4)];
-        if (!ok(from.x + dx, from.y + dy)) continue;
-        vein.push({ x: from.x + dx, y: from.y + dy });
-        setTile(tileIndex(from.x + dx, from.y + dy), d.deposit);
-      }
+  const walk = (x: number, y: number) => {
+    if (!inBounds(x, y)) return false;
+    const t = state.tiles[tileIndex(x, y)] as TileType;
+    return !isSolidTile(t) && t !== TileType.Water && t !== TileType.Moat;
+  };
+  // Ground reachable on foot from around the Town Center, within the radius (+2 for the ring around an outcrop).
+  const reach = new Set<number>();
+  const queue: number[] = [];
+  for (let dy = -2; dy <= 2; dy++) for (let dx = -2; dx <= 2; dx++) {
+    const x = tc.x + dx;
+    const y = tc.y + dy;
+    if (walk(x, y) && !reach.has(tileIndex(x, y))) { reach.add(tileIndex(x, y)); queue.push(tileIndex(x, y)); }
+  }
+  for (let q = 0; q < queue.length; q++) {
+    const x = queue[q] % state.WORLD_TILES_X;
+    const y = Math.floor(queue[q] / state.WORLD_TILES_X);
+    for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+      const nx = x + dx;
+      const ny = y + dy;
+      if (Math.hypot(nx - tc.x, ny - tc.y) > R + 2 || !walk(nx, ny) || reach.has(tileIndex(nx, ny))) continue;
+      reach.add(tileIndex(nx, ny));
+      queue.push(tileIndex(nx, ny));
     }
   }
+  const spot = (x: number, y: number) => {
+    const d = Math.hypot(x - tc.x, y - tc.y);
+    if (d > R || d < START_ORE_MIN_DIST_TILES || !inBounds(x, y) || isInReservedGrounds(x, y) || ownerAt(tileIndex(x, y)) !== 0) return false;
+    let reached = false;
+    for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
+      if (!dx && !dy) continue;
+      if (!walk(x + dx, y + dy)) return false;
+      if (reach.has(tileIndex(x + dx, y + dy))) reached = true;
+    }
+    return reached;
+  };
+  const near: { x: number; y: number }[] = [];
+  for (let y = tc.y - R; y <= tc.y + R; y++) for (let x = tc.x - R; x <= tc.x + R; x++) if (inBounds(x, y)) near.push({ x, y });
+  let have = near.filter((p) => state.tiles[tileIndex(p.x, p.y)] === TileType.IronOre && spot(p.x, p.y)).length;
+  if (have >= START_ORE_MIN) return have;
+  const rank = (p: { x: number; y: number }) => latticeHash(p.x, p.y, state.worldNoiseSalt ^ 0x0e5eed);
+  const free = near
+    .filter((p) => state.tiles[tileIndex(p.x, p.y)] === TileType.Empty && !occupied.has(tileIndex(p.x, p.y)) && reach.has(tileIndex(p.x, p.y)))
+    .sort((a, b) => rank(a) - rank(b));
+  for (const p of free) {
+    if (have >= START_ORE_MIN) break;
+    // Re-checked as outcrops go down: one never walls in another.
+    if (!spot(p.x, p.y)) continue;
+    setTile(tileIndex(p.x, p.y), TileType.IronOre);
+    have++;
+  }
+  return have;
 }
 
 // ---- World generation: biomes, ponds, resource scatter, POI sites (ruins / encampments) ----
@@ -785,9 +806,11 @@ async function generateWorldInner(wrap: (fn: () => void) => void, version: numbe
     wrap(() => generateRegionWorld(version));
     expandKeepFootprints();
     await worldgenProgress("resources",0);
-    wrap(() => { generateForage(); scatterDeposits(); });
+    wrap(() => generateForage());
     await worldgenProgress("wildlife",0);
     wrap(() => { spawnInitialWildlife(); resetExplored(); spawnStartingPeople(state.townCenters[0]); });
+    // Mining rework: iron ore near the start, last (see ensureStartOre).
+    wrap(() => { ensureStartOre(); });
     console.log(`[world] region generation finished in ${(performance.now()-genStart).toFixed(0)} ms`);
     return;
   }
@@ -840,8 +863,8 @@ async function generateWorldInner(wrap: (fn: () => void) => void, version: numbe
     spawnStartingPeople(state.townCenters[0]);
   });
   timed("wildlife+people");
-  // Deep mines: coal / copper / tin veins, last (their own generator; see scatterDeposits).
-  wrap(() => scatterDeposits());
-  timed("deposits");
+  // Mining rework: iron ore near the start, last (see ensureStartOre).
+  wrap(() => { ensureStartOre(); });
+  timed("startOre");
   console.log(`[world] generated ${state.WORLD_TILES_X}x${state.WORLD_TILES_Y} in ${(performance.now() - genStart).toFixed(0)} ms (${laps.join(", ")})`);
 }

@@ -4,10 +4,12 @@ import {buildUnderground} from '../shared/src/underground.js';
 import {caveWallPieces} from '../shared/src/caveWalls.js';
 import {caveRails,caveRailPieces} from '../shared/src/caveRails.js';
 import {caveScenery} from '../shared/src/caveScenery.js';
-import {undergroundResources,undergroundPropUrl,CAVE_WALL_ART} from '../shared/src/undergroundArt.js';
+import {undergroundResources,undergroundPropUrl,undergroundOreUrl,CAVE_WALL_ART} from '../shared/src/undergroundArt.js';
 import {MINE_LAYER_YIELDS} from '../shared/src/mines.js';
 import {interiorLayoutAccessible} from '../shared/src/interiors.js';
 for(const url of Object.values(CAVE_WALL_ART))assert(existsSync('client/public'+url));
+// Mining rework: every ore a mineral node can hold has its own art (the node is drawn by the ore it holds now).
+for(const res of MINE_LAYER_YIELDS.flat().map(y=>y.res))assert(existsSync('client/public'+undergroundOreUrl(res)),`ore art for ${res}`);
 let maps=0,corners=0,junctions=0;
 for(let seed=1;seed<=8;seed++)for(const kind of ['mine','cave'] as const)for(let depth=1;depth<=3;depth++){
  const {map,solid}=buildUnderground({seed,kind,depth,levels:3,layered:kind==='mine'}),before=JSON.stringify(map),walls=caveWallPieces(map),body=new Set(walls.filter(p=>p.kind==='body').map(p=>p.y*map.w+p.x));

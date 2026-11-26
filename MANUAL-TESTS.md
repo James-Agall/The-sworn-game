@@ -29,6 +29,30 @@ Normal game (creative off); your real game is fine: nothing is ever deleted exce
    open the main menu: **Continue** loads that newest autosave; **Load Game** lists the same rows.
 5. Manual Save to Slot 1-3 still works and those rows are untouched by autosaves.
 
+## Mining rework (2026-11-26)
+New game (normal, creative off). Details: `MINING-REWORK-2026-11-26.md`.
+1. Map: no coal / copper / tin / limestone / gold / lead deposit tiles anywhere; iron ore (rust-red streaked rock) is the
+   only mineral tile and fairly rare. At least two iron ore outcrops lie within ~20 tiles of your Town Center, on open
+   ground you can walk up to (try two or three new worlds, sizes 160 and 512).
+2. Quarry (Industry tab): hover plain grey rock: white ghost; hover iron ore: red ghost. Right-click iron ore within 2
+   tiles: "That is an ore outcrop: it takes a Mine, not a Quarry ...". On grey rock it goes up (art unchanged for now:
+   `quarry-pit` is a placeholder copy, see SPRITES.md #116). Hover the tool: the tooltip names grey stone / ore / cave rock.
+3. Mine: on grey rock it is refused ("That is plain grey stone: it takes a Quarry ..."), on empty ground refused ("A Mine
+   must be sunk on an ore outcrop ..."); on iron ore it goes up. Demolish it: the iron ore tile comes back.
+4. Clear the Mine's level-1 nest (E at its door, fight). Inside you see 3-5 ore outcrops, each drawn with its ore
+   (copper / tin / limestone art on level 1). While the nest is alive, E at one says "Monsters still hold this level".
+   (The ore faces beside the miners' work spots look similar; E there still starts the timed dig as before.)
+5. With a Stone pick in store, E at an outcrop: "Mined 1 copper ore (to your stores)" (or tin / limestone); the outcrop
+   fades and its hint reads "Worked out (back in 24 h)". E again: "worked out". Sleep / wait a full game day: it is
+   bright again (maybe showing a different ore of the level) and mines again.
+6. Upgrade to level 2 (bronze pickaxe), clear it, go down the shaft: outcrops show iron ore or coal. Iron ore goes into
+   your carried pack ("(carried)"); with a full pack: "Your pack is full ... The outcrop keeps its ore". Without the
+   bronze pickaxe in store: "You need a Bronze pickaxe". Level 3 (iron pickaxe): gold / lead ore.
+7. Quarry interior: only grey rock outcrops (no ore). E at one with any pickaxe: "Chipped 2 rock (carried)"; it fades
+   and grows back after a day. Chests / caches in the Quarry hold rock, no limestone or other ore.
+8. Your posted miners keep producing as before (Mine: the open levels' ores; Quarry: rock).
+9. Save, mine an outcrop, load: the outcrop is bright again (as saved). Mine one, save, load: it stays worked out.
+
 ## Post-Castle goals (2026-11-20)
 After "Clear the Castle Ruin" the goal card should continue: Destroy 3 enemy camps, Take a vassal, Hold 600 gold, Survive
 15 nights, each with a "Goal complete" toast and a small reward; only after the last does it read "Complete".

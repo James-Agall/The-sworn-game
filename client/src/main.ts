@@ -72,7 +72,7 @@ import { raidForecastText, type RaidForecast } from "@colony/shared/raidForecast
 import { FUEL_LOW_DAYS, type WinterSnapshot } from "@colony/shared/winter";
 import { foodLevel, type FoodSnapshot } from "@colony/shared/food";
 import type { AgriSnapshot } from "@colony/shared/agri";
-import { MINE_RISK_LABEL,isOreGround } from "@colony/shared/mines";
+import { MINE_RISK_LABEL } from "@colony/shared/mines";
 // Solo hero (herolife.ts): set once the hero bar exists; the socket handler forwards dialogue / life to it.
 const heroLifeRef: { ui: HeroLifeUi | null } = { ui: null };
 const heroToolsRef: { ui: ReturnType<typeof setupHeroTools> | null } = { ui: null };
@@ -3809,18 +3809,6 @@ async function main() {
         return MINIMAP_ROCK;
       case TileType.IronOre:
         return MINIMAP_IRON;
-      case TileType.CoalSeam:
-        return MINIMAP_COAL;
-      case TileType.CopperOre:
-        return MINIMAP_COPPER;
-      case TileType.TinOre:
-        return MINIMAP_TIN;
-      case TileType.Limestone:
-        return MINIMAP_LIMESTONE;
-      case TileType.GoldOre:
-        return MINIMAP_GOLD;
-      case TileType.LeadOre:
-        return MINIMAP_LEAD;
       case TileType.Wall:
       case TileType.StoneWall:
       case TileType.Gate:
@@ -9043,7 +9031,8 @@ async function main() {
         return isWideBridge(currentTool) ? t!==TileType.Moat : t !== TileType.Empty && !(FURNITURE_FOOTPRINT[currentTool] && isFloorTile(t));
       });
     const resourceTool=currentTool===TileType.RockMinePost||currentTool===TileType.IronMinePost;
-    const validDeposit=currentTool===TileType.RockMinePost?hovered===TileType.Rock:isOreGround(hovered);
+    // Mining rework: a Quarry only on plain grey Rock, a Mine only on an iron ore outcrop.
+    const validDeposit=hovered===(currentTool===TileType.RockMinePost?TileType.Rock:TileType.IronOre);
     const hero=latestPlayersForSpells.find(p=>p.id===myId);
     const tooFar=resourceTool&&!!hero&&Math.hypot(hero.x-(tile.tileX+.5)*tileSize,hero.y-(tile.tileY+.5)*tileSize)>2.5*tileSize;
     const blocked=blockedFootprint||(resourceTool&&!upgrading&&(!validDeposit||tooFar));

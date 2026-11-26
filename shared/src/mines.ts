@@ -31,34 +31,22 @@ export const MINE_LABEL: Record<number, string> = {
   [TileType.GoldMine]: "Gold Mine",
   [TileType.LeadMine]: "Lead Mine",
 };
-// The new deposits, the mine sunk on each (placed only on its deposit; demolished, the deposit comes back) and the
-// item its miner digs (shared/src/progression.ts recipes).
-// Industry extras: limestone (flux, lime), gold ore (washed into gold dust) and lead ore, appended (world gen places
-// them after the first three, so those keep their spots).
-export type DepositItem = "coal" | "copperOre" | "tinOre" | "limestone" | "goldOre" | "leadOre";
-export const DEPOSIT_MINES: { deposit: TileType; mine: TileType; item: DepositItem; label: string }[] = [
-  { deposit: TileType.CoalSeam, mine: TileType.CoalMine, item: "coal", label: "Coal seam" },
-  { deposit: TileType.CopperOre, mine: TileType.CopperMine, item: "copperOre", label: "Copper ore" },
-  { deposit: TileType.TinOre, mine: TileType.TinMine, item: "tinOre", label: "Tin ore" },
-  { deposit: TileType.Limestone, mine: TileType.LimeQuarry, item: "limestone", label: "Limestone" },
-  { deposit: TileType.GoldOre, mine: TileType.GoldMine, item: "goldOre", label: "Gold ore" },
-  { deposit: TileType.LeadOre, mine: TileType.LeadMine, item: "leadOre", label: "Lead ore" },
-];
-export const DEPOSIT_TILES: readonly TileType[] = DEPOSIT_MINES.map((d) => d.deposit);
-export function depositMineFor(tile: number) {
-  return DEPOSIT_MINES.find((d) => d.mine === tile || d.deposit === tile);
-}
-// Ore ground a Mine may be sunk on: iron ore or any deposit (the deposits stay as map markers; demolished, a Mine
-// gives its ground back).
-export function isOreGround(t: number): boolean {
-  return t === TileType.IronOre || DEPOSIT_TILES.includes(t as TileType);
-}
+// Mining rework (2026-11-26): iron ore (TileType.IronOre) is the single mineral tile on the map: a Mine is sunk only on
+// it (demolished, the ore comes back) and the Quarry only on plain grey Rock. The six old deposit tiles (coal seam,
+// copper / tin ore, limestone, gold / lead ore) are inert legacy like the old mine tiles: world gen no longer makes
+// them. Every ore below now comes from the Mine's layers (its miners, the hero's mineral nodes inside).
+export type MineOre = "coal" | "copperOre" | "tinOre" | "limestone" | "goldOre" | "leadOre";
+// World gen: at least START_ORE_MIN iron ore outcrops within START_ORE_RADIUS_TILES (Euclidean) of the first Town
+// Center, on open, reachable ground off reserved / owned grounds and at least START_ORE_MIN_DIST_TILES from it.
+export const START_ORE_MIN = 2;
+export const START_ORE_RADIUS_TILES = 20;
+export const START_ORE_MIN_DIST_TILES = 4;
 
 // ---- the Mine's layers (one per building level; upgrading the Mine opens the next layer) ----
 export const MINE_LAYERS = 3;
 // What each layer yields: a miner's batch digs 1 (+ a known deposit's bonus) of one resource, rotating over every
 // clear / cleared open layer's resources that are under their cap. "iron" is the iron ore stock.
-export type MineResource = DepositItem | "iron";
+export type MineResource = MineOre | "iron";
 export const MINE_LAYER_YIELDS: { res: MineResource; cap: number }[][] = [
   [{ res: "copperOre", cap: 60 }, { res: "tinOre", cap: 60 }, { res: "limestone", cap: 60 }],
   [{ res: "iron", cap: 400 }, { res: "coal", cap: 80 }],
@@ -82,14 +70,6 @@ export const MINE_LAYER_ENCOUNTER: { count: [number, number]; kinds: { kind: Mob
 export const MINE_LAYER_MOB_MULT = [1, 1.3, 1.7];
 // Re-infestation by layer (rolled every MINE_REINFEST_EVERY_DAYS at dawn on a clear layer, lowered like the Quarry's).
 export const MINE_LAYER_REINFEST_CHANCE = [0, 0.25, 0.4];
-// World gen: veins per 80x80 tiles of world (scaled by area like ore / rock), each MIN..MAX tiles grown from a seed.
-// Placed last, from a hash of the world's noise salt (no shared RNG draws, so older streamed saves keep their worlds).
-export const DEPOSIT_VEINS_PER_80: Record<DepositItem, number> = { coal: 6, copperOre: 4, tinOre: 3, limestone: 5, goldOre: 2, leadOre: 3 };
-export const DEPOSIT_VEIN_MIN_TILES = 2;
-export const DEPOSIT_VEIN_MAX_TILES = 4;
-// Veins keep at least this many tiles from the world's centre (the first Town Center).
-export const DEPOSIT_START_CLEAR_TILES = 6;
-
 // ---- infestation ----
 export type MineStatus = "clear" | "infested" | "cleared";
 // When a shaft reaches a level (placed or dug deeper) the depth decides: the chance it breaks into a nest, by level
@@ -145,6 +125,18 @@ export const MINE_HERO_CAVE_IN_HURT = 0.25;
 // Same daily roll as the cave-in (MINE_HERO_CAVE_IN_CHANCE); the Mine stays open.
 export const MINE_HERO_BAD_AIR_HURT = 0.15;
 
+// ---- mineral nodes (inside your own Mine / Quarry, harvested by hand: E; 2026-11-26) ----
+// Each Mine layer holds MINE_NODES_MIN..MAX "Mineral outcrop" nodes (shared/src/underground.ts places them, from the
+// layout seed: the tile, the level and the world salt); the Quarry's interior holds the same number of "Rock outcrop"
+// nodes instead. A node gives the hero one ore of its layer's pool (the ore it shows; rerolled when it regrows) or,
+// in the Quarry, MINE_NODE_ROCK rock; it needs the layer's pickaxe (the Quarry: any pickaxe), a clear / cleared layer
+// and room in the pack for carried goods (iron ore, rock). A harvested node is depleted for MINE_NODE_RESPAWN_DAYS game
+// days (saved with the mine). The miners' automatic production is separate and unchanged.
+export const MINE_NODES_MIN = 3;
+export const MINE_NODES_MAX = 5;
+export const MINE_NODE_RESPAWN_DAYS = 1;
+export const MINE_NODE_ROCK = 2;
+
 // ---- risk preview (the Mine / Quarry panel before an upgrade digs deeper; 2026-11-20) ----
 export type MineRisk = "none" | "low" | "medium" | "high" | "certain";
 export const MINE_RISK_LABEL: Record<MineRisk, string> = { none: "None", low: "Low", medium: "Medium", high: "High", certain: "Certain" };
@@ -176,7 +168,7 @@ export const MINE_MOB_STATS: Partial<Record<MobKind, { hp: number; damage: numbe
 export const MINE_MOB_SEND_TICKS = 3;
 
 // ---- loot (per kill, into the clan's stores) ----
-// Ore: the mine's own product (Quarry rock, Iron Mine iron, coal / copper ore / tin ore) per kill.
+// Ore: the mine's own product (Quarry rock; a Mine layer one of its ores) per kill.
 export const MINE_LOOT_ORE = 2;
 // Bones (skeletons always, others at this chance) and rough gems (rare; skeletons and giant spiders more often).
 export const MINE_LOOT_BONES_CHANCE = 0.35;

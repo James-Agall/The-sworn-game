@@ -11,7 +11,6 @@ import { homeDesignsForSave,restoreHomeDesigns,type InteriorChestsSave, interior
 import {furnitureSave,restoreFurniture} from "./furniture.js";
 import { groundItemsForSave, resetGroundItems, restoreGroundItems, type GroundItemsSave } from "./groundItems.js";
 import { minesForSave, resetMines, restoreMines } from "./mines.js";
-import { DEPOSIT_MINES } from "@colony/shared/mines";
 import { orchardsForSave, resetAgri, restoreOrchards } from "./agri.js";
 import { topUpCreative } from "./creative.js";
 import { type Stats, promises as fsp, mkdirSync, readdirSync, renameSync, unlinkSync, writeFileSync } from "node:fs";
@@ -39,7 +38,6 @@ import { initialStock, markFarmFieldsDirty, newFarmPlot } from "./economy.js";
 import { topUpBarnFarmers } from "./construction.js";
 import {
   WorldgenCancelled, beginWorldJob, endWorldJob, generateWorld, sendLoadProgress, setWorldSize, worldJob, worldgenProgress,
-  scatterDeposits,
 } from "./worldgen.js";
 import { LOADING_SCREEN_MIN_WORLD_TILES } from "@colony/shared/streaming";
 import { chronicleForSave, restoreChronicle } from "./chronicle.js";
@@ -609,12 +607,9 @@ function applyWorldInner(s: WorldState) {
   restoreFurniture(s.furniture);
   restoreGroundItems(s.groundItems);
   populateExistingRegionTowns();
-  // Deep mines (optional). A world from before them (none of a deposit kind anywhere: no deposit, no mine on one) gets
-  // those veins now (industry extras: limestone / gold / lead in a deep-mines world).
+  // Deep mines (optional).
   restoreMines(s.mines);
   restoreOrchards(s.orchards);
-  const missing = DEPOSIT_MINES.filter((d) => !state.tiles.some((t) => t === d.deposit || t === d.mine)).map((d) => d.deposit);
-  if (missing.length > 0) scatterDeposits(missing);
   // Modular building phase 4: work mode (runtime jobs are re-decided).
   restoreWork(s.workManual);
   // Stardew phase 5d: after the tiles (houses are re-found from them).
