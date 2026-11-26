@@ -16,7 +16,7 @@ import { seedHomeDesign } from './interiors.js';
 
 export let generatedRegionPlan: RegionPlan | null = null;
 export function restoreRegionPlan(plan: RegionPlan | undefined) { generatedRegionPlan=plan?.version===1?plan:null; }
-export function generateRegionWorld(version = 22) {
+export function generateRegionWorld(version = 23) {
  const width=state.WORLD_TILES_X,height=state.WORLD_TILES_Y;
  const plan=planRegions(width,height,state.worldNoiseSalt,version);
  generatedRegionPlan=plan;
@@ -76,7 +76,13 @@ export function generateRegionWorld(version = 22) {
   const x0=r.x*32,y0=r.y*32;
   for(let y=y0;y<Math.min(y0+32,height);y++)for(let x=x0;x<Math.min(x0+32,width);x++){
    const i=y*width+x;
-   if(protectedTiles[i]||roadTiles[i])continue;
+   if(protectedTiles[i]||roadTiles[i]){
+    // v23: a planned road through a marsh pond keeps the pond under it, so the final road pass lays a RiverBridge
+    // there instead of a bare dirt causeway. marshTile's wet test ignores the roll: no random number is drawn.
+    // Landmark / start grounds stay dry, so the pond (and the bridge) stops short of a protected neighbour.
+    if(version>=23&&roadTiles[i]&&!protectedTiles[i]&&r.kind==='marsh'&&marshTile(x%32,y%32,r.variant,0)===TileType.Water&&!(x>0&&protectedTiles[i-1]||x<width-1&&protectedTiles[i+1]||y>0&&protectedTiles[i-width]||y<height-1&&protectedTiles[i+width])){state.biomes[i]=Biome.Swamp;setTile(i,TileType.Water);}
+    continue;
+   }
    const roll=Math.random();
    state.biomes[i]=r.kind==='marsh'?Biome.Swamp:r.kind==='cave'?Biome.Hills:Biome.Plains;
    if(version>=20&&r.kind==='marsh'){setTile(i,marshTile(x%32,y%32,r.variant,roll));continue;}
@@ -169,15 +175,25 @@ export function generateRegionWorld(version = 22) {
   }
  }
  // Roads are stamped last and never overwrite settlement buildings, gates or encounter props.
+ const laid:number[]=[];
  for(const i of roads){
   const x=i%width,y=Math.floor(i/width);
   if(version>=18){const region=plan.regions[Math.floor(y/32)*plan.columns+Math.floor(x/32)],city=region?.city===undefined?undefined:plan.cities[region.city];if(city&&x>=city.x*32+1&&x<(city.x+city.w)*32-1&&y>=city.y*32+1&&y<(city.y+city.h)*32-1)continue;}
   if(landmarkAt(x,y)||ownerAt(i)!==0||state.tiles[i]===TileType.TownCenter)continue;
+  if(version>=23)laid.push(i);
   const tile=state.tiles[i];
   if([TileType.Empty,TileType.Tree,TileType.Rock,TileType.IronOre,TileType.Water].includes(tile)){
    setTile(i,tile===TileType.Water?(version>=20?TileType.RiverBridge:TileType.Drawbridge):TileType.Road);
    if(tile===TileType.Water&&version<20)gates.set(i,{open:true,lock:'auto',clearTicks:0,overrun:false});
   }
+ }
+ // v23: a dry speck of road left between two ponds (water on opposite sides, or on 3-4 sides) joins the bridge
+ // either side of it instead of showing as a dirt causeway. Only open-country road tiles laid above are touched.
+ for(const i of laid){
+  if(state.tiles[i]!==TileType.Road)continue;
+  const x=i%width,y=Math.floor(i/width),wet=(xx:number,yy:number)=>inBounds(xx,yy)&&state.tiles[tileIndex(xx,yy)]===TileType.Water;
+  const n=wet(x,y-1),s=wet(x,y+1),w=wet(x-1,y),e=wet(x+1,y);
+  if(n&&s||w&&e||+n+ +s+ +w+ +e>=3)setTile(i,TileType.RiverBridge);
  }
  // Ensure the centre of every external city connector is open all the way to its street.
  console.log(`[regions] ${plan.regions.length} regions, ${sites.size} settlements, 32-cell chunks`);
