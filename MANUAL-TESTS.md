@@ -4,6 +4,18 @@ Start the game with `scripts/live.sh` (frozen copy that keeps running while code
 code) or `npm run dev`. Open http://localhost:5173. Detailed step-by-step checklists live at the end of each
 "landed" section in `ROADMAP.md`; this is the short version, in the order I would try them.
 
+## Rotating autosaves (2026-11-26)
+Normal game (creative off); your real game is fine: nothing is ever deleted except older `autosave-<n>.json` files.
+1. Play past several dawns (or leave it running). Each dawn the server log prints `[save] autosave-<n>: ... KiB ...
+   diff+snapshot+stringify N ms (blocks the tick)` with n counting up; `server/saves/` gains `autosave-<n>.json`.
+2. Settings -> Save Game: the Load list shows "Autosave <n>" rows newest first (day / pop / time each), then
+   "Autosave (old)" (your previous single autosave, if any), then Slot 1-3. After about 12 autosaves you should see
+   10, then the newest (and e.g. 15 between 15 and 19).
+3. Load a middle one (e.g. Autosave 10): the world jumps back to that day; the next dawn writes the next number (not 11).
+4. Stop the server (Ctrl+C or the Stop launcher): the log says `autosave on SIGINT (autosave-<n>)`. Start it again and
+   open the main menu: **Continue** loads that newest autosave; **Load Game** lists the same rows.
+5. Manual Save to Slot 1-3 still works and those rows are untouched by autosaves.
+
 ## Post-Castle goals (2026-11-20)
 After "Clear the Castle Ruin" the goal card should continue: Destroy 3 enemy camps, Take a vassal, Hold 600 gold, Survive
 15 nights, each with a "Goal complete" toast and a small reward; only after the last does it read "Complete".
