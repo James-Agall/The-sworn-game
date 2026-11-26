@@ -13,15 +13,16 @@ import { minesForSave, resetMines, restoreMines } from "./mines.js";
 import { DEPOSIT_MINES } from "@colony/shared/mines";
 import { orchardsForSave, resetAgri, restoreOrchards } from "./agri.js";
 import { topUpCreative } from "./creative.js";
-import { promises as fsp, mkdirSync, writeFileSync } from "node:fs";
+import { type Stats, promises as fsp, mkdirSync, readdirSync, renameSync, unlinkSync, writeFileSync } from "node:fs";
 import path from "node:path";
-import { type SaveSlot, SAVE_SLOTS, TileType, type SaveInfo, type ServerMessage } from "@colony/shared/protocol";
+import { type SaveSlot, SAVE_SLOTS, TileType, type SaveInfo, type ServerMessage, autosaveNumber, isSaveSlot, saveSlotLabel } from "@colony/shared/protocol";
+import { autosaveFileNumber, autosaveFilesToDelete, nextAutosaveNumber } from "./autosaves.js";
 import type {
   Colonist, HearthState, SiteState, HeroRecruit, Mob, Player, RaidGroup, SaveFile, Wildlife, WorldState,
 } from "./types.js";
 import {
   AUTOSAVE_ENABLED, DAY_TICKS, GAME_DAY_TICKS, LEGACY_DAY_TICKS, LEGACY_NIGHT_TICKS, LUMBERJACK_TREE_INTERVAL_TICKS,
-  MAX_WORLD_SIZE, MIN_WORLD_SIZE, NIGHT_TICKS, clampWorldSize, SAVE_DIR, SAVE_SLOT_LABELS, SAVE_VERSION, TREE_RESPAWN_INTERVAL_TICKS,
+  MAX_WORLD_SIZE, MIN_WORLD_SIZE, NIGHT_TICKS, clampWorldSize, SAVE_DIR, SAVE_VERSION, TREE_RESPAWN_INTERVAL_TICKS,
 } from "./constants.js";
 import {
   type Clan, buildingHp, buildingLevel, clans, colonists, makeClan, tileClan, constructionSites, farmPlots, forageRegrow, treeChops, forgeAuto, gates, gravestones,
@@ -45,7 +46,7 @@ import { restoreRooms, roomsForSave } from "./structures.js";
 import { type ZonesSave, restoreZones, zonesForSave } from "./zones.js";
 import { restoreWork, workForSave } from "./work.js";
 import {
-  type TileDiffs, deflateBase64, diffTilesForSave, ensureBaseCacheFile, expandTiles, forgetWorldSeed, inflateBase64, loadBase, pruneBaseFiles, regeneratedBaseMatches,
+  type TileDiffs, deflateBase64, diffTilesForSave, prepareDiffSave, ensureBaseCacheFile, expandTiles, forgetWorldSeed, inflateBase64, loadBase, pruneBaseFiles, regeneratedBaseMatches, baseFileNameOf,
 } from "./worldbase.js";
 import { civilianPopulationUsed, getColonistsAtPost, releaseToVillage, isAbbeyClergy, isPersonKind, newPerson, settlementOf, spawnPointNearTownCenter } from "./colonists.js";
 import { guardStats } from "./units.js";
@@ -257,18 +258,31 @@ export function serialized<T>(fn: () => Promise<T>): Promise<T> {
   return run;
 }
 
-export function isSaveSlot(value: unknown): value is SaveSlot {
-  return typeof value === "string" && (SAVE_SLOTS as string[]).includes(value);
-}
+export { isSaveSlot };
 
 export function savePath(slot: SaveSlot): string {
+  // The slot names the file: only the fixed slots and canonical autosave-<n> (never a path of the caller's).
+  if (!isSaveSlot(slot)) throw new Error(`Not a save slot: ${String(slot)}`);
   return path.join(SAVE_DIR, `${slot}.json`);
 }
 
 // Plain-object view of the world. Serialized right away (JSON.stringify), so live objects are
 // referenced rather than copied. Raid groups' Maps become entry arrays.
-export function snapshotWorld() {
-  return withClan(clans[0], snapshotWorldInner);
+// diffLayer: a streamed save (saveFileFor) replaces tiles / biomes / explored, so they are not encoded at all.
+export function snapshotWorld(diffLayer = false) {
+  return withClan(clans[0], () => snapshotWorldInner(diffLayer));
+}
+
+// A number Map's [key, value] pairs as one flat array, in the Map's order (what Array.from(map).flat() gives,
+// without an array per entry: the NPC tile owners of a 1024 world are ~90k pairs).
+function flatPairs(map: Map<number, number>): number[] {
+  const out = new Array<number>(map.size * 2);
+  let i = 0;
+  for (const [k, v] of map) {
+    out[i++] = k;
+    out[i++] = v;
+  }
+  return out;
 }
 
 // Clan 0 is saved in the top-level fields (as before clans); clans 1+ in `clans`, their tiles in `tileClans`.
@@ -285,15 +299,15 @@ export function snapshotClan(c: Clan) {
   };
 }
 
-function snapshotWorldInner() {
+function snapshotWorldInner(diffLayer: boolean) {
   return {
     clans: clans.slice(1).map(snapshotClan) as ReturnType<typeof snapshotClan>[] | undefined,
-    tileClans: Array.from(tileClan).flat() as number[] | undefined,
+    tileClans: flatPairs(tileClan) as number[] | undefined,
     // World streaming phase 4: a streamed save drops tiles / biomes / explored for the fields below
     // (saveFileFor); the old full arrays stay the format of every other save.
-    tiles: Buffer.from(state.tiles).toString("base64") as string | undefined,
-    biomes: Buffer.from(state.biomes).toString("base64") as string | undefined,
-    explored: packExplored() as string | undefined,
+    tiles: (diffLayer ? undefined : Buffer.from(state.tiles).toString("base64")) as string | undefined,
+    biomes: (diffLayer ? undefined : Buffer.from(state.biomes).toString("base64")) as string | undefined,
+    explored: (diffLayer ? undefined : packExplored()) as string | undefined,
     seed: undefined as number | undefined,
     worldgenVersion: undefined as number | undefined,
     baseSum: undefined as number | undefined,
@@ -310,7 +324,7 @@ function snapshotWorldInner() {
     hearths: Array.from(hearths.values()),
     // Forts phase A: NPC tile owners as flattened [tile index, site number] pairs + the site ids they
     // name (optional: saves without them have every tile the colony's).
-    owners: Array.from(tileOwner).flat() as number[] | undefined,
+    owners: flatPairs(tileOwner) as number[] | undefined,
     ownerSites: [...ownerSiteIds] as string[] | undefined,
     // Forts phase B: SiteState per stamped fort (optional: old saves have no forts).
     sites: sitesForSave() as SiteState[] | undefined,
@@ -700,12 +714,8 @@ export function migrateSaveDayLength(oldDay: number, oldNight: number) {
 }
 
 export function saveFileFor(slot: SaveSlot, layer: TileDiffs | null = null): SaveFile {
-  const world = snapshotWorld();
-  if (layer) {
-    const bits = Buffer.from(world.explored!, "base64");
-    world.tiles = world.biomes = world.explored = undefined;
-    Object.assign(world, layer, { exploredZ: deflateBase64(bits) });
-  }
+  const world = snapshotWorld(!!layer);
+  if (layer) Object.assign(world, layer, { exploredZ: deflateBase64(Buffer.from(packExplored(), "base64")) });
   return {
     version: SAVE_VERSION,
     savedAt: new Date().toISOString(),
@@ -713,7 +723,7 @@ export function saveFileFor(slot: SaveSlot, layer: TileDiffs | null = null): Sav
     population: civilianPopulationUsed(),
     difficulty: state.difficulty,
     worldSize: state.WORLD_TILES_X,
-    label: SAVE_SLOT_LABELS[slot],
+    label: saveSlotLabel(slot),
     ...(state.creative ? { creative: true } : {}),
     state: world,
   };
@@ -729,16 +739,25 @@ export async function writeSave(slot: SaveSlot): Promise<string | null> {
   try {
     const t0 = performance.now();
     // World streaming phase 4: streamed worlds with a seeded base save diffs (writes the base cache file once).
-    const layer = streamingOn() ? await diffTilesForSave() : null;
-    const json = JSON.stringify(saveFileFor(slot, layer));
-    const syncMs = performance.now() - t0;
+    if (streamingOn()) await prepareDiffSave();
+    // From here to the write nothing else runs (the sim waits): diff + snapshot + stringify are the tick's stall.
+    const tSync = performance.now();
+    const layer = streamingOn() ? diffTilesForSave() : null;
+    const file = saveFileFor(slot, layer);
+    const json = JSON.stringify(file);
+    const syncMs = performance.now() - tSync;
     await fsp.mkdir(SAVE_DIR, { recursive: true });
     const tmp = `${savePath(slot)}.tmp`;
     await fsp.writeFile(tmp, json);
     await fsp.rename(tmp, savePath(slot));
-    if (layer) await pruneBaseFiles(SAVE_SLOTS.map(savePath));
+    await rememberSaveMeta(savePath(slot), file);
+    // Rotating autosaves: thin the history once save n is safely on disk.
+    const n = autosaveNumber(slot);
+    const dropped = n !== null ? await dropOldAutosaves(n) : 0;
+    // A dropped autosave may have been the last save naming a base cache file.
+    if (layer || dropped) await pruneBaseFiles(await referencedBaseFiles());
     console.log(
-      `[save] ${slot}: ${(json.length / 1024).toFixed(1)} KiB${layer ? ` (${layer.tileDiffs.length} diff chunks)` : ""}, snapshot+stringify ${syncMs.toFixed(1)} ms (blocks the tick), total ${(performance.now() - t0).toFixed(1)} ms`
+      `[save] ${slot}: ${(json.length / 1024).toFixed(1)} KiB${layer ? ` (${layer.tileDiffs.length} diff chunks)` : ""}, diff+snapshot+stringify ${syncMs.toFixed(1)} ms (blocks the tick), total ${(performance.now() - t0).toFixed(1)} ms${dropped ? `, ${dropped} old autosave(s) removed` : ""}`
     );
     return null;
   } catch (err) {
@@ -763,7 +782,7 @@ export async function readSave(slot: SaveSlot): Promise<string | null> {
     try {
       file = JSON.parse(await fsp.readFile(savePath(slot), "utf8"));
     } catch (err) {
-      return (err as NodeJS.ErrnoException).code === "ENOENT" ? `${SAVE_SLOT_LABELS[slot]} is empty` : `Save file is unreadable`;
+      return (err as NodeJS.ErrnoException).code === "ENOENT" ? `${saveSlotLabel(slot)} is empty` : `Save file is unreadable`;
     }
     if (file.version !== SAVE_VERSION) {
       return `Save version ${file.version} is not supported (this server reads version ${SAVE_VERSION})`;
@@ -817,23 +836,100 @@ async function expandStreamedSave(file: SaveFile): Promise<string | null> {
   return null;
 }
 
+// The saves on disk: numbered autosaves newest first, then the fixed slots (the old "autosave" first).
+async function saveSlotsOnDisk(): Promise<SaveSlot[]> {
+  let names: string[];
+  try {
+    names = await fsp.readdir(SAVE_DIR);
+  } catch {
+    return []; // no save dir yet
+  }
+  const numbered = names.map(autosaveFileNumber).filter((n): n is number => n !== null).sort((a, b) => b - a);
+  return [...numbered.map((n): SaveSlot => `autosave-${n}`), ...SAVE_SLOTS.filter((s) => names.includes(`${s}.json`))];
+}
+
+// A save file's list entry and the base cache file it needs, cached per file (inode + size + mtime): listing the
+// saves or pruning base files re-reads (JSON.parse, which blocks the tick) only files that changed. A save this
+// server writes is remembered from the object it stringified, so autosaves never parse anything.
+interface SaveMeta {
+  info: Omit<SaveInfo, "slot">;
+  base: string | null;
+}
+const saveMetaCache = new Map<string, { stamp: string; meta: SaveMeta | null }>();
+const statStamp = (st: Stats) => `${st.ino}:${st.size}:${st.mtimeMs}`;
+
+function metaOf(file: SaveFile): SaveMeta {
+  return {
+    info: {
+      label: file.label,
+      savedAt: file.savedAt,
+      dayIndex: file.dayIndex,
+      population: file.population,
+      difficulty: file.difficulty,
+      ...(file.creative ? { creative: true } : {}),
+    },
+    base: baseFileNameOf(file),
+  };
+}
+
+async function readSaveMeta(file: string): Promise<SaveMeta | null> {
+  let st: Stats;
+  try {
+    st = await fsp.stat(file);
+  } catch {
+    saveMetaCache.delete(file);
+    return null; // empty slot
+  }
+  const stamp = statStamp(st);
+  const hit = saveMetaCache.get(file);
+  if (hit && hit.stamp === stamp) return hit.meta;
+  let meta: SaveMeta | null = null;
+  try {
+    meta = metaOf(JSON.parse(await fsp.readFile(file, "utf8")));
+  } catch {
+    /* unreadable: not listed, names no base */
+  }
+  saveMetaCache.set(file, { stamp, meta });
+  return meta;
+}
+
+async function rememberSaveMeta(file: string, save: SaveFile) {
+  try {
+    saveMetaCache.set(file, { stamp: statStamp(await fsp.stat(file)), meta: metaOf(save) });
+  } catch {
+    /* gone already: the next read finds out */
+  }
+}
+
+// Rotating autosaves: deletes the autosave-<k>.json files the keep rule drops after save n (nothing else).
+async function dropOldAutosaves(n: number): Promise<number> {
+  const drop = autosaveFilesToDelete(n, await fsp.readdir(SAVE_DIR));
+  for (const name of drop) {
+    const file = path.join(SAVE_DIR, name);
+    await fsp.rm(file, { force: true });
+    saveMetaCache.delete(file);
+  }
+  return drop.length;
+}
+
+// The base cache files every save on disk (all slots and every kept autosave) still needs.
+async function referencedBaseFiles(): Promise<Set<string>> {
+  const out = new Set<string>();
+  for (const slot of await saveSlotsOnDisk()) {
+    const base = (await readSaveMeta(savePath(slot)))?.base;
+    if (base) out.add(base);
+  }
+  return out;
+}
+
 export async function listSaves(): Promise<SaveInfo[]> {
   const out: SaveInfo[] = [];
-  for (const slot of SAVE_SLOTS) {
-    try {
-      const file: SaveFile = JSON.parse(await fsp.readFile(savePath(slot), "utf8"));
-      out.push({
-        slot,
-        label: file.label,
-        savedAt: file.savedAt,
-        dayIndex: file.dayIndex,
-        population: file.population,
-        difficulty: file.difficulty,
-        ...(file.creative ? { creative: true } : {}),
-      });
-    } catch {
-      /* empty slot (or unreadable): not listed */
-    }
+  for (const slot of await saveSlotsOnDisk()) {
+    const meta = await readSaveMeta(savePath(slot));
+    if (!meta) continue; // unreadable: not listed
+    const n = autosaveNumber(slot);
+    // The old single autosave file is listed as "Autosave (old)".
+    out.push({ slot, ...meta.info, ...(n !== null ? { autosave: n } : {}), ...(slot === "autosave" ? { label: saveSlotLabel(slot) } : {}) });
   }
   return out;
 }
@@ -849,7 +945,8 @@ export function slotForSave(slot: SaveSlot): SaveSlot {
 }
 
 export async function handleSaveGame(player: Player, slot: unknown) {
-  if (!isSaveSlot(slot) || slot === "autosave" || (slot === "creative" && !state.creative)) return;
+  // Autosave slots (old and numbered) are the server's own.
+  if (!isSaveSlot(slot) || slot === "autosave" || autosaveNumber(slot) !== null || (slot === "creative" && !state.creative)) return;
   const to = slotForSave(slot);
   const error = await saveToSlot(to);
   sendTo(player, { type: "saveResult", ok: !error, ...(error ? { error } : {}), slot: to, action: "save" });
@@ -862,13 +959,19 @@ export async function handleLoadGame(player: Player, slot: unknown) {
   sendTo(player, { type: "saveResult", ok: !error, ...(error ? { error } : {}), slot, action: "load" });
 }
 
-export function runDueAutosave() {
-  if (!state.autosaveDue) return;
+// The started autosave's promise (the forceAutosave test hook waits on it), else null.
+export function runDueAutosave(): Promise<string | null> | null {
+  if (!state.autosaveDue) return null;
   state.autosaveDue = false;
   // Debounced: never more than one autosave queued or writing.
-  if (!AUTOSAVE_ENABLED || !state.anyPlayerSinceBoot || state.autosaveQueued) return;
+  if (!AUTOSAVE_ENABLED || !state.anyPlayerSinceBoot || state.autosaveQueued) return null;
   state.autosaveQueued = true;
-  void saveToSlot(slotForSave("autosave")).finally(() => (state.autosaveQueued = false));
+  return saveToSlot(nextAutosaveSlot()).finally(() => (state.autosaveQueued = false));
+}
+
+// The slot the next autosave writes: a creative game's own slot, else the next numbered autosave of the series.
+function nextAutosaveSlot(): SaveSlot {
+  return state.creative ? "creative" : `autosave-${nextAutosaveNumber(SAVE_DIR)}`;
 }
 export function saveOnShutdown(signal: string) {
   if (state.shuttingDown) return;
@@ -877,9 +980,14 @@ export function saveOnShutdown(signal: string) {
     try {
       const t0 = performance.now();
       mkdirSync(SAVE_DIR, { recursive: true });
-      const slot = slotForSave("autosave");
-      writeFileSync(savePath(slot), JSON.stringify(saveFileFor(slot)));
-      console.log(`[save] autosave on ${signal}: ${(performance.now() - t0).toFixed(1)} ms`);
+      const slot = nextAutosaveSlot();
+      const file = savePath(slot);
+      writeFileSync(`${file}.tmp`, JSON.stringify(saveFileFor(slot)));
+      renameSync(`${file}.tmp`, file);
+      // Same rotation as a dawn autosave (base cache files are pruned by the next streamed save).
+      const n = autosaveNumber(slot);
+      if (n !== null) for (const name of autosaveFilesToDelete(n, readdirSync(SAVE_DIR))) unlinkSync(path.join(SAVE_DIR, name));
+      console.log(`[save] autosave on ${signal} (${slot}): ${(performance.now() - t0).toFixed(1)} ms`);
     } catch (err) {
       console.error(`[save] autosave on ${signal} failed:`, err);
     }

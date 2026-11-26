@@ -174,7 +174,9 @@ await until(() => false, 1500);
 after = await listNow();
 result(!!after.creative && after.creative.savedAt !== mid.creative?.savedAt && after.creative.creative === true && after.creative.label === "Creative",
   `dawn autosave wrote the creative slot (${JSON.stringify(after.creative)})`);
-result(JSON.stringify(after.autosave) === JSON.stringify(before.autosave), `autosave slot untouched (${after.autosave?.savedAt ?? "none"})`);
+// Autosaves (the old file and every numbered one) untouched.
+const autosavesOf = (list) => JSON.stringify(Object.entries(list).filter(([slot]) => slot === "autosave" || slot.startsWith("autosave-")));
+result(autosavesOf(after) === autosavesOf(before), `autosave slots untouched (${autosavesOf(after)})`);
 result(!!before.slot1 && after.slot1?.savedAt === before.slot1.savedAt, "slot 1 untouched");
 
 // 7. Back to a normal game: creative off again.

@@ -1707,12 +1707,36 @@ export interface HeirCandidateSnapshot {
 }
 
 // "creative": creative-mode games save (auto and manual) only here, never over a normal game's slots.
-export type SaveSlot = "autosave" | "slot1" | "slot2" | "slot3" | "creative";
-export const SAVE_SLOTS: SaveSlot[] = ["autosave", "slot1", "slot2", "slot3", "creative"];
+// Rotating autosaves (2026-11-26): a normal game's autosaves are numbered, `autosave-<n>` (n = 1, 2, 3, ...), with
+// a thinned-out history kept (server/src/autosaves.ts). "autosave" is the old single autosave file (loadable only).
+export type FixedSaveSlot = "autosave" | "slot1" | "slot2" | "slot3" | "creative";
+export type AutosaveSlot = `autosave-${number}`;
+export type SaveSlot = FixedSaveSlot | AutosaveSlot;
+export const SAVE_SLOTS: FixedSaveSlot[] = ["autosave", "slot1", "slot2", "slot3", "creative"];
+const FIXED_SLOT_LABELS: Record<FixedSaveSlot, string> = { autosave: "Autosave (old)", slot1: "Slot 1", slot2: "Slot 2", slot3: "Slot 3", creative: "Creative" };
+// Strict: no leading zeros or signs, so a slot names exactly one file (and nothing outside the save dir).
+const AUTOSAVE_SLOT = /^autosave-([1-9][0-9]{0,8})$/;
+
+// n of an `autosave-<n>` slot, else null.
+export function autosaveNumber(slot: unknown): number | null {
+  const m = typeof slot === "string" ? AUTOSAVE_SLOT.exec(slot) : null;
+  return m ? Number(m[1]) : null;
+}
+
+export function isSaveSlot(value: unknown): value is SaveSlot {
+  return (typeof value === "string" && (SAVE_SLOTS as string[]).includes(value)) || autosaveNumber(value) !== null;
+}
+
+export function saveSlotLabel(slot: SaveSlot): string {
+  const n = autosaveNumber(slot);
+  return n !== null ? `Autosave ${n}` : FIXED_SLOT_LABELS[slot as FixedSaveSlot];
+}
 
 // One existing save file's metadata. dayIndex is 0-based (day 1 = 0).
 export interface SaveInfo {
   slot: SaveSlot;
+  // A numbered autosave's n (listSaves lists those newest first).
+  autosave?: number;
   label: string;
   savedAt: string;
   dayIndex: number;

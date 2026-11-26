@@ -20,7 +20,7 @@ import { auditWorld } from "./abstract.js";
 import { currentWorldSeed, dropBaseCache } from "./worldbase.js";
 import { strifeDawn, strifeStats } from "./strife.js";
 import { chronicleEntries } from "./chronicle.js";
-import { isSaveSlot, saveFileFor, savePath } from "./saves.js";
+import { isSaveSlot, runDueAutosave, saveFileFor, savePath } from "./saves.js";
 import { promises as fsp } from "node:fs";
 import { randomUUID } from "node:crypto";
 import {
@@ -759,6 +759,12 @@ export function handleTestHook(player: Player, msg: Record<string, unknown>) {
     void fsp.mkdir(SAVE_DIR, { recursive: true })
       .then(() => fsp.writeFile(savePath(slot), JSON.stringify(saveFileFor(slot, null))))
       .then(() => reply({ ok: true }), (e) => reply({ ok: false, error: String(e) }));
+  } else if (msg.op === "forceAutosave") {
+    // Autosave rotation: the dawn autosave now, through the same debounce (skipped: one is already queued).
+    state.autosaveDue = true;
+    const run = runDueAutosave();
+    if (!run) reply({ ok: false, skipped: true });
+    else void run.then((error) => reply({ ok: !error, ...(error ? { error } : {}) }));
   } else if (msg.op === "tileHash") {
     // World streaming phase 4: FNV of tiles / biomes / explored, to compare a world across save -> load.
     const h = (a: Uint8Array) => { let x = 0x811c9dc5; for (let i = 0; i < a.length; i++) x = Math.imul(x ^ a[i], 0x01000193); return x >>> 0; };
