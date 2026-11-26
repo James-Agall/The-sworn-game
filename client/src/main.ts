@@ -29,17 +29,7 @@ import { HERO_WEAPON_KINDS, type HeroVisual } from "@colony/shared/protocol";
 import { autumnFrame, directionalFrame, loadAutumnPeople, movementFacing, type Cardinal } from "./autumnAnimations";
 import { autumnBuildingDamage, loadAutumnBuildings, syncAutumnHouses } from "./autumnWorld";
 import {
-  Application,
-  Assets,
-  CanvasSource,
-  Container,
-  defaultFilterVert,
-  Filter,
-  GlProgram,
-  Graphics,
-  Sprite,
-  Text,
-  Texture,
+  Application, Assets, Container, defaultFilterVert, Filter, GlProgram, Graphics, Sprite, Text, Texture,
   TilingSprite,
 } from "pixi.js";
 import { createAnimalPanel, createLivestock } from "./animals";
@@ -96,8 +86,8 @@ import {
   Biome, BOSS_RENDER_SCALE, mobSizeScale, bossTitle, BUILDING_LEVEL_SNAPSHOT_STRIDE, CONSTRUCTION_SNAPSHOT_STRIDE,
   DAMAGED_BUILDING_SNAPSHOT_STRIDE, HEARTH_SNAPSHOT_STRIDE, FARM_STAGE_SNAPSHOT_STRIDE, FarmStage, GATE_FLAG_OPEN,
   GATE_FLAG_OVERRUN, SITE_TILE_SNAPSHOT_STRIDE, CLAN_TILE_SNAPSHOT_STRIDE, GATE_SNAPSHOT_STRIDE, HUNGER_MARK_NAMES,
-  HungerMark, isRoadTile, TILE_SIZE, TileType, VISION_RADIUS_COLONIST, VISION_RADIUS_PLAYER, WILDLIFE_KINDS,
-  WILDLIFE_SNAPSHOT_STRIDE, WildlifeState,
+  HungerMark, isRoadTile, TILE_SIZE, TileType, VISION_RADIUS_PLAYER, WILDLIFE_KINDS, WILDLIFE_SNAPSHOT_STRIDE,
+  WildlifeState,
 } from "@colony/shared/protocol";
 import { MOB_ROLE, isRearRole, SIEGE_KINDS, unitRole, HERO_CLASSES, HERO_CLASS_LABEL } from "@colony/shared/protocol";
 import type { CombatRole, SiegeKind } from "@colony/shared/protocol";
@@ -108,7 +98,7 @@ import type { SpellId, SpellBookSnapshot } from "@colony/shared/protocol";
 import { EDGE_SCROLL_PX, PAN_SCREEN_PX_PER_S, StrategyCamera, TACTICAL_ZOOM, WHEEL_ZOOM_STEP } from "./strategy/camera";
 import { ADVENTURE_CAM_PREF, AdventureCamera, PARTY_COMMAND_MAX, START_STRATEGY_PREF, readAdventurePrefs } from "./adventure";
 import { drawUnitDots, lodBand, StrategyBanners, StrategyFog } from "./strategy/lod";
-import type { BannerGroup, LodBand, UnitDot, VisionSource } from "./strategy/lod";
+import type { BannerGroup, LodBand, UnitDot } from "./strategy/lod";
 import { RegimentCardBar } from "./strategy/cards";
 import type { RegimentCard } from "./strategy/cards";
 import type { ArmyRegimentSnapshot, RegimentClass } from "@colony/shared/protocol";
@@ -120,7 +110,7 @@ import type { ObjectiveMarker, Threat } from "./strategy/intel";
 import type { EnemyRegimentSnapshot } from "@colony/shared/protocol";
 import { TIME_SCALES } from "@colony/shared/protocol";
 import {
-  MAX_CHUNKS_PER_REQUEST, MinimapClass, decodeByteRuns, decodeMaskRuns, minimapCellClass, minimapClassOf,
+  MAX_CHUNKS_PER_REQUEST, decodeByteRuns,
 } from "@colony/shared/streaming";
 
 import { type ToolCategory, TOOL_CATEGORIES, TOOLS } from "./tools";
@@ -139,24 +129,23 @@ import {
 } from "./unitVisuals";
 import {
   TILE_SPRITE_FILES, TILE_OPTIONAL_ART, SITE_KEEP_RUIN_ART, SITE_TENT_ART, SITE_RUBBLE_ART, KEEP_SCAFFOLD_ART,
-  QUEST_MARKER_IMAGES, SITE_VARIANT_ART_NAMES, TILE_OPTIONAL_ALT_ART, WALL_PIECE_SETS, type WallPieceSet,
-  wallPieceUrl, type GateArtState, gateArtUrl, moatPieceUrl, MOAT_DIGGING_URL, type DrawbridgeArtState,
-  drawbridgeArtUrl, MOAT_ART_URLS, WALL_ART_URLS, WALL_DAMAGED_PERMILLE, WALL_ART_PX_PER_TILE, TILE_STANDIN_TINT,
-  TILE_ANIM, FIRE_FLAME_WIDTH, SOOT_TINT, FIRE_SMOKE_MS, MAX_FIRE_OVERLAYS, FARM_STAGE_ART, TILE_LEVEL_ART,
-  WAGON_ART_URLS, WAGON_STANDIN_TINT, WAGON_HEIGHT, WAGON_DANGER_COLORS, BLACKSMITH_FORGE_URLS,
-  BLACKSMITH_FORGE_FRAME_MS, TOWN_CENTER_LEVEL_FIT, TOWN_CENTER_MARKER_URL, CONSTRUCTION_ALPHA, CONSTRUCTION_TINT,
-  DEER_FALLEN_URL, DEER_FALLEN_MS, GRAVESTONE_URLS, GRAVESTONE_HEIGHT, WILDLIFE, DEER_WALK_URLS, DEER_GRAZE_URLS,
-  WILDLIFE_ART, WILDLIFE_OPTIONAL_URLS, WILDLIFE_FRAME_MS, WILDLIFE_RUN_FRAME_MS, BLOOD_URLS, BLOOD_HIT_VARIANTS,
-  BLOOD_DEATH_VARIANTS, BLOOD_HIT_SIZE, BLOOD_DEATH_SIZE, BLOOD_HIT_CHANCE, BLOOD_ALPHA, BLOOD_MAX, FX_URLS,
-  FX_ANIM_URLS, BOULDER_URLS, BOULDER_IMPACT_URLS, WOUND_URLS, WOUND_LARGE_URLS, WOUND_THRESHOLDS,
-  COLONIST_WOUND_SIZE, MOB_WOUND_SIZE_FACTOR, WOUND_LARGE_KINDS, TILE_SPRITE_FILL_TILE, ROAD_AUTOTILE,
-  COBBLE_STRAIGHT, COBBLE_FILL, ROAD_ART_URLS, HUNGER_SIGIL_URLS, HUNGER_AURA_URLS, HUNGER_LABEL_COLORS,
-  HUNGER_SIGIL_SIZE, HUNGER_AURA_WIDTH, MARKED_MOB_SCALE, mobRenderScale, BOSS_LABEL_COLORS, BOSS_HP_BAR_SCALE,
-  BATTERED_HP_FRACTION, BATTERED_TINT, BATTERED_POSE_URLS, BATTERED_TINT_KINDS, HERO_VISUAL_KIND, REGIMENT_ICON_KIND,
-  HERO_TINT, SUMMON_TINT, TILE_SPRITE_SIZE_FACTOR, BUILDING_VISUAL_SCALE, TILE_SPRITE_MAX_WIDTH_TILES,
-  TILE_SPRITE_MAX_HEIGHT_TILES, TOWN_CENTER_WIDTH_TILES, TOWN_CENTER_ANCHOR, type EntityVisual, COLONIST_KINDS,
-  COLONIST_SPRITE_HEIGHT, PLAYER_SPRITE_HEIGHT, HUMAN_CHAR_PX, NATURE_DECOR_ONE_IN, NATURE_DECOR, tileHash01, PLAYER_RECOLOR_FRAG,
-  hexToHue,
+  SITE_VARIANT_ART_NAMES, TILE_OPTIONAL_ALT_ART, WALL_PIECE_SETS, type WallPieceSet, wallPieceUrl, type GateArtState,
+  gateArtUrl, moatPieceUrl, MOAT_DIGGING_URL, type DrawbridgeArtState, drawbridgeArtUrl, MOAT_ART_URLS,
+  WALL_ART_URLS, WALL_DAMAGED_PERMILLE, WALL_ART_PX_PER_TILE, TILE_STANDIN_TINT, TILE_ANIM, FIRE_FLAME_WIDTH,
+  SOOT_TINT, FIRE_SMOKE_MS, MAX_FIRE_OVERLAYS, FARM_STAGE_ART, TILE_LEVEL_ART, WAGON_ART_URLS, WAGON_STANDIN_TINT,
+  WAGON_HEIGHT, WAGON_DANGER_COLORS, BLACKSMITH_FORGE_URLS, BLACKSMITH_FORGE_FRAME_MS, TOWN_CENTER_LEVEL_FIT,
+  TOWN_CENTER_MARKER_URL, CONSTRUCTION_ALPHA, CONSTRUCTION_TINT, DEER_FALLEN_URL, DEER_FALLEN_MS, GRAVESTONE_URLS,
+  GRAVESTONE_HEIGHT, WILDLIFE, DEER_WALK_URLS, DEER_GRAZE_URLS, WILDLIFE_ART, WILDLIFE_OPTIONAL_URLS,
+  WILDLIFE_FRAME_MS, WILDLIFE_RUN_FRAME_MS, BLOOD_URLS, BLOOD_HIT_VARIANTS, BLOOD_DEATH_VARIANTS, BLOOD_HIT_SIZE,
+  BLOOD_DEATH_SIZE, BLOOD_HIT_CHANCE, BLOOD_ALPHA, BLOOD_MAX, FX_URLS, FX_ANIM_URLS, BOULDER_URLS,
+  BOULDER_IMPACT_URLS, WOUND_URLS, WOUND_LARGE_URLS, WOUND_THRESHOLDS, COLONIST_WOUND_SIZE, MOB_WOUND_SIZE_FACTOR,
+  WOUND_LARGE_KINDS, TILE_SPRITE_FILL_TILE, ROAD_AUTOTILE, COBBLE_STRAIGHT, COBBLE_FILL, ROAD_ART_URLS,
+  HUNGER_SIGIL_URLS, HUNGER_AURA_URLS, HUNGER_LABEL_COLORS, HUNGER_SIGIL_SIZE, HUNGER_AURA_WIDTH, MARKED_MOB_SCALE,
+  mobRenderScale, BOSS_LABEL_COLORS, BOSS_HP_BAR_SCALE, BATTERED_HP_FRACTION, BATTERED_TINT, BATTERED_POSE_URLS,
+  BATTERED_TINT_KINDS, HERO_VISUAL_KIND, REGIMENT_ICON_KIND, HERO_TINT, SUMMON_TINT, TILE_SPRITE_SIZE_FACTOR,
+  BUILDING_VISUAL_SCALE, TILE_SPRITE_MAX_WIDTH_TILES, TILE_SPRITE_MAX_HEIGHT_TILES, TOWN_CENTER_WIDTH_TILES,
+  TOWN_CENTER_ANCHOR, type EntityVisual, COLONIST_KINDS, COLONIST_SPRITE_HEIGHT, PLAYER_SPRITE_HEIGHT, HUMAN_CHAR_PX,
+  NATURE_DECOR_ONE_IN, NATURE_DECOR, tileHash01, PLAYER_RECOLOR_FRAG, hexToHue,
 } from "./worldVisuals";
 import {
   sound,
@@ -171,6 +160,7 @@ import { createGameOver } from "./game/gameOver";
 import { createHudStatus } from "./game/hudStatus";
 import { createSoundHooks } from "./game/soundHooks";
 import { createFightArrows } from "./game/fightArrows";
+import { createMinimap } from "./game/minimap";
 
 const SERVER_URL = import.meta.env.VITE_SERVER_URL || "ws://localhost:8080";
 // The same server answers plain HTTP: GET /saves lists the save slots (the menu has no socket yet).
@@ -3552,467 +3542,22 @@ async function main() {
       for (let y = y0; y < y0 + h; y += sm.f) for (let x = x0; x < x0 + w; x += sm.f) paintMinimapTile(y * worldTilesX + x);
     }
   }
-
-  // ---- Fog-of-war minimap (DOM canvas, bottom-right; the main view is never fogged) ----
-  // Static layer: one pixel per tile in an offscreen canvas, rebuilt whole only on `welcome` and
-  // patched per tile on tileUpdate / explored. Each snapshot just blits it and draws the live dots
-  // and camera rect on top, so nothing repaints the whole map per frame.
-  const minimapEl = document.getElementById("minimap") as HTMLCanvasElement;
-  minimapEl.addEventListener("contextmenu", (e) => e.preventDefault());
-  const minimapCtx = minimapEl.getContext("2d")!;
-  const minimapStatic = document.createElement("canvas");
-  const minimapStaticCtx = minimapStatic.getContext("2d")!;
-  let minimapImage: ImageData | null = null;
-  let minimapStaticDirty = false;
+  const minimapApi = createMinimap({
+    strategyCam, chunkOfTile, strategicMapSprite, worldLayer, app, RELATION_TIER_COLOR, FORT_FLAG_COLOR,
+    get worldTilesX() { return worldTilesX; }, get worldTilesY() { return worldTilesY; },
+    get siteOwners() { return siteOwners; }, get tiles() { return tiles; }, get biomes() { return biomes; },
+    get streamed() { return streamed; }, get chunkLoaded() { return chunkLoaded; },
+    get tileSize() { return tileSize; },
+    get strategicMapDirty() { return strategicMapDirty; }, set strategicMapDirty(v) { strategicMapDirty = v; },
+    get myId() { return myId; }, get camZoom() { return camZoom; }, get fortMarkers() { return fortMarkers; },
+    get clanColors() { return clanColors; }, get myClan() { return myClan; },
+    get siteRelations() { return siteRelations; }, get latestTownCenters() { return latestTownCenters; },
+    get latestQuests() { return latestQuests; }, get latestHearths() { return latestHearths; },
+    get castleRuinTile() { return castleRuinTile; }, get drawFightPings() { return drawFightPings; },
+  });
+  const { paintMinimapTile, resetMinimap, drawMinimap, markExplored, liveVisionSources, minimapTileAt, minimapEl } = minimapApi;
   // The strategic map sprite's texture needs a re-upload from minimapStatic (done only in the Map band).
   let strategicMapDirty = false;
-  let explored = new Uint8Array(0);
-  const MINIMAP_TARGET_CSS_PX = 180;
-  // Both integers, so tile -> pixel stays exact: CSS px per tile, and backing px per CSS px.
-  let minimapCssPerTile = 1;
-  let minimapDpr = 1;
-  // Compact / expanded: a big world's minimap used to be the whole map at >= 1 px per tile (512 px on a 512 map). Now it is a
-  // MM_COMPACT_CSS window around the player at 1 px per tile (about 11 x 11 chunks) with a button to expand to the whole map,
-  // shrunk to fit the screen. The strategy view always shows the whole map (its click-to-jump needs it). Maps that already fit
-  // the compact window have no button.
-  const MM_COMPACT_CSS = 176;
-  let mmExpanded = false;
-  try { mmExpanded = localStorage.getItem("colony-minimap-expanded") === "1"; } catch { /* storage unavailable */ }
-  let mmFull = true; // the canvas currently shows the whole world
-  let mmBaseCss = 1; // CSS px per tile of the whole-world view (before the screen-fit cap)
-  const minimapToggleEl = document.getElementById("minimap-toggle") as HTMLButtonElement | null;
-  // Top-left of the visible window, in backing px of the map-space the drawing code works in (0, 0 when the whole map shows).
-  let mmOx = 0;
-  let mmOy = 0;
-  function minimapFullCss(): number {
-    const world = Math.max(worldTilesX, worldTilesY, 1);
-    const cap = Math.max(MM_COMPACT_CSS, Math.min(window.innerWidth * 0.3, window.innerHeight * 0.5, 380));
-    return Math.min(mmBaseCss, cap / world);
-  }
-  function minimapCanToggle(): boolean {
-    return Math.max(worldTilesX, worldTilesY) * mmBaseCss > MM_COMPACT_CSS * 1.15;
-  }
-  function minimapWantsFull(): boolean {
-    return !minimapCanToggle() || mmExpanded || strategyCam.inStrategy;
-  }
-  function applyMinimapLayout() {
-    mmFull = minimapWantsFull();
-    minimapDpr = Math.max(1, Math.round(window.devicePixelRatio || 1));
-    minimapCssPerTile = mmFull ? minimapFullCss() : 1;
-    const cssW = mmFull ? worldTilesX * minimapCssPerTile : Math.min(MM_COMPACT_CSS, worldTilesX * minimapCssPerTile);
-    const cssH = mmFull ? worldTilesY * minimapCssPerTile : Math.min(MM_COMPACT_CSS, worldTilesY * minimapCssPerTile);
-    minimapEl.width = Math.max(1, Math.ceil(cssW * minimapDpr));
-    minimapEl.height = Math.max(1, Math.ceil(cssH * minimapDpr));
-    minimapEl.style.width = `${cssW}px`;
-    minimapEl.style.height = `${cssH}px`;
-    if (minimapToggleEl) {
-      minimapToggleEl.hidden = !minimapCanToggle() || strategyCam.inStrategy;
-      minimapToggleEl.textContent = mmExpanded ? "\u2921" : "\u2922";
-      minimapToggleEl.title = mmExpanded ? "Shrink the minimap to the area around you" : "Expand the minimap to the whole map";
-      minimapToggleEl.setAttribute("aria-label", minimapToggleEl.title);
-    }
-  }
-  minimapToggleEl?.addEventListener("click", (e) => {
-    e.stopPropagation();
-    mmExpanded = !mmExpanded;
-    try { localStorage.setItem("colony-minimap-expanded", mmExpanded ? "1" : "0"); } catch { /* storage unavailable */ }
-    applyMinimapLayout();
-  });
-  minimapToggleEl?.addEventListener("pointerdown", (e) => e.stopPropagation());
-  window.addEventListener("resize", () => { if (minimapImage) applyMinimapLayout(); });
-  // The world tile under a pointer on the minimap (accounts for the compact window's offset).
-  function minimapTileAt(clientX: number, clientY: number): { x: number; y: number } | null {
-    const r = minimapEl.getBoundingClientRect();
-    if (r.width <= 0 || r.height <= 0) return null;
-    const sBack = minimapCssPerTile * minimapDpr;
-    return { x: (mmOx + ((clientX - r.left) / r.width) * minimapEl.width) / sBack, y: (mmOy + ((clientY - r.top) / r.height) * minimapEl.height) / sBack };
-  }
-
-  const MINIMAP_UNEXPLORED = 0x140d07;
-  const MINIMAP_BIOME: Record<number, number> = {
-    [Biome.Plains]: 0x6b7a3c,
-    [Biome.Hills]: 0x8a7650,
-    [Biome.Swamp]: 0x4c5a44,
-  };
-  const MINIMAP_WATER = 0x3d5f73;
-  const MINIMAP_MOAT = 0x2f4f5f;
-  const MINIMAP_TREE = 0x3c5428;
-  const MINIMAP_ROCK = 0x8d8a80;
-  const MINIMAP_IRON = 0x7d5644;
-  // Deep mines: deposit markers (coal near-black, copper orange, tin pale blue-grey).
-  const MINIMAP_COAL = 0x1e1c22;
-  const MINIMAP_COPPER = 0xd07a3a;
-  const MINIMAP_TIN = 0xb8c8d8;
-  // Industry extras: limestone off-white, gold yellow, lead slate.
-  const MINIMAP_LIMESTONE = 0xe8e2cc;
-  const MINIMAP_GOLD = 0xe8c030;
-  const MINIMAP_LEAD = 0x5a6070;
-  const MINIMAP_WALL = 0xb8ad98;
-  const MINIMAP_ROAD = 0xa8875a;
-  const MINIMAP_BUILDING = 0xe0b468;
-  const MINIMAP_RUIN = 0xa0322a;
-  const MINIMAP_CAMP = 0xd2731a;
-  const MINIMAP_ABBEY = 0xf0e6cc;
-  const MINIMAP_RUIN_TILES = new Set<number>([
-    TileType.RuinWall1, TileType.RuinWall2, TileType.RuinArch, TileType.RuinStatue, TileType.RuinRubble, TileType.Rubble,
-  ]);
-  const MINIMAP_CAMP_TILES = new Set<number>([
-    TileType.PropCampfire, TileType.PropCart, TileType.PropBarrel, TileType.PropCrate, TileType.PropFence,
-  ]);
-  const MINIMAP_ABBEY_TILES = new Set<number>([TileType.AbbeyHall, TileType.PropCross, TileType.PropLanternPost]);
-
-  function minimapTileColor(index: number): number {
-    if (!explored[index]) return MINIMAP_UNEXPLORED;
-    // Forts phase A: an NPC fort's walls / buildings.
-    if (siteOwners.has(index)) return MINIMAP_RUIN;
-    const tile = tiles[index] ?? TileType.Empty;
-    switch (tile) {
-      case TileType.Empty:
-        return MINIMAP_BIOME[biomes[index] ?? Biome.Plains] ?? MINIMAP_BIOME[Biome.Plains];
-      case TileType.Water:
-        return MINIMAP_WATER;
-      case TileType.Tree:
-      case TileType.FruitTree:
-      case TileType.FruitTreePicked:
-        return MINIMAP_TREE;
-      // Bushes and mushroom patches are ground cover: drawn as the biome under them.
-      case TileType.BerryBush:
-      case TileType.BerryBushPicked:
-      case TileType.MushroomPatch:
-      case TileType.MushroomPatchPicked:
-        return MINIMAP_BIOME[biomes[index] ?? Biome.Plains] ?? MINIMAP_BIOME[Biome.Plains];
-      case TileType.Rock:
-        return MINIMAP_ROCK;
-      case TileType.IronOre:
-        return MINIMAP_IRON;
-      case TileType.Wall:
-      case TileType.StoneWall:
-      case TileType.Gate:
-      case TileType.FenceGate:
-      case TileType.RiverBridge:
-      case TileType.Drawbridge:
-        return MINIMAP_WALL;
-      case TileType.Moat:
-        return MINIMAP_MOAT;
-      case TileType.Road:
-      case TileType.CobbleRoad:
-        return MINIMAP_ROAD;
-    }
-    if (MINIMAP_RUIN_TILES.has(tile)) return MINIMAP_RUIN;
-    if (MINIMAP_CAMP_TILES.has(tile)) return MINIMAP_CAMP;
-    if (MINIMAP_ABBEY_TILES.has(tile)) return MINIMAP_ABBEY;
-    // Every other tile is something the colony built (the Town Center also gets its own marker).
-    return MINIMAP_BUILDING;
-  }
-
-  const MINIMAP_CLASS_COLOR: Record<number, number> = {
-    [MinimapClass.Plains]: MINIMAP_BIOME[Biome.Plains], [MinimapClass.Hills]: MINIMAP_BIOME[Biome.Hills],
-    [MinimapClass.Swamp]: MINIMAP_BIOME[Biome.Swamp], [MinimapClass.Water]: MINIMAP_WATER, [MinimapClass.Moat]: MINIMAP_MOAT,
-    [MinimapClass.Tree]: MINIMAP_TREE, [MinimapClass.Rock]: MINIMAP_ROCK, [MinimapClass.Iron]: MINIMAP_IRON,
-    [MinimapClass.Wall]: MINIMAP_WALL, [MinimapClass.Road]: MINIMAP_ROAD, [MinimapClass.Building]: MINIMAP_BUILDING,
-    [MinimapClass.Ruin]: MINIMAP_RUIN, [MinimapClass.Camp]: MINIMAP_CAMP, [MinimapClass.Abbey]: MINIMAP_ABBEY,
-    [MinimapClass.Coal]: MINIMAP_COAL, [MinimapClass.Copper]: MINIMAP_COPPER, [MinimapClass.Tin]: MINIMAP_TIN,
-    [MinimapClass.Limestone]: MINIMAP_LIMESTONE, [MinimapClass.Gold]: MINIMAP_GOLD, [MinimapClass.Lead]: MINIMAP_LEAD,
-  };
-  // World streaming phase 4: one minimap pixel per f x f cell. A loaded chunk's cell is recomputed from its
-  // tiles; elsewhere a structure arriving by tileUpdate overrides the welcome's summary.
-  function paintMinimapCell(index: number) {
-    const sm = streamed!;
-    const tx = index % worldTilesX;
-    const ty = Math.floor(index / worldTilesX);
-    const cx = Math.floor(tx / sm.f);
-    const cy = Math.floor(ty / sm.f);
-    const cell = cy * sm.cw + cx;
-    if (chunkLoaded[chunkOfTile(tx, ty)]) {
-      sm.cells[cell] = minimapCellClass(tiles, biomes, worldTilesX, worldTilesY, cx, cy, sm.f, (i) => siteOwners.has(i));
-    } else {
-      const k = minimapClassOf(tiles[index] ?? 0, biomes[index] ?? 0, siteOwners.has(index));
-      if (k >= MinimapClass.Wall) sm.cells[cell] = k;
-    }
-    if (explored[index]) sm.cellSeen[cell] = 1;
-    paintMinimapPixel(cell, sm.cellSeen[cell] ? MINIMAP_CLASS_COLOR[sm.cells[cell]] : MINIMAP_UNEXPLORED);
-  }
-  function paintMinimapPixel(pixel: number, color: number) {
-    const o = pixel * 4;
-    minimapImage!.data[o] = color >> 16;
-    minimapImage!.data[o + 1] = (color >> 8) & 0xff;
-    minimapImage!.data[o + 2] = color & 0xff;
-    minimapImage!.data[o + 3] = 255;
-    minimapStaticDirty = true;
-  }
-
-  function paintMinimapTile(index: number) {
-    if (!minimapImage) return;
-    if (streamed) return paintMinimapCell(index);
-    const color = minimapTileColor(index);
-    const o = index * 4;
-    minimapImage.data[o] = color >> 16;
-    minimapImage.data[o + 1] = (color >> 8) & 0xff;
-    minimapImage.data[o + 2] = color & 0xff;
-    minimapImage.data[o + 3] = 255;
-    minimapStaticDirty = true;
-  }
-
-  // `welcome` (join or restart): unpack the bitset and rebuild the whole static layer once.
-  function resetMinimap(packedExplored: string) {
-    const count = worldTilesX * worldTilesY;
-    if (streamed) {
-      explored = decodeMaskRuns(packedExplored, count);
-    } else {
-      const bytes = atob(packedExplored);
-      explored = new Uint8Array(count);
-      for (let i = 0; i < count; i++) explored[i] = (bytes.charCodeAt(i >> 3) >> (i & 7)) & 1;
-    }
-    // World streaming phase 4: a streamed world's minimap is one CSS px per summary cell (1 / f px per tile).
-    mmBaseCss = streamed ? 1 / streamed.f : Math.max(1, Math.round(MINIMAP_TARGET_CSS_PX / Math.max(worldTilesX, worldTilesY)));
-    applyMinimapLayout();
-    if (streamed) {
-      const sm = streamed;
-      for (let i = 0; i < count; i++) if (explored[i]) sm.cellSeen[Math.floor(Math.floor(i / worldTilesX) / sm.f) * sm.cw + Math.floor((i % worldTilesX) / sm.f)] = 1;
-      minimapStatic.width = sm.cw;
-      minimapStatic.height = sm.ch;
-      minimapImage = minimapStaticCtx.createImageData(sm.cw, sm.ch);
-      for (let c = 0; c < sm.cw * sm.ch; c++) paintMinimapPixel(c, sm.cellSeen[c] ? MINIMAP_CLASS_COLOR[sm.cells[c]] : MINIMAP_UNEXPLORED);
-    } else {
-      minimapStatic.width = worldTilesX;
-      minimapStatic.height = worldTilesY;
-      minimapImage = minimapStaticCtx.createImageData(worldTilesX, worldTilesY);
-      for (let i = 0; i < count; i++) paintMinimapTile(i);
-    }
-    // The canvas was resized: a fresh texture for the strategic map sprite.
-    if (strategicMapSprite.texture !== Texture.EMPTY) strategicMapSprite.texture.destroy(true);
-    strategicMapSprite.texture = new Texture({ source: new CanvasSource({ resource: minimapStatic, scaleMode: "nearest" }) });
-    strategicMapSprite.scale.set(tileSize * (streamed?.f ?? 1));
-    strategicMapDirty = true;
-  }
-
-  function markExplored(indices: number[]) {
-    for (const i of indices) {
-      if (i < 0 || i >= explored.length || explored[i]) continue;
-      explored[i] = 1;
-      paintMinimapTile(i);
-    }
-  }
-
-  // Live view right now: players and the colony's own colonists (not the Abbey's clergy), with the
-  // server's vision radii (minimap enemy dots and the strategy fog share it).
-  function liveVisionSources(players: PlayerSnapshot[], colonists: ColonistSnapshot[]): VisionSource[] {
-    const tileOf = (worldPx: number) => Math.floor(worldPx / tileSize);
-    const sources: VisionSource[] = [];
-    for (const p of players) sources.push({ x: tileOf(p.x), y: tileOf(p.y), r: VISION_RADIUS_PLAYER });
-    for (const c of colonists) {
-      if (tiles[c.postY * worldTilesX + c.postX] === TileType.AbbeyHall) continue;
-      sources.push({ x: tileOf(c.x), y: tileOf(c.y), r: VISION_RADIUS_COLONIST });
-    }
-    return sources;
-  }
-
-  function cssColor(color: number): string {
-    return `#${color.toString(16).padStart(6, "0")}`;
-  }
-
-  function drawMinimap(players: PlayerSnapshot[], colonists: ColonistSnapshot[], mobs: MobSnapshot[]) {
-    if (!minimapImage) return;
-    if (minimapStaticDirty) {
-      minimapStaticCtx.putImageData(minimapImage, 0, 0);
-      minimapStaticDirty = false;
-      strategicMapDirty = true;
-    }
-    if (minimapWantsFull() !== mmFull) applyMinimapLayout();
-    const ctx = minimapCtx;
-    const s = minimapCssPerTile * minimapDpr; // backing px per tile
-    const u = minimapDpr; // backing px per CSS px
-    const toMap = (worldPx: number) => (worldPx / tileSize) * s;
-    const tileOf = (worldPx: number) => Math.floor(worldPx / tileSize);
-    // Compact window: centred on the player (or the camera when there is none), kept inside the map. Everything below draws in
-    // whole-map space; the translate moves the window onto the canvas.
-    mmOx = 0;
-    mmOy = 0;
-    if (!mmFull) {
-      const focus = players.find((p) => p.id === myId);
-      const fx = focus ? toMap(focus.x) : toMap(-worldLayer.position.x / camZoom + app.screen.width / camZoom / 2);
-      const fy = focus ? toMap(focus.y) : toMap(-worldLayer.position.y / camZoom + app.screen.height / camZoom / 2);
-      mmOx = Math.round(Math.max(0, Math.min(worldTilesX * s - minimapEl.width, fx - minimapEl.width / 2)));
-      mmOy = Math.round(Math.max(0, Math.min(worldTilesY * s - minimapEl.height, fy - minimapEl.height / 2)));
-    }
-    ctx.setTransform(1, 0, 0, 1, 0, 0);
-    ctx.clearRect(0, 0, minimapEl.width, minimapEl.height);
-    ctx.save();
-    ctx.translate(-mmOx, -mmOy);
-    ctx.imageSmoothingEnabled = false;
-    {
-      // Only the visible part of the static layer (one pixel per tile, or one per summary cell when streamed).
-      const per = minimapStatic.width / worldTilesX; // static px per tile
-      const sx = (mmOx / s) * per;
-      const sy = (mmOy / s) * per;
-      const sw = Math.min(minimapStatic.width - sx, (minimapEl.width / s) * per);
-      const sh = Math.min(minimapStatic.height - sy, (minimapEl.height / s) * per);
-      if (sw > 0 && sh > 0) ctx.drawImage(minimapStatic, sx, sy, sw, sh, mmOx, mmOy, (sw / per) * s, (sh / per) * s);
-    }
-
-    // Forts phase B: a flag on each explored fort's keep (faction colour; grey = razed, clan colour = captured).
-    for (const f of fortMarkers) {
-      const fx = (f.keepX + 0.5) * s;
-      const fy = (f.keepY + 0.5) * s;
-      const color = f.captured
-        ? `#${(clanColors.get(f.capturedBy ?? 0) ?? 0x3a7bd5).toString(16).padStart(6, "0")}`
-        : f.cleared ? "#8a8a8a" : f.hostile ? "#c0392b"
-        : f.vassalOf !== undefined && f.vassalOf !== myClan ? "#a0743a"
-        : f.faction === "human" && f.num !== undefined && siteRelations.has(f.num) ? RELATION_TIER_COLOR[siteRelations.get(f.num)!.tier]
-        : FORT_FLAG_COLOR[f.faction];
-      // Forts phase C: a human settlement's flag has a green edge (white = neutral, red = hostile).
-      ctx.fillStyle = f.faction === "human" && !f.captured && !f.cleared ? "#2e8b3a" : "#1a1008";
-      ctx.fillRect(fx - 0.5 * u, fy - 7 * u, 1.5 * u, 9 * u);
-      ctx.fillRect(fx + u - 0.5 * u, fy - 7.5 * u, 7 * u, 5 * u);
-      ctx.fillStyle = color;
-      ctx.fillRect(fx + u, fy - 7 * u, 6 * u, 4 * u);
-      // Forts phase F: a crown over this clan's vassals.
-      if (f.vassalOf !== undefined && f.vassalOf === myClan && !f.cleared && !f.captured) {
-        ctx.fillStyle = "#f1c40f";
-        ctx.fillRect(fx + u, fy - 9.5 * u, 6 * u, 1.5 * u);
-        for (const dx of [1, 3.5, 6]) ctx.fillRect(fx + dx * u - 0.5 * u, fy - 11 * u, u, 1.5 * u);
-      }
-    }
-    for (const { x: tcX, y: tcY } of latestTownCenters) {
-      const size = 7 * u;
-      const cx = (tcX + 0.5) * s;
-      const cy = (tcY + 0.5) * s;
-      ctx.fillStyle = "#2e1a0c";
-      ctx.fillRect(cx - size / 2 - u, cy - size / 2 - u, size + 2 * u, size + 2 * u);
-      ctx.fillStyle = "#7a1f1a";
-      ctx.fillRect(cx - size / 2, cy - size / 2, size, size);
-      ctx.fillStyle = "#f1c40f";
-      ctx.fillRect(cx - 1.5 * u, cy - 1.5 * u, 3 * u, 3 * u);
-    }
-
-    // Forts phase D2: a quest marker (gold diamond; green once accepted) on each open quest's target tile.
-    for (const q of latestQuests) {
-      const qx = (q.x + 0.5) * s;
-      const qy = (q.y + 0.5) * s;
-      const r = 4.5 * u;
-      // Batch 2 (SPRITES.md #81): the quest seal icon once it has loaded, else the drawn diamond.
-      const seal = q.accepted ? QUEST_MARKER_IMAGES.active : QUEST_MARKER_IMAGES.fresh;
-      if (seal.complete && seal.naturalWidth > 0) {
-        ctx.drawImage(seal, qx - 2.2 * r, qy - 2.2 * r, 4.4 * r, 4.4 * r);
-        continue;
-      }
-      ctx.beginPath();
-      ctx.moveTo(qx, qy - r - u);
-      ctx.lineTo(qx + r + u, qy);
-      ctx.lineTo(qx, qy + r + u);
-      ctx.lineTo(qx - r - u, qy);
-      ctx.closePath();
-      ctx.fillStyle = "#1a0f06";
-      ctx.fill();
-      ctx.beginPath();
-      ctx.moveTo(qx, qy - r);
-      ctx.lineTo(qx + r, qy);
-      ctx.lineTo(qx, qy + r);
-      ctx.lineTo(qx - r, qy);
-      ctx.closePath();
-      ctx.fillStyle = q.accepted ? "#5fd35a" : "#f1c40f";
-      ctx.fill();
-    }
-
-    const adventureMarker=adventureMapMarker();if(adventureMarker){const x=(adventureMarker.x+.5)*s,y=(adventureMarker.y+.5)*s;ctx.beginPath();ctx.arc(x,y,5*u,0,Math.PI*2);ctx.fillStyle='#8a448b';ctx.fill();ctx.lineWidth=2*u;ctx.strokeStyle='#fff1b8';ctx.stroke();}
-
-    // Camp hearths, once explored: a small ember dot with a dark rim on the camp's centre.
-    for (const index of latestHearths) {
-      if (!explored[index]) continue;
-      const cx = ((index % worldTilesX) + 0.5) * s;
-      const cy = (Math.floor(index / worldTilesX) + 0.5) * s;
-      const r = 2.5 * u;
-      ctx.fillStyle = "#1a0f06";
-      ctx.fillRect(cx - r - u, cy - r - u, 2 * (r + u), 2 * (r + u));
-      ctx.fillStyle = "#ff7a1a";
-      ctx.fillRect(cx - r, cy - r, 2 * r, 2 * r);
-    }
-
-    // The Castle Ruin, once its centre tile is explored: its 9x9 walls outlined, a red keep in the middle.
-    if (castleRuinTile && explored[castleRuinTile.y * worldTilesX + castleRuinTile.x]) {
-      const half = 4.5 * s;
-      const cx = (castleRuinTile.x + 0.5) * s;
-      const cy = (castleRuinTile.y + 0.5) * s;
-      ctx.lineWidth = 3 * u;
-      ctx.strokeStyle = "#1a0f06";
-      ctx.strokeRect(cx - half, cy - half, half * 2, half * 2);
-      ctx.lineWidth = 1.5 * u;
-      ctx.strokeStyle = "#d8cfbf";
-      ctx.strokeRect(cx - half, cy - half, half * 2, half * 2);
-      const keep = 5 * u;
-      ctx.fillStyle = "#1a0f06";
-      ctx.fillRect(cx - keep / 2 - u, cy - keep / 2 - u, keep + 2 * u, keep + 2 * u);
-      ctx.fillStyle = "#a8321e";
-      ctx.fillRect(cx - keep / 2, cy - keep / 2, keep, keep);
-    }
-
-    // Live view right now: players and the colony's own colonists (not the Abbey's clergy), with
-    // the server's vision radii. Mobs outside it aren't drawn, even on explored ground.
-    const sources = liveVisionSources(players, colonists).map((v) => ({ x: v.x, y: v.y, r2: v.r * v.r }));
-
-    ctx.fillStyle = "#f3da98";
-    for (const c of colonists) {
-      if (!explored[tileOf(c.y) * worldTilesX + tileOf(c.x)]) continue;
-      ctx.fillRect(Math.round(toMap(c.x) - u), Math.round(toMap(c.y) - u), 2 * u, 2 * u);
-    }
-    // Forts phase E: own trader wagons on the road, a bigger gold dot with a dark rim.
-    for (const c of colonists) {
-      if (!c.wagon || c.wagon.leg === "home" || (c.clan ?? 0) !== myClan) continue;
-      const r = 2.5 * u;
-      ctx.fillStyle = "#1a0f06";
-      ctx.fillRect(toMap(c.x) - r - u, toMap(c.y) - r - u, 2 * (r + u), 2 * (r + u));
-      ctx.fillStyle = "#f1c40f";
-      ctx.fillRect(toMap(c.x) - r, toMap(c.y) - r, 2 * r, 2 * r);
-    }
-    ctx.fillStyle = "#f3da98";
-
-    for (const m of mobs) {
-      const mx = tileOf(m.x);
-      const my = tileOf(m.y);
-      const seen = sources.some((src) => (src.x - mx) ** 2 + (src.y - my) ** 2 <= src.r2);
-      if (!seen) continue;
-      const x = Math.round(toMap(m.x) - 1.5 * u);
-      const y = Math.round(toMap(m.y) - 1.5 * u);
-      ctx.fillStyle = "#1a0505";
-      ctx.fillRect(x - u, y - u, 5 * u, 5 * u);
-      ctx.fillStyle = "#ff3b2a";
-      ctx.fillRect(x, y, 3 * u, 3 * u);
-    }
-
-    for (const p of players) {
-      if (p.id === myId) continue;
-      ctx.beginPath();
-      ctx.arc(toMap(p.x), toMap(p.y), 3 * u, 0, Math.PI * 2);
-      ctx.fillStyle = cssColor(p.color);
-      ctx.fill();
-      ctx.lineWidth = u;
-      ctx.strokeStyle = "#1a0f06";
-      ctx.stroke();
-    }
-
-    const me = players.find((p) => p.id === myId);
-    if (me) {
-      ctx.beginPath();
-      ctx.arc(toMap(me.x), toMap(me.y), 4 * u, 0, Math.PI * 2);
-      ctx.lineWidth = 3.5 * u;
-      ctx.strokeStyle = "#1a0f06";
-      ctx.stroke();
-      ctx.lineWidth = 1.75 * u;
-      ctx.strokeStyle = "#ffffff";
-      ctx.stroke();
-    }
-
-    // Main camera viewport (worldLayer is scaled by camZoom and offset to the camera focus).
-    const viewX = toMap(-worldLayer.position.x / camZoom);
-    const viewY = toMap(-worldLayer.position.y / camZoom);
-    const viewW = toMap(app.screen.width / camZoom);
-    const viewH = toMap(app.screen.height / camZoom);
-    ctx.lineWidth = u;
-    ctx.strokeStyle = "rgba(251, 236, 200, 0.85)";
-    ctx.strokeRect(Math.round(viewX) + u / 2, Math.round(viewY) + u / 2, Math.round(viewW) - u, Math.round(viewH) - u);
-    drawFightPings(ctx, s, u);
-    ctx.restore();
-  }
   const fightArrowsApi = createFightArrows({
     currentInput, app, worldLayer, playerSprites, strategyCam, pushEventToast,
     get fightPeek() { return fightPeek; }, set fightPeek(v) { fightPeek = v; },
@@ -7306,7 +6851,7 @@ async function main() {
   }
 
   function refreshStrategyFog() {
-    strategyFog.update(explored, liveVisionSources(latestPlayersForSpells, latestColonists));
+    strategyFog.update(minimapApi.explored, liveVisionSources(latestPlayersForSpells, latestColonists));
     fogUpdatedAt = performance.now();
   }
 
@@ -7543,14 +7088,14 @@ async function main() {
   function drawIntel(mapBand: boolean) {
     const objectives: ObjectiveMarker[] = [];
     const castleGoal = latestGoal !== null && latestGoal.index < latestGoal.total && /castle ruin/i.test(latestGoal.title);
-    if (castleRuinTile && explored[castleRuinTile.y * worldTilesX + castleRuinTile.x]) {
+    if (castleRuinTile && minimapApi.explored[castleRuinTile.y * worldTilesX + castleRuinTile.x]) {
       objectives.push({
         key: "castle", kind: "castle", label: castleGoal ? latestGoal!.title : "Castle Ruin", objective: castleGoal,
         x: (castleRuinTile.x + 0.5) * tileSize, y: (castleRuinTile.y + 0.5) * tileSize,
       });
     }
     for (const index of latestHearths) {
-      if (!explored[index]) continue;
+      if (!minimapApi.explored[index]) continue;
       objectives.push({
         key: `h${index}`, kind: "camp", label: "Camp", objective: false,
         x: ((index % worldTilesX) + 0.5) * tileSize, y: (Math.floor(index / worldTilesX) + 0.5) * tileSize,
@@ -7610,7 +7155,7 @@ async function main() {
     redrawOrderMarkers();
     if (strategyCam.active) {
       if (performance.now() - fogUpdatedAt >= STRATEGY_FOG_REFRESH_MS) {
-        strategyFog.update(explored, liveVisionSources(players, latestColonists));
+        strategyFog.update(minimapApi.explored, liveVisionSources(players, latestColonists));
         fogUpdatedAt = performance.now();
       }
       buildStrategyBanners();
@@ -7743,7 +7288,7 @@ async function main() {
     if (!at) return;
     const tx = at.x;
     const ty = at.y;
-    const reach = 8 / minimapCssPerTile;
+    const reach = 8 / minimapApi.minimapCssPerTile;
     let tip = "";
     let best = Infinity;
     for (const f of fortMarkers) {
