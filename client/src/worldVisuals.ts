@@ -61,7 +61,9 @@ export const TILE_SPRITE_FILES: Partial<Record<TileType, string>> = {
   [TileType.WoolFarm]: "sheepPasture",
   [TileType.CottonFarm]: "hempField",
   [TileType.IronMinePost]: "ironMine",
-  [TileType.RockMinePost]: "quarry",
+  // Mining rework (2026-11-26): the Quarry's own key (a pit mine; placeholder art = quarry.png until a real
+  // sprite is supplied, SPRITES.md). The "quarry" art stays for the stand-ins below (Clay Pit, Cellar, ...).
+  [TileType.RockMinePost]: "quarry-pit",
   [TileType.TailorShop]: "tailorShop",
   [TileType.Blacksmith]: "towns-v2/blacksmith-v3",
   [TileType.LuxuryWorkshop]: "jewelersWorkshop",
@@ -122,11 +124,8 @@ export const TILE_SPRITE_FILES: Partial<Record<TileType, string>> = {
   // for the kiln.
   [TileType.ClayPit]: "quarry",
   [TileType.Kiln]: "blacksmith",
-  // Deep mines stand-ins (tinted; SPRITES.md #111): rock / iron ore for the deposits, the quarry / iron mine posts
-  // for the mines.
-  [TileType.CoalSeam]: "rock",
-  [TileType.CopperOre]: "ironOre",
-  [TileType.TinOre]: "rock",
+  // Deep mines stand-ins (tinted; SPRITES.md #111): the quarry / iron mine posts for the (inert legacy) mines. The
+  // old deposit tiles are retired (mining rework 2026-11-26: world gen no longer makes them).
   [TileType.CoalMine]: "quarry",
   // Agriculture extras stand-ins (tinted; SPRITES.md #113): the charcoal burner's campfire for the salt pans, the tavern for
   // the smokehouse, the barn for the dairy, the quarry post for the cellar door.
@@ -137,15 +136,12 @@ export const TILE_SPRITE_FILES: Partial<Record<TileType, string>> = {
   [TileType.CopperMine]: "ironMine",
   [TileType.TinMine]: "quarry",
   // Industry extras stand-ins (tinted; SPRITES.md #114): the bloomery's blacksmith for the foundry and the glassworks,
-  // the tavern for the mint, the barn (as for the Mill) for the stamp mill, rock / iron ore for the new deposits and the quarry / iron mine posts
-  // for their mines.
+  // the tavern for the mint, the barn (as for the Mill) for the stamp mill, the quarry / iron mine posts for the
+  // (inert legacy) mines.
   [TileType.Foundry]: "blacksmith",
   [TileType.StampMill]: "barn",
   [TileType.Glassworks]: "blacksmith",
   [TileType.Mint]: "tavern",
-  [TileType.Limestone]: "rock",
-  [TileType.GoldOre]: "ironOre",
-  [TileType.LeadOre]: "rock",
   [TileType.LimeQuarry]: "quarry",
   [TileType.GoldMine]: "ironMine",
   [TileType.LeadMine]: "ironMine",
@@ -268,9 +264,6 @@ export const TILE_STANDIN_TINT: Partial<Record<TileType, number>> = {
   [TileType.Bakery]: 0xf0b880,
   [TileType.ClayPit]: 0xc08860,
   [TileType.Kiln]: 0xd89068,
-  [TileType.CoalSeam]: 0x4a4650,
-  [TileType.CopperOre]: 0xe0a070,
-  [TileType.TinOre]: 0xc8d4e0,
   [TileType.CoalMine]: 0x6a6670,
   [TileType.SaltWorks]: 0xe8e8f0,
   [TileType.Smokehouse]: 0x8a6a58,
@@ -282,9 +275,6 @@ export const TILE_STANDIN_TINT: Partial<Record<TileType, number>> = {
   [TileType.StampMill]: 0xa8b0b8,
   [TileType.Glassworks]: 0x90d0d8,
   [TileType.Mint]: 0xf0d878,
-  [TileType.Limestone]: 0xf0ecdc,
-  [TileType.GoldOre]: 0xf0d050,
-  [TileType.LeadOre]: 0x7a8090,
   [TileType.LimeQuarry]: 0xf4f0e0,
   [TileType.GoldMine]: 0xf0d870,
   [TileType.LeadMine]: 0x8a90a0,

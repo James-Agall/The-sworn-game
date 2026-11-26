@@ -17,7 +17,7 @@ UNINDEXED[TileType.Empty] = 1;
 UNINDEXED[TileType.Water] = 1;
 // Natural tiles that don't count as a chunk's structures.
 const NATURAL = new Uint8Array(256);
-for (const t of [TileType.Empty, TileType.Water, TileType.Tree, TileType.IronOre, TileType.Rock, TileType.CoalSeam, TileType.CopperOre, TileType.TinOre, TileType.Limestone, TileType.GoldOre, TileType.LeadOre]) NATURAL[t] = 1;
+for (const t of [TileType.Empty, TileType.Water, TileType.Tree, TileType.IronOre, TileType.Rock]) NATURAL[t] = 1;
 
 const byType: Set<number>[] = Array.from({ length: 256 }, () => new Set<number>());
 const sortedCache: (number[] | null)[] = new Array(256).fill(null);

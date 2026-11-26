@@ -72,7 +72,6 @@ import { CLAY_PIT_WATER_RADIUS_TILES } from "@colony/shared/progression";
 import { AGRI_BUILDING_TILES, SALT_WORKS_WATER_RADIUS_TILES } from "@colony/shared/agri";
 import { ANVIL_TIER_TEXT, INDUSTRY_STATION_TILES, STAMP_MILL_WATER_RADIUS_TILES } from "@colony/shared/industry";
 import { noteOrchardPlanted } from "./agri.js";
-import { MINE_LABEL, depositMineFor, isOreGround } from "@colony/shared/mines";
 import { mineInfo } from "./mines.js";
 import {
   STRUCTURE_ORDER_MAX_TILES, STRUCTURE_ORDER_RANGE_TILES, isDoorTile, isFloorTile, isFurnitureTile, isRoomStationTile, isStructureTile,
@@ -266,9 +265,8 @@ export function resolveMinePlacement(
   }
   setTile(tileIndex(tx, ty), mineType);
   broadcastTileUpdate(tx, ty, mineType);
+  // Remembered (saved) so a demolished Mine gives its iron ore back and a Quarry its rock.
   if (current === oreType) minesPlacedOnOre.add(resourceKey(tx, ty));
-  // Layered mines: a Mine sunk on a deposit remembers it ("x,y=tile" in the same saved set) to give it back.
-  else if (mineType === TileType.IronMinePost && isOreGround(current)) minesPlacedOnOre.add(`${resourceKey(tx, ty)}=${current}`);
   staffPost(tx, ty, minerKind);
 }
 
@@ -875,29 +873,17 @@ export function demolishTile(tx: number, ty: number, current: TileType) {
   if (current === TileType.FarmPlot || current === TileType.CottonFarm) {
     farmPlots.delete(resourceKey(tx, ty));
   }
-  if (current === TileType.IronMinePost) {
+  if (current === TileType.IronMinePost || current === TileType.RockMinePost) {
     const key = resourceKey(tx, ty);
-    const dep = [...minesPlacedOnOre].find((k) => k.startsWith(key + "="));
-    const revert = minesPlacedOnOre.has(key) ? TileType.IronOre : dep ? (Number(dep.split("=")[1]) as TileType) : TileType.Empty;
-    minesPlacedOnOre.delete(key);
-    if (dep) minesPlacedOnOre.delete(dep);
-    setTile(tileIndex(tx, ty), revert);
-    broadcastTileUpdate(tx, ty, revert);
-    return;
-  }
-  if (current === TileType.RockMinePost) {
-    const key = resourceKey(tx, ty);
-    const revert = minesPlacedOnOre.has(key) ? TileType.Rock : TileType.Empty;
+    const revert = !minesPlacedOnOre.has(key) ? TileType.Empty : current === TileType.IronMinePost ? TileType.IronOre : TileType.Rock;
     minesPlacedOnOre.delete(key);
     setTile(tileIndex(tx, ty), revert);
     broadcastTileUpdate(tx, ty, revert);
     return;
   }
   if (isTowerTile(current)) towerCooldowns.delete(resourceKey(tx, ty));
-  // Deep mines: a coal / copper / tin mine always stands on its deposit, which comes back.
-  const revert = depositMineFor(current)?.mine === current ? depositMineFor(current)!.deposit : TileType.Empty;
-  setTile(tileIndex(tx, ty), revert);
-  broadcastTileUpdate(tx, ty, revert);
+  setTile(tileIndex(tx, ty), TileType.Empty);
+  broadcastTileUpdate(tx, ty, TileType.Empty);
 }
 
 // ---- Gap closure G1: 2-tile furniture (shared FURNITURE_FOOTPRINT): the anchor holds the piece ----
@@ -1065,21 +1051,20 @@ export function handleSetTileInner(player: Player, tx: number, ty: number, tile:
   if (upgradeInPlace) {
     // Placing on top of an existing building upgrades it; nothing else to validate here.
   } else if (tile === TileType.IronMinePost) {
-    // Layered mines: a Mine on ore ground (iron ore or any deposit).
-    if (!isOreGround(current)) {
-      sendEvent(player, "build", "A Mine must be sunk on ore ground (iron ore or a deposit)");
+    // Mining rework (2026-11-26): a Mine only on an iron ore outcrop (the one mineral tile).
+    if (current !== TileType.IronOre) {
+      sendEvent(player, "build", current === TileType.Rock
+        ? "That is plain grey stone: it takes a Quarry. A Mine must be sunk on an ore outcrop (the iron ore tile with rust-red streaks)"
+        : "A Mine must be sunk on an ore outcrop (the iron ore tile with rust-red streaks). Select Mine, walk within 2 tiles and right-click the ore's ground tile");
       return;
     }
   } else if (tile === TileType.RockMinePost) {
     if (current !== TileType.Rock) {
-      sendEvent(player,"build","A Quarry needs a stone outcrop (grey rock), not ore or empty ground. Select Quarry, approach the rock, then right-click its ground tile");
-      return;
-    }
-  } else if (depositMineFor(tile)?.mine === tile) {
-    // Deep mines: a coal / copper / tin mine only on its own deposit.
-    const d = depositMineFor(tile)!;
-    if (current !== d.deposit) {
-      sendEvent(player, "build", `A ${MINE_LABEL[tile]} must be sunk on a ${d.label.toLowerCase()} deposit`);
+      sendEvent(player, "build", current === TileType.IronOre
+        ? "That is an ore outcrop: it takes a Mine, not a Quarry. A Quarry needs plain grey stone (a rock outcrop)"
+        : current === TileType.CaveRock || current === TileType.CaveCliff
+          ? "Cave rock cannot take a Quarry. A Quarry needs a plain grey stone outcrop in the open"
+          : "A Quarry needs a plain grey stone outcrop (rock): not ore, cave rock or empty ground. Select Quarry, walk within 2 tiles, then right-click the rock's ground tile");
       return;
     }
   } else if (tile === TileType.FarmPlot) {
@@ -1417,7 +1402,7 @@ export function resolvePlacement(tx: number, ty: number, tile: TileType, current
     resolveTavernPlacement(tx, ty);
     return;
   }
-  if (tile === TileType.CharcoalBurner || tile === TileType.Bloomery || tile === TileType.Mill || tile === TileType.Bakery || tile === TileType.ClayPit || tile === TileType.Kiln || depositMineFor(tile)?.mine === tile ||
+  if (tile === TileType.CharcoalBurner || tile === TileType.Bloomery || tile === TileType.Mill || tile === TileType.Bakery || tile === TileType.ClayPit || tile === TileType.Kiln ||
     AGRI_BUILDING_TILES.includes(tile) || INDUSTRY_STATION_TILES.includes(tile)) {
     resolveStationPlacement(tx, ty, tile);
     return;

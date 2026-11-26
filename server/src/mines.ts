@@ -39,7 +39,7 @@ import { buildInteriorMap, interiorSolidGrid, type InteriorMap } from "@colony/s
 import {
   MINE_LAYER_ENCOUNTER, MINE_LAYER_INFEST_CHANCE, MINE_LAYER_MOB_MULT, MINE_LAYER_REINFEST_CHANCE, MINE_LAYER_YIELDS,
   MINE_RESOURCE_LABEL, isLayeredMine, mineLayerResourcesText, type MineResource,
-  DEPOSIT_MINES, MINE_ASSAULT_MAX_ROUNDS, MINE_ASSAULT_MAX_SOLDIERS, MINE_ASSAULT_RADIUS_TILES, MINE_ATTACK_DEATHS,
+  MINE_ASSAULT_MAX_ROUNDS, MINE_ASSAULT_MAX_SOLDIERS, MINE_ASSAULT_RADIUS_TILES, MINE_ATTACK_DEATHS,
   MINE_BAD_AIR_SPEED, MINE_CAVE_IN_CHANCE, MINE_CAVE_IN_HURT, MINE_CLEAR_GOLD, MINE_CLEAR_GRACE_DAYS, MINE_ENCOUNTER_BY_LEVEL,
   MINE_FLOOD_CHANCE, MINE_FOREMAN_LEVEL, MINE_GUARD_RADIUS_TILES, MINE_HERO_BOW_REACH_TILES, MINE_HERO_REACH_TILES,
   MINE_HERO_SPEAR_REACH_TILES, MINE_INFEST_CHANCE_BY_LEVEL, MINE_LABEL, MINE_LOOT_BONES_CHANCE, MINE_LOOT_GEM_CHANCE,
@@ -502,7 +502,6 @@ function reinfestChance(r: MineRec, clan: Clan, li: number): number {
 function lootFor(r: MineRec, li: number, m: MineMob): string[] {
   const got: string[] = [];
   if(r.encounter){state.stock.gold+=2;return ['2 gold'];}
-  const tile = state.tiles[tileIndex(r.tx, r.ty)];
   if (r.layered) {
     // A Mine: one of the layer's own resources.
     const ys = MINE_LAYER_YIELDS[Math.min(2, li)];
@@ -511,10 +510,9 @@ function lootFor(r: MineRec, li: number, m: MineMob): string[] {
     else addItem(res, MINE_LOOT_ORE);
     got.push(`${MINE_LOOT_ORE} ${MINE_RESOURCE_LABEL[res]}`);
   } else {
-    const dep = DEPOSIT_MINES.find((q) => q.mine === tile);
-    if (dep) addItem(dep.item, MINE_LOOT_ORE);
-    else state.stock.rock += MINE_LOOT_ORE;
-    got.push(`${MINE_LOOT_ORE} ${dep ? dep.item.replace(/[A-Z]/g, (ch) => " " + ch.toLowerCase()) : "rock"}`);
+    // The Quarry: stone only.
+    state.stock.rock += MINE_LOOT_ORE;
+    got.push(`${MINE_LOOT_ORE} rock`);
   }
   if (m.kind === "skeleton" || roll() < MINE_LOOT_BONES_CHANCE) {
     addItem("bones", 1);

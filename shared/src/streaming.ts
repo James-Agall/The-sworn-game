@@ -58,12 +58,6 @@ export function minimapClassOf(tile: number, biome: number, owned: boolean): Min
       return MinimapClass.Tree;
     case TileType.Rock: return MinimapClass.Rock;
     case TileType.IronOre: return MinimapClass.Iron;
-    case TileType.CoalSeam: return MinimapClass.Coal;
-    case TileType.CopperOre: return MinimapClass.Copper;
-    case TileType.TinOre: return MinimapClass.Tin;
-    case TileType.Limestone: return MinimapClass.Limestone;
-    case TileType.GoldOre: return MinimapClass.Gold;
-    case TileType.LeadOre: return MinimapClass.Lead;
     case TileType.Wall:
     case TileType.StoneWall:
     case TileType.Gate:

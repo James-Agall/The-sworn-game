@@ -16,8 +16,9 @@ import { state } from "./state.js";
 // named by the save's own worldgenVersion). 3: bandit camp templates (2026-11-06). 7: gap closure G7 (settlements
 // turned / mirrored, quest slots, 6 more settlement templates). 8: gap closure G8 (town-citadel: a keep building).
 // 10: deep mines (coal / copper / tin veins, scattered last: worldgen.ts scatterDeposits). 11: industry extras
-// (limestone / gold / lead veins after those).
-export const WORLDGEN_VERSION = 22;
+// (limestone / gold / lead veins after those). 23: mining rework (2026-11-26): no deposit veins; iron ore guaranteed
+// near the start (worldgen.ts ensureStartOre).
+export const WORLDGEN_VERSION = 23;
 const gzipAsync = promisify(gzip);
 const gunzipAsync = promisify(gunzip);
 // A chunk with more changed tiles than this is stored whole (1024 bytes) instead of as (u16 pos, u8 tile).

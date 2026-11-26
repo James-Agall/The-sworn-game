@@ -3,7 +3,7 @@
 // COLONY_UNLOCK_ALL (scripts/run-tests.mjs gives all of that: `npm test -- industry-extra`). Checks: one furnace
 // (2026-11-19): the Foundry is retired (not placeable) and the Bloomery smelts bronze (charcoal, coal), casts bronze tools
 // (hero / worker speed); tier-1 weapons and armour are forged from bronze at the Blacksmith (no iron; soldiers take them
-// from the armoury stock, there is no separate bronze weapon item); the new deposits (limestone, gold, lead) at world gen (layered
+// from the armoury stock, there is no separate bronze weapon item); no deposit tiles at world gen any more (mining rework 2026-11-26; layered
 // mines 2026-11-19: the Lime Quarry / Gold / Lead Mine are no longer buildable, a Mine digs those ores by level); the Stamp Mill
 // (water, gates; gold dust, washed tin, sand) and bronze from washed tin; steel only at a Blast furnace (Bloomery 2+)
 // with limestone flux, Fine steel forging a tier better; the Glassworks (glass, window glass glazing rooms' windows,
@@ -109,7 +109,7 @@ const B = { x: bx, y: by };
 for (let y = B.y - 4; y <= B.y + 13; y++) for (let x = B.x - 4; x <= B.x + 22; x++) send({ type: "testHook", op: "setTileRaw", tx: x, ty: y, tile: T.Empty });
 await setStock({ wood: 3000, rock: 3000, iron: 500, grain: 500, meat: 200, fruit: 200, clothes: 20, tools: 20 });
 
-// 1. locks in a new game; the new deposits are on the map
+// 1. locks in a new game; no deposit tiles on the map (mining rework)
 const s0 = (await prog()).snapshot;
 const lk = (t) => JSON.stringify(s0.locked[t] ?? []);
 result((s0.locked[T.Bloomery] ?? []).includes("8 Bricks") && !(s0.locked[T.Bloomery] ?? []).some((l) => /Bellows|Blacksmith|Iron|Hide/.test(l))
@@ -118,7 +118,8 @@ result((s0.locked[T.Bloomery] ?? []).includes("8 Bricks") && !(s0.locked[T.Bloom
   && (s0.locked[T.Mint] ?? []).includes("a Stamp Mill") && (s0.locked[T.Mint] ?? []).includes("a Blacksmith"),
   `locks: Bloomery ${lk(T.Bloomery)}, Stamp Mill ${lk(T.StampMill)}, Glassworks ${lk(T.Glassworks)}, Mint ${lk(T.Mint)}`);
 const count = (t) => c.tiles.filter((v) => v === t).length;
-result(count(T.Limestone) > 0 && count(T.GoldOre) > 0 && count(T.LeadOre) > 0, `world gen veins: limestone ${count(T.Limestone)}, gold ore ${count(T.GoldOre)}, lead ore ${count(T.LeadOre)}`);
+// Mining rework (2026-11-26): the deposit tiles are retired; limestone, gold and lead ore come from the Mine's layers.
+result(count(T.Limestone) === 0 && count(T.GoldOre) === 0 && count(T.LeadOre) === 0, `world gen makes no deposit veins: limestone ${count(T.Limestone)}, gold ore ${count(T.GoldOre)}, lead ore ${count(T.LeadOre)}`);
 
 // 2. one furnace: the Foundry is retired (not placeable); the Bloomery (charcoal, bricks, a Charcoal Burner; no bellows,
 // iron or Blacksmith) smelts bronze

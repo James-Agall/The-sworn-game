@@ -1,8 +1,10 @@
 // Scripted test: layered mines (2026-11-19; ROADMAP "Layered mines — landed", before it "Deep mines — landed"). Needs a
 // private server with COLONY_TEST_HOOKS=1, a scratch COLONY_SAVE_DIR, instant build, W80 and NOT COLONY_UNLOCK_ALL
-// (scripts/run-tests.mjs gives all of that: `npm test -- mines`). Checks: deposits at world gen; only the Quarry and the
-// Mine are buildable (the old Coal / Copper / Tin mines are inert legacy); a Mine needs a Quarry and ore ground (iron
-// ore or any deposit, given back when demolished); each level of a Mine is a layer: a new layer breaks into a nest
+// (scripts/run-tests.mjs gives all of that: `npm test -- mines`). Checks: world gen makes no deposit veins and puts iron
+// ore near the start (mining rework 2026-11-26); only the Quarry and the Mine are buildable (the old Coal / Copper / Tin
+// mines are inert legacy); the Quarry only on plain rock (ore and cave rock refused, with a message); a Mine needs a
+// Quarry and an iron ore outcrop (rock, bare ground and the retired deposit tiles refused; the ore is given back when
+// it is demolished); each level of a Mine is a layer: a new layer breaks into a nest
 // (danger by layer: more, stronger monsters deeper), must be cleared before it produces; level 1 digs copper, tin and
 // limestone; the Bloomery (one furnace: the Foundry is retired) casts the bronze anvil and hammer & tongs, so a Blacksmith
 // needs no iron (not even to build); its level is the
@@ -16,7 +18,7 @@ import WebSocket from "ws";
 const ws = new WebSocket(`ws://localhost:${process.env.PORT ?? 8080}`);
 const TILE = 32;
 const T = {
-  Empty: 0, IronOre: 7, Rock: 8, Mine: 9, Quarry: 10, Blacksmith: 26, Bloomery: 101,
+  Empty: 0, IronOre: 7, Rock: 8, Mine: 9, Quarry: 10, Blacksmith: 26, Bloomery: 101, CaveRock: 177,
   CoalSeam: 149, CopperOre: 150, TinOre: 151, CoalMine: 152, CopperMine: 153, TinMine: 154, Foundry: 159,
 };
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -124,12 +126,14 @@ const fightLayer = async (m, layer) => {
   return (await mine(m, { layer })).mine?.status === "cleared";
 };
 
-// 0. deposits at world gen (a fresh W80 world)
+// 0. world gen (a fresh W80 world): no deposit veins any more; iron ore (the one mineral tile) near the start
 const count = (t) => c.tiles.filter((x) => x === t).length;
-result(count(T.CoalSeam) >= 2 && count(T.CopperOre) >= 2 && count(T.TinOre) >= 2,
-  `world gen scatters deposits: coal ${count(T.CoalSeam)}, copper ${count(T.CopperOre)}, tin ${count(T.TinOre)} tiles`);
-
 const tc = c.snap.townCenters[0];
+let oreNear = 0;
+for (let y = tc.y - 20; y <= tc.y + 20; y++) for (let x = tc.x - 20; x <= tc.x + 20; x++) if (tileAt(x, y) === T.IronOre && Math.hypot(x - tc.x, y - tc.y) <= 20) oreNear++;
+result([T.CoalSeam, T.CopperOre, T.TinOre, 161, 162, 167].every((t) => count(t) === 0) && count(T.IronOre) > 0 && oreNear >= 2,
+  `world gen: no deposit tiles (coal ${count(T.CoalSeam)}, copper ${count(T.CopperOre)}, tin ${count(T.TinOre)}), iron ore ${count(T.IronOre)}, ${oreNear} within 20 tiles of the start`);
+
 const bx = tc.x + 6 + 24 < c.W - 2 ? tc.x + 6 : tc.x - 30;
 const by = Math.max(6, Math.min(c.W - 20, tc.y + 4));
 const B = { x: bx, y: by };
@@ -146,22 +150,43 @@ await raw(OLD.x, OLD.y, T.CoalSeam);
 await place(OLD.x, OLD.y, T.CoalMine, T.CoalMine, 1);
 result(tileAt(OLD.x, OLD.y) === T.CoalSeam, `the old Coal Mine is no longer placeable: tile ${tileAt(OLD.x, OLD.y)}`);
 const Q = { x: B.x + 18, y: B.y + 10 };
+// The Quarry only on plain grey rock: an ore outcrop or cave rock is refused, with a message saying why.
+await raw(Q.x, Q.y, T.IronOre);
+let ev = c.events.length;
+await place(Q.x, Q.y, T.Quarry, T.Quarry, 1);
+await until(() => c.events.length > ev, 1500);
+result(tileAt(Q.x, Q.y) === T.IronOre && /ore outcrop: it takes a Mine, not a Quarry/.test(evSince(ev)), `Quarry refused on iron ore: ${evSince(ev)}`);
+await raw(Q.x, Q.y, T.CaveRock);
+ev = c.events.length;
+await place(Q.x, Q.y, T.Quarry, T.Quarry, 1);
+await until(() => c.events.length > ev, 1500);
+result(tileAt(Q.x, Q.y) === T.CaveRock && /Cave rock cannot take a Quarry/.test(evSince(ev)), `Quarry refused on cave rock: ${evSince(ev)}`);
 await raw(Q.x, Q.y, T.Rock);
 await place(Q.x, Q.y, T.Quarry);
 result(tileAt(Q.x, Q.y) === T.Quarry, "Quarry dug on rock");
 
-// 2. a Mine only on ore ground; a deposit is given back when it is demolished
+// 2. a Mine only on an iron ore outcrop (bare ground, plain rock and a retired deposit tile are refused); the ore is
+// given back when it is demolished
 const MN = { x: B.x + 3, y: B.y + 3 };
-let ev = c.events.length;
+ev = c.events.length;
 await place(MN.x, MN.y, T.Mine, T.Mine, 1);
 await until(() => c.events.length > ev, 1500);
-result(tileAt(MN.x, MN.y) === T.Empty && /must be sunk on ore ground/.test(evSince(ev)), `bare ground refused: ${evSince(ev)}`);
+result(tileAt(MN.x, MN.y) === T.Empty && /must be sunk on an ore outcrop/.test(evSince(ev)), `bare ground refused: ${evSince(ev)}`);
+await raw(MN.x, MN.y, T.Rock);
+ev = c.events.length;
+await place(MN.x, MN.y, T.Mine, T.Mine, 1);
+await until(() => c.events.length > ev, 1500);
+result(tileAt(MN.x, MN.y) === T.Rock && /plain grey stone: it takes a Quarry/.test(evSince(ev)), `rock refused for a Mine: ${evSince(ev)}`);
 await raw(MN.x, MN.y, T.CopperOre);
-await place(MN.x, MN.y, T.Mine);
-result(tileAt(MN.x, MN.y) === T.Mine, "Mine sunk on a copper deposit");
-await place(MN.x, MN.y, T.Empty, T.CopperOre);
-result(tileAt(MN.x, MN.y) === T.CopperOre, `demolished, the deposit is back: ${tileAt(MN.x, MN.y)}`);
+ev = c.events.length;
+await place(MN.x, MN.y, T.Mine, T.Mine, 1);
+await until(() => c.events.length > ev, 1500);
+result(tileAt(MN.x, MN.y) === T.CopperOre && /ore outcrop/.test(evSince(ev)), `a retired copper deposit tile is refused: ${evSince(ev)}`);
 await raw(MN.x, MN.y, T.IronOre);
+await place(MN.x, MN.y, T.Mine);
+result(tileAt(MN.x, MN.y) === T.Mine, "Mine sunk on iron ore");
+await place(MN.x, MN.y, T.Empty, T.IronOre);
+result(tileAt(MN.x, MN.y) === T.IronOre, `demolished, the iron ore is back: ${tileAt(MN.x, MN.y)}`);
 await place(MN.x, MN.y, T.Mine);
 await staffed(MN, "ironMiner");
 

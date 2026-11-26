@@ -29,7 +29,7 @@ export type ItemId =
   // Industry extras (phase 6, shared/src/industry.ts): bronze and the tools the Bloomery casts from it (tier-1 weapons
   // and armour are forged from bronze at the Blacksmith: the armoury stock, no item).
   | "bronze" | "bronzeTools"
-  // The new deposits' ores and what the Stamp Mill crushes and washes out of them.
+  // The Mine layers' ores (mining rework 2026-11-26: no deposit tiles) and what the Stamp Mill crushes and washes out of them.
   | "limestone" | "goldOre" | "leadOre" | "washedTin" | "goldDust" | "sand" | "crushedIron"
   // Steel from the Blast furnace (flux: limestone).
   | "steel"
@@ -148,7 +148,7 @@ export function xpToNext(xp: number): number | null {
 export const PROGRESSION = {
   items: {
     stoneAxe: { label: "Stone axe", desc: "Knapped flint on a haft. Fells trees: Lumberjack, Wooden House, Charcoal Burner.", group: "tool" },
-    stonePick: { label: "Stone pick", desc: "Opens surface outcrops: the Quarry and a Mine's first level; with a knife, prospecting.", group: "tool" },
+    stonePick: { label: "Stone pick", desc: "Opens surface outcrops: the Quarry (on grey rock) and a Mine's first level (on an ore outcrop), and lets the hero mine their outcrops by hand; with a knife, prospecting iron ore and rock.", group: "tool" },
     stoneKnife: { label: "Stone knife", desc: "Skins game: Hunter's Hut (hides). With a pick, prospecting.", group: "tool" },
     timberProps: { label: "Timber props", desc: "Pit supports: a mine can be sunk to level 2 (shaft). Shafts wear one out every few days (none in store: cave-ins); props in store also keep nests away.", group: "tool" },
     hide: { label: "Hide", desc: "From a Hunter's Hut's kills (also pasture animals and game you hunt yourself). Bellows leather (the Blast furnace).", group: "material" },
@@ -332,7 +332,7 @@ export const PROGRESSION = {
       requires: { items: { stonePick: 1 } },
       levels: { 2: { items: { timberProps: 1 } }, 3: { items: { mineVent: 1, minePump: 1 }, buildings: [{ tile: TileType.Blacksmith }] } },
     },
-    // Layered mines: the Mine (on ore ground) after a Quarry; each upgrade opens the next layer: level 2 (iron ore,
+    // Layered mines: the Mine (on an iron ore outcrop) after a Quarry; each upgrade opens the next layer: level 2 (iron ore,
     // coal) needs a bronze pickaxe and timber props, level 3 (gold, lead) an iron pickaxe, an air vent and a pump.
     [TileType.IronMinePost]: {
       requires: { items: { stonePick: 1 }, buildings: [{ tile: TileType.RockMinePost }] },
