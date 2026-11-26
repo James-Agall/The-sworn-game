@@ -6,7 +6,7 @@
 //                sites, town centers, a mob), sim keeps running, version / unsupported size refused,
 //                GET /saves lists the slots.
 //   B (160x160): a few days with raids + colonists, then a manual save: size + timings from the log;
-//                dawn autosave fired; SIGTERM writes the autosave before exit.
+//                dawn autosave fired (autosave-1.json); SIGTERM writes the next numbered autosave before exit.
 import WebSocket from "ws";
 import { spawn } from "node:child_process";
 import { mkdtempSync, readFileSync, writeFileSync, existsSync, statSync } from "node:fs";
@@ -225,8 +225,9 @@ try {
   result(!b2.ok && /unsupported world size \(9999\)/.test(b2.error ?? ""), `unsupported world size refused: ${b2.error}`);
   const listed = await (await fetch(`http://localhost:${PORT_A}/saves`)).json();
   result(
-    // The 7100-tick fast-forward crossed a dawn, so the autosave is listed too.
-    listed.saves.map((s) => s.slot).join(",") === "autosave,slot1,slot2,slot3" && listed.saves[1].dayIndex === file.dayIndex,
+    // The 7100-tick fast-forward crossed a dawn, so the first numbered autosave is listed too (autosaves first).
+    listed.saves.map((s) => s.slot).join(",") === "autosave-1,slot1,slot2,slot3" && listed.saves[0].autosave === 1 &&
+      listed.saves[0].label === "Autosave 1" && listed.saves[1].dayIndex === file.dayIndex,
     `GET /saves lists ${listed.saves.map((s) => s.slot).join(",")}`
   );
   const wsList = c.wait((m) => m.type === "saveList");
@@ -256,7 +257,7 @@ try {
   const raid = await c.hook("raidState");
   const snap = await c.nextSnap();
   console.log(`  B world: day ${Math.floor(raid.cycleTick / (raid.dayTicks + raid.nightTicks)) + 1}, ${snap.colonists.length} colonists, ${raid.mobs.length} mobs, ${raid.groups.length} raid groups`);
-  result(existsSync(path.join(dirB, "autosave.json")), "dawn autosave written");
+  result(existsSync(path.join(dirB, "autosave-1.json")) && !existsSync(path.join(dirB, "autosave.json")), "dawn autosave written (autosave-1.json)");
   const res = c.wait((m) => m.type === "saveResult");
   c.send({ type: "saveGame", slot: "slot1" });
   result((await res).ok, "160x160 manual save ok");
@@ -267,12 +268,11 @@ try {
   c.send({ type: "loadGame", slot: "slot1" });
   result((await loadRes).ok, "160x160 load ok");
   console.log(`  ${B.log.split("\n").filter((l) => l.startsWith("[load]"))[0]}`);
-  const before = statSync(path.join(dirB, "autosave.json")).mtimeMs;
-  await sleep(50);
   B.proc.kill("SIGTERM");
   for (let i = 0; i < 100 && !B.exited; i++) await sleep(100);
   const shutdownLine = B.log.split("\n").find((l) => l.includes("autosave on SIGTERM"));
-  result(!!shutdownLine && statSync(path.join(dirB, "autosave.json")).mtimeMs > before, `SIGTERM autosave: ${shutdownLine}`);
+  // The shutdown save is the next of the series (2), and the rotation dropped autosave 1.
+  result(!!shutdownLine && existsSync(path.join(dirB, "autosave-2.json")) && !existsSync(path.join(dirB, "autosave-1.json")), `SIGTERM autosave: ${shutdownLine}`);
   c.ws.close();
 } catch (err) {
   result(false, `B crashed: ${err.stack}`);

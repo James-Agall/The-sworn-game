@@ -1,5 +1,5 @@
 import { ADVENTURE_CAM_PREF, START_STRATEGY_PREF } from "./adventure";
-import { DEFAULT_HERO_APPEARANCE } from "@colony/shared/protocol";
+import { DEFAULT_HERO_APPEARANCE, autosaveNumber, saveSlotLabel } from "@colony/shared/protocol";
 import type { Difficulty, HeroAppearance, SaveInfo, SaveSlot } from "@colony/shared/protocol";
 import { sound } from "./soundTriggers";
 
@@ -79,7 +79,18 @@ export function setActiveDifficulty(value: Difficulty) {
   if (gameStarted) renderDifficultyChoice(value);
 }
 
-export const SAVE_SLOT_NAMES: Record<SaveSlot, string> = { autosave: "Autosave", slot1: "Slot 1", slot2: "Slot 2", slot3: "Slot 3", creative: "Creative" };
+// "Slot 1", "Autosave 48", ... (one name per slot, shared with the server's save labels).
+export { saveSlotLabel };
+
+// Continue: the newest numbered autosave (listSaves lists those newest first), else an old single autosave file.
+export function newestAutosave(saves: SaveInfo[]): SaveSlot | null {
+  let best: SaveInfo | null = null;
+  for (const sv of saves) {
+    const n = autosaveNumber(sv.slot);
+    if (n !== null && (best === null || n > (autosaveNumber(best.slot) ?? 0))) best = sv;
+  }
+  return best?.slot ?? saves.find((sv) => sv.slot === "autosave")?.slot ?? null;
+}
 
 export function describeSave(sv: SaveInfo): string {
   return `${sv.creative ? "Creative · " : ""}Day ${sv.dayIndex + 1} · ${sv.population} pop · ${DIFFICULTY_LABEL[sv.difficulty]}`;
@@ -103,7 +114,7 @@ export function renderSaveRows(
     const el = document.createElement("div");
     el.className = "save-row";
     const text = document.createElement("span");
-    text.textContent = SAVE_SLOT_NAMES[row.slot];
+    text.textContent = saveSlotLabel(row.slot);
     const note = document.createElement("small");
     note.textContent = row.info
       ? `${describeSave(row.info)} · ${new Date(row.info.savedAt).toLocaleString([], { dateStyle: "short", timeStyle: "short" })}`
@@ -291,7 +302,10 @@ export function setupMainMenu(deps: { serverUrl: string; startGame: () => void }
   document.getElementById("menu-creative")!.addEventListener("click", () => startGame(null, true));
   document.getElementById("menu-solo")!.addEventListener("click", () => startGame(null, false, true));
   if (menuPrefs.preferredCreative) document.getElementById("menu-start")!.textContent = "New Game (Creative)";
-  document.getElementById("menu-continue")!.addEventListener("click", () => startGame("autosave"));
+  let continueSlot: SaveSlot | null = null;
+  document.getElementById("menu-continue")!.addEventListener("click", () => {
+    if (continueSlot) startGame(continueSlot);
+  });
   const loadPanel = document.getElementById("menu-load-panel")!;
   document.getElementById("menu-load")!.addEventListener("click", () => {
     mainPanel.hidden = true;
@@ -306,7 +320,8 @@ export function setupMainMenu(deps: { serverUrl: string; startGame: () => void }
     .then((res) => res.json() as Promise<{ saves: SaveInfo[] }>)
     .then(({ saves }) => {
       if (gameStarted) return;
-      document.getElementById("menu-continue")!.hidden = !saves.some((sv) => sv.slot === "autosave");
+      continueSlot = newestAutosave(saves);
+      document.getElementById("menu-continue")!.hidden = continueSlot === null;
       document.getElementById("menu-load")!.hidden = saves.length === 0;
       renderSaveRows(
         document.getElementById("menu-load-list")!,

@@ -6,7 +6,7 @@ import { fileURLToPath } from "node:url";
 import {
   HungerMark, TICK_RATE, type Stance, TILE_SIZE, type MobKind, type HeroClass, type SiegeKind, type ColonistKind,
   type EquipSlot, type BossTier, type Difficulty, TileType, WildlifeState, type RegimentClass, type ArmyOrderKind,
-  type CombatRole, type SaveSlot, type ItemSlotKind, type ItemStats, type SpellId, FIGHT_WINDOW_SECONDS,
+  type CombatRole, type ItemSlotKind, type ItemStats, type SpellId, FIGHT_WINDOW_SECONDS,
 } from "@colony/shared/protocol";
 import {
   BARN_FARMERS_BY_LEVEL, BARN_FIELD_RADIUS_TILES, BLACKSMITH_TOOLS_STOCK_CAP as SHARED_BLACKSMITH_TOOLS_STOCK_CAP, BUILD_COSTS, FIELDS_PER_FARMER,
@@ -2090,7 +2090,7 @@ export const PORT = Number.parseInt(process.env.PORT ?? "", 10) || 8080;
 // Not saved: player sessions (connected players respawn at a Town Center, as after a restart),
 // pendingEffects / pendingExplored / visionTile (per-tick transients) and client-only blood.
 export const SAVE_VERSION = 1;
-export const SAVE_SLOT_LABELS: Record<SaveSlot, string> = { autosave: "Autosave", slot1: "Slot 1", slot2: "Slot 2", slot3: "Slot 3", creative: "Creative" };
+// Slot labels: saveSlotLabel (shared/src/protocol.ts); numbered autosaves: server/src/autosaves.ts.
 export const SAVE_DIR = process.env.COLONY_SAVE_DIR
   ? path.resolve(process.env.COLONY_SAVE_DIR)
   : fileURLToPath(new URL("../saves/", import.meta.url));

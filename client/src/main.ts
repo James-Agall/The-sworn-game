@@ -18,7 +18,7 @@ import { initPerfOverlay } from "./perfOverlay";
 import { heroFrame, loadHeroRig, rigTextureScale } from "./heroRig";
 import {ADVENTURE_GEAR,adventureTrait} from "@colony/shared/expeditions";
 import { PLAYER_GEAR_SLOTS, PLAYER_WEAPON_KINDS } from "@colony/shared/protocol";
-import { menuPrefs, setupMainMenu, setActiveDifficulty, renderSaveRows, describeSave, SAVE_SLOT_NAMES, clanParam } from "./menu";
+import { menuPrefs, setupMainMenu, setActiveDifficulty, renderSaveRows, describeSave, saveSlotLabel, clanParam } from "./menu";
 import { setupChronicle } from "./chronicle";
 import { setupEconomyPanel, type GoodKey } from "./economyPanel";
 import { setupProgressionPanel } from "./progressionPanel";
@@ -7201,7 +7201,7 @@ async function main() {
     } else if (message.type === "saveList") {
       renderSavePanel(message.saves);
     } else if (message.type === "saveResult") {
-      const name = SAVE_SLOT_NAMES[message.slot];
+      const name = saveSlotLabel(message.slot);
       if (message.ok && message.action === "save") pushEventToast("build", `Game saved to ${name}`);
       else if (!message.ok) pushEventToast("death", message.error ?? `Could not ${message.action} ${name}`);
     }
@@ -7245,7 +7245,7 @@ async function main() {
             label: "Save",
             onClick: () => {
               const existing = latestSaves.find((sv) => sv.slot === slot);
-              if (existing && !window.confirm(`Overwrite ${SAVE_SLOT_NAMES[slot]} (${describeSave(existing)})?`)) return;
+              if (existing && !window.confirm(`Overwrite ${saveSlotLabel(slot)} (${describeSave(existing)})?`)) return;
               setLastSaveSlot(slot);
               sendMessage({ type: "saveGame", slot });
             },
@@ -7263,7 +7263,7 @@ async function main() {
             label: "Load",
             secondary: true,
             onClick: () => {
-              if (!window.confirm(`Load ${SAVE_SLOT_NAMES[sv.slot]} for everyone connected? Unsaved progress is lost.`)) return;
+              if (!window.confirm(`Load ${saveSlotLabel(sv.slot)} for everyone connected? Unsaved progress is lost.`)) return;
               sendMessage({ type: "loadGame", slot: sv.slot });
               document.getElementById("settings-modal")!.hidden = true;
             },

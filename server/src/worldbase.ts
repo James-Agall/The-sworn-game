@@ -138,13 +138,20 @@ export interface TileDiffs {
   tileDiffs: [number, string, 1?][];
 }
 
-// The streamed save's tile layer, or null when this world has no base (the caller writes full arrays).
-export async function diffTilesForSave(): Promise<TileDiffs | null> {
-  if (worldSeed === null || !base || base.seed !== worldSeed || base.size !== state.WORLD_TILES_X) return null;
-  if (!sameBytes(state.biomes, base.biomes)) return null;
-  // The cache file first: a diff save is only as good as its base.
-  await ensureBaseCacheFile();
-  return { seed: base.seed, worldgenVersion: base.version, baseSum: base.sum, tileDiffs: encodeDiffs(base.tiles, state.tiles) };
+function diffable(): boolean {
+  return worldSeed !== null && !!base && base.seed === worldSeed && base.size === state.WORLD_TILES_X && sameBytes(state.biomes, base.biomes);
+}
+
+// Before a streamed save: the base cache file first (async; a diff save is only as good as its base).
+export async function prepareDiffSave() {
+  if (diffable()) await ensureBaseCacheFile();
+}
+
+// The streamed save's tile layer, or null when this world has no base (the caller writes full arrays). Synchronous,
+// so it sees the same instant as the snapshot taken right after it.
+export function diffTilesForSave(): TileDiffs | null {
+  if (!diffable()) return null;
+  return { seed: base!.seed, worldgenVersion: base!.version, baseSum: base!.sum, tileDiffs: encodeDiffs(base!.tiles, state.tiles) };
 }
 
 function sameBytes(a: Uint8Array, b: Uint8Array): boolean {
@@ -236,18 +243,16 @@ export function expandTiles(b: Base, diffs: [number, string, 1?][]): { tiles: st
   return { tiles: Buffer.from(tiles).toString("base64"), biomes: Buffer.from(b.biomes).toString("base64") };
 }
 
-// After a streamed save: cache files that no slot (and not the world in memory) names are deleted.
-export async function pruneBaseFiles(slotFiles: string[]) {
-  const keep = new Set<string>();
+// The cache file name a save names (its state's seed / worldgenVersion and its worldSize), else null.
+export function baseFileNameOf(file: { worldSize?: unknown; state?: { seed?: unknown; worldgenVersion?: unknown } }): string | null {
+  return typeof file?.state?.seed === "number" ? `base-${file.state.seed}-${file.worldSize}-v${file.state.worldgenVersion}.bin.gz` : null;
+}
+
+// After a streamed save: cache files that no save (`referenced`: baseFileNameOf of every save file on disk) and not
+// the world in memory names are deleted.
+export async function pruneBaseFiles(referenced: Iterable<string>) {
+  const keep = new Set<string>(referenced);
   if (base) keep.add(path.basename(baseFile(base.seed, base.size, base.version)));
-  for (const f of slotFiles) {
-    try {
-      const file = JSON.parse(await fsp.readFile(f, "utf8"));
-      if (typeof file?.state?.seed === "number") keep.add(`base-${file.state.seed}-${file.worldSize}-v${file.state.worldgenVersion}.bin.gz`);
-    } catch {
-      /* empty / unreadable slot */
-    }
-  }
   try {
     for (const f of await fsp.readdir(SAVE_DIR)) {
       if (f.startsWith("base-") && f.endsWith(".bin.gz") && !keep.has(f)) await fsp.rm(path.join(SAVE_DIR, f), { force: true });
