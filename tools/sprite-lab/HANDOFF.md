@@ -19,6 +19,8 @@
   loads them at import).
 - Step 3 DONE: dirty state compares with the saved file; smoke covers rect / select-copy-paste / mirror / resize /
   fill; README "Area tab", MANUAL-TESTS "Sprite Lab: Area tab", stage-B notes below.
+- Verified at the end: `npm run lab:test` 82/82 pass (~27 s), `npx tsc --noEmit -p` shared / server / client /
+  tools/sprite-lab clean, `npm run smoke` ALL PASS (35 checks). Commits c599df4, c592056, d853770, b0516ff (+ this).
 - Next (stage B, a GAME-CODE change, behaviour-preserving, its own round): see "Stage B prerequisites".
 - Finding: the root `node_modules/@colony/shared` link points at the MAIN checkout's shared/; the stamper worker
   re-maps it to this worktree with a resolve hook (`stamper/alias-hooks.mjs`), the result reports `sharedFrom`.
