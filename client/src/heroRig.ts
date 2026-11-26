@@ -148,16 +148,17 @@ function motion(keys: number[][], u: number) {
 // shade where two body parts overlap, and nothing where they are one form across a joint (JOINS). Gear (head, hair,
 // helm, weapons, shield, horse) keeps its painted outline so it still reads as a separate object.
 type Layer = { name: string; part: Part; at: Vec; angle: number; limb: boolean; ws: number; hs: number; m: DOMMatrix };
-const RIM = [25, 20, 20], BODY = /^(torso|pelvis|upperArm|foreArm|thigh|shin|foot)\b/;
+const RIM = [25, 20, 20], BODY = /^(torso|pelvis|upperArm|foreArm|thigh|shin|foot|head)\b/;
 // [layer, layer, joint, radius]: seamless pairs; with a joint only within that radius (bake px) of it.
 const JOINS: [string, string, string?, number?][] = [
     ["pelvis", "thigh:near"], ["pelvis", "thigh:far"], ["pelvis", "torso"],
     ["thigh:near", "shin:near"], ["thigh:far", "shin:far"], ["upperArm:near", "foreArm:near"], ["upperArm:far", "foreArm:far"],
-    ["torso", "upperArm:near", "shoulder:near", 7], ["torso", "upperArm:far", "shoulder:far", 7],
+    ["torso", "upperArm:near", "shoulder:near", 7], ["torso", "upperArm:far", "shoulder:far", 7], ["torso", "head", "neck", 4],
 ];
 const rimlessCache = new WeakMap<object, HTMLCanvasElement>(), solidCache = new WeakMap<object, HTMLCanvasElement>();
-// The part with its dark rim (near-black pixels within 2 px of its own edge) repainted from the neighbouring fill.
-function rimless(src: HTMLImageElement | HTMLCanvasElement) {
+// The part with its dark rim (near-black pixels within 2 px of its own edge, from row `top` down) repainted from the
+// neighbouring fill. Heads keep their painted face and only lose the rim around the neck.
+function rimless(src: HTMLImageElement | HTMLCanvasElement, top = 0) {
     const old = rimlessCache.get(src);
     if (old) return old;
     const w = src.width, h = src.height, c = make(w, h), g = c.getContext("2d")!;
@@ -166,7 +167,7 @@ function rimless(src: HTMLImageElement | HTMLCanvasElement) {
     const alpha = (x: number, y: number) => x < 0 || y < 0 || x >= w || y >= h ? 0 : d[(y * w + x) * 4 + 3];
     for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
         const i = (y * w + x) * 4;
-        if (!d[i + 3] || d[i] * .3 + d[i + 1] * .59 + d[i + 2] * .11 >= 60) continue;
+        if (y < top || !d[i + 3] || d[i] * .3 + d[i + 1] * .59 + d[i + 2] * .11 >= 60) continue;
         let edge = false;
         for (let dy = -2; dy <= 2 && !edge; dy++) for (let dx = -2; dx <= 2; dx++) if (alpha(x + dx, y + dy) < 64) { edge = true; break; }
         if (edge) state[y * w + x] = 1;
@@ -211,7 +212,7 @@ function compose(g: CanvasRenderingContext2D, layers: Layer[], joints: Map<strin
     ig.imageSmoothingEnabled = tg.imageSmoothingEnabled = false;
     const body = layers.map(l => BODY.test(l.name)), slotOf = new Map(layers.map((l, k) => [l.name, k + 1]));
     layers.forEach((l, k) => {
-        place(g, l, body[k] ? rimless(l.part.image) : l.part.image);
+        place(g, l, body[k] ? rimless(l.part.image, l.name === "head" ? Math.round(l.part.image.height * .66) : 0) : l.part.image);
         tg.setTransform(1, 0, 0, 1, 0, 0); tg.globalCompositeOperation = "source-over"; tg.clearRect(0, 0, W, H);
         place(tg, l, solid(l.part.image));
         tg.setTransform(1, 0, 0, 1, 0, 0); tg.globalCompositeOperation = "source-in"; tg.fillStyle = `rgb(${k + 1},0,0)`; tg.fillRect(0, 0, W, H);
@@ -293,7 +294,9 @@ export function heroFrame(v: HeroVisual, pose: HeroPose, mounted = false, allowR
     g.translate(root[0], mounted ? root[1] : ground);
     g.scale(width, factor);
     g.translate(-root[0], -(mounted ? root[1] : ground));
-    const waist: Vec = [root[0], root[1] - 1], up = (h: number, x = 0) => add(waist, rot(x, -h, lean)), neck = up(31, 2), shoulder = up(27, -4);
+    const waist: Vec = [root[0], root[1] - 1], up = (h: number, x = 0) => add(waist, rot(x, -h, lean)), neck = up(30, 2);
+    // The arm drawn behind the torso hangs from a shoulder 4 px further forward so it stays hidden behind the back.
+    const shoulder = up(28, shield ? 1 : -3), farShoulder = up(28, 1);
     let ua = 12, fe = 24, wa = 105;
     if (attack) {
         const axe = v.weapon === "axe", spear = v.weapon === "spear", bow = v.weapon === "bow";
@@ -337,20 +340,26 @@ export function heroFrame(v: HeroVisual, pose: HeroPose, mounted = false, allowR
         wa = bow ? 0 : motion([[0,105],[.28,90],[.72,90],[1,105]],u);
     }
     const shieldShoulder = up(26, 5);
-    let farElbow = add(shoulder, dir(shield ? 40 : -15 - sw * (moving ? 22 : 0)), upper), farHand = add(farElbow, dir(shield ? 95 : 10), lower);
+    const freeArm = 4 - sw * (moving ? 22 : 0);
+    let farElbow = add(farShoulder, dir(shield ? 40 : freeArm), upper), farHand = add(farElbow, dir(shield ? 95 : freeArm + 16), lower);
+    if (v.weapon === "spear" && !shield) {
+        // Two-handed spear: the free hand grips the shaft 13 px behind the leading hand.
+        const grip = ik(farShoulder, add(hand, dir(wa), -10), upper, lower, -1);
+        farElbow = grip.j;
+        farHand = grip.end;
+    }
     if (shield) {
-        // Right (near) arm: elbow at the ribs, forearm tucked across the body.
-        const guard = ik(shieldShoulder, up(11, 7 + (moving ? sw : 0)), upper, lower, -1);
-        farElbow = guard.j;
-        farHand = guard.end;
+        // Near (shield) arm: the upper arm hangs at the ribs, the forearm points forward across the body.
+        farElbow = add(shieldShoulder, dir(10 + lean * .5 + (moving ? sw * 4 : 0)), upper);
+        farHand = add(farElbow, dir(100 + lean * .5), lower);
     }
     if (v.weapon === "bow" && attack) {
         const pull: Vec = [hand[0] - ARM_K * motion([[0, 5], [.34, 24], [.65, 24], [.74, 28], [.83, 18], [1, 5]], u), hand[1]];
-        const arm = ik(shoulder, pull, upper, lower, -1);
+        const arm = ik(farShoulder, pull, upper, lower, -1);
         farElbow = arm.j;
         farHand = arm.end;
     }
-    const arm = (far: boolean) => { const el = far ? farElbow : elbow, ha = far ? farHand : hand, origin = far && shield ? shieldShoulder : shoulder, shaded = shield ? !far : far, side = far ? "far" : "near"; mark(`shoulder:${side}`, origin); draw(`upperArm:${side}`, get(`upperArm.${material}`, shaded), origin, Math.atan2(el[0] - origin[0], el[1] - origin[1]) / D, true); draw(`foreArm:${side}`, get(`foreArm.${fore}`, shaded), el, Math.atan2(ha[0] - el[0], ha[1] - el[1]) / D, true); };
+    const arm = (far: boolean, held?: () => void) => { const el = far ? farElbow : elbow, ha = far ? farHand : hand, origin = far ? (shield ? shieldShoulder : farShoulder) : shoulder, shaded = shield ? !far : far, side = far ? "far" : "near"; mark(`shoulder:${side}`, origin); draw(`upperArm:${side}`, get(`upperArm.${material}`, shaded), origin, Math.atan2(el[0] - origin[0], el[1] - origin[1]) / D, true); held?.(); draw(`foreArm:${side}`, get(`foreArm.${fore}`, shaded), el, Math.atan2(ha[0] - el[0], ha[1] - el[1]) / D, true); };
     const leg = (far: boolean) => {
         const hip: Vec = [root[0] + (far ? -2 : 2), root[1] + 2];
         let knee: Vec, end: Vec, a1: number, a2: number, tilt = 0;
@@ -378,28 +387,31 @@ export function heroFrame(v: HeroVisual, pose: HeroPose, mounted = false, allowR
         draw(`shin:${side}`, get(tier ? `shin.t${tier}` : "shin", far), knee, a2, true);
         draw(`foot:${side}`, get(tier ? `foot.t${tier}` : "foot", far), end, tilt);
     };
-    // Weapon in the left/far hand; the right shield arm is drawn over the torso.
-    if (shield) { arm(false); draw("weapon", weapon, hand, wa + (v.weapon === "axe" ? 180 : 0), true, v.weapon === "spear" ? .4 : v.weapon === "sword" ? .55 : 1); }
+    // Back to front: far (weapon) arm, far leg, pelvis, near leg, torso over both thigh tops, head over the collar, near
+    // arm. A held weapon goes between the upper arm and the forearm so the fist closes over the grip; the shield is
+    // strapped to the near forearm with the elbow showing behind it.
+    const held = () => draw("weapon", weapon, hand, wa + (v.weapon === "axe" ? 180 : 0), true, v.weapon === "spear" ? .4 : v.weapon === "sword" ? .55 : 1);
+    if (shield) arm(false, held);
     else arm(true);
     leg(true);
     draw("pelvis", get("pelvis"), root);
+    leg(false);
     const hairName = ["", "short", "long", "ponytail"][a.hair];
     if (hairName && !helm && a.hair > 1)
         draw("hairBack", get(`hairBack.${hairName}`), neck, lean * .25);
+    draw("torso", torso, waist, lean, false, (a.gender === "f" ? 22.5 : 25) / Math.max(1, torso!.image.width - 4));
+    mark("neck", neck);
     draw("head", head, neck, lean * .25);
     if (hairName && !helm)
         draw("hair", get(`hair.${hairName}`), neck, lean * .25);
     if (helm)
         draw("helm", helm, neck, lean * .25);
-    draw("torso", torso, waist, lean, false, (a.gender === "f" ? 22.5 : 25) / Math.max(1, torso!.image.width - 4));
-    leg(false);
     if (shield) {
         arm(true);
-        draw("shield", shield, [(farElbow[0]+farHand[0])*.5, (farElbow[1]+farHand[1])*.5], lean - 5, false, 1.15 * (shield.image.height - 4) / (shield.image.width - 4), 1.15);
-    } else {
-        arm(false);
-        draw("weapon", weapon, hand, wa + (v.weapon === "axe" ? 180 : 0), true, v.weapon === "spear" ? .4 : v.weapon === "sword" ? .55 : 1);
+        const k = .5, fa = Math.atan2(farHand[0] - farElbow[0], farHand[1] - farElbow[1]) / D;
+        draw("shield", shield, add(add(farElbow, [(farHand[0] - farElbow[0]) * k, (farHand[1] - farElbow[1]) * k]), dir(fa + 90), 1.5), lean - 5, false, (shield.image.height - 4) / (shield.image.width - 4), 1);
     }
+    else arm(false, held);
     compose(g, layers, joints);
     if (v.weapon === "bow" && weapon) {
         g.strokeStyle = "#b3a48b";
