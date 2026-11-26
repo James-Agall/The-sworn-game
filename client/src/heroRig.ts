@@ -155,7 +155,7 @@ const JOINS: [string, string, string?, number?][] = [
     ["thigh:near", "shin:near"], ["thigh:far", "shin:far"], ["upperArm:near", "foreArm:near"], ["upperArm:far", "foreArm:far"],
     ["torso", "upperArm:near", "shoulder:near", 7], ["torso", "upperArm:far", "shoulder:far", 7], ["torso", "head", "neck", 4],
 ];
-const rimlessCache = new WeakMap<object, HTMLCanvasElement>(), solidCache = new WeakMap<object, HTMLCanvasElement>();
+const rimlessCache = new WeakMap<object, HTMLCanvasElement>(), solidCache = new WeakMap<object, Map<number, HTMLCanvasElement>>();
 // The part with its dark rim (near-black pixels within 2 px of its own edge, from row `top` down) repainted from the
 // neighbouring fill. Heads keep their painted face and only lose the rim around the neck.
 function rimless(src: HTMLImageElement | HTMLCanvasElement, top = 0) {
@@ -192,31 +192,28 @@ function rimless(src: HTMLImageElement | HTMLCanvasElement, top = 0) {
     rimlessCache.set(src, c);
     return c;
 }
-// Opaque silhouette of a part (for the layer-id map).
-function solid(src: HTMLImageElement | HTMLCanvasElement) {
-    const old = solidCache.get(src);
+// Opaque silhouette of a part in the layer-id colour rgb(slot, 0, 0), cached per part image and slot.
+function solid(src: HTMLImageElement | HTMLCanvasElement, slot: number) {
+    const bySlot = solidCache.get(src) ?? new Map<number, HTMLCanvasElement>(), old = bySlot.get(slot);
     if (old) return old;
     const c = make(src.width, src.height), g = c.getContext("2d")!;
     g.drawImage(src, 0, 0);
     const im = g.getImageData(0, 0, c.width, c.height);
-    for (let i = 3; i < im.data.length; i += 4) im.data[i] = im.data[i] >= 96 ? 255 : 0;
+    for (let i = 0; i < im.data.length; i += 4) { im.data[i] = slot; im.data[i + 1] = im.data[i + 2] = 0; im.data[i + 3] = im.data[i + 3] >= 96 ? 255 : 0; }
     g.putImageData(im, 0, 0);
-    solidCache.set(src, c);
+    solidCache.set(src, bySlot.set(slot, c));
     return c;
 }
 function place(g: CanvasRenderingContext2D, l: Layer, image: CanvasImageSource) {
     g.setTransform(l.m); g.translate(...l.at); g.rotate(l.angle * D * (l.limb ? -1 : 1)); g.scale(l.ws, l.hs); g.drawImage(image, -l.part.pivot[0], -l.part.pivot[1]);
 }
 function compose(g: CanvasRenderingContext2D, layers: Layer[], joints: Map<string, Vec>) {
-    const W = g.canvas.width, H = g.canvas.height, keep = g.getTransform(), ids = make(W, H), ig = ids.getContext("2d")!, tmp = make(W, H), tg = tmp.getContext("2d")!;
-    ig.imageSmoothingEnabled = tg.imageSmoothingEnabled = false;
+    const W = g.canvas.width, H = g.canvas.height, keep = g.getTransform(), ids = make(W, H), ig = ids.getContext("2d", { willReadFrequently: true })!;
+    ig.imageSmoothingEnabled = false;
     const body = layers.map(l => BODY.test(l.name)), slotOf = new Map(layers.map((l, k) => [l.name, k + 1]));
     layers.forEach((l, k) => {
         place(g, l, body[k] ? rimless(l.part.image, l.name === "head" ? Math.round(l.part.image.height * .66) : 0) : l.part.image);
-        tg.setTransform(1, 0, 0, 1, 0, 0); tg.globalCompositeOperation = "source-over"; tg.clearRect(0, 0, W, H);
-        place(tg, l, solid(l.part.image));
-        tg.setTransform(1, 0, 0, 1, 0, 0); tg.globalCompositeOperation = "source-in"; tg.fillStyle = `rgb(${k + 1},0,0)`; tg.fillRect(0, 0, W, H);
-        ig.drawImage(tmp, 0, 0);
+        place(ig, l, solid(l.part.image, k + 1));
     });
     const joins = new Map<number, [Vec | undefined, number]>();
     for (const [a, b, joint, r] of JOINS) { const s = slotOf.get(a), t = slotOf.get(b); if (s && t) joins.set(s * 64 + t, [joint ? joints.get(joint) : undefined, r ?? 0]).set(t * 64 + s, [joint ? joints.get(joint) : undefined, r ?? 0]); }
@@ -276,7 +273,7 @@ export function heroFrame(v: HeroVisual, pose: HeroPose, mounted = false, allowR
     const helm = v.helmet ? get(`helm.t${v.helmTier || 1}`) : undefined, shield = v.shield && v.weapon !== "bow" ? get(`shield.t${v.shieldTier || 1}`) : undefined;
     if (required.some(p => !p) || (v.helmet && !helm) || (v.shield && !shield && v.weapon !== "bow") || (v.weapon !== "unarmed" && !weapon))
         return undefined;
-    const c = make(256, mounted ? 240 : 192), g = c.getContext("2d")!;
+    const c = make(256, mounted ? 240 : 192), g = c.getContext("2d", { willReadFrequently: true })!;
     g.imageSmoothingEnabled = true;
     g.imageSmoothingQuality = "high";
     const moving = pose.state === "walk", attack = pose.state === "attack", sw = Math.sin(q * Math.PI * 2), u = attack ? q : 0;
