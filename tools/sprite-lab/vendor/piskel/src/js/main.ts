@@ -1,5 +1,6 @@
 import "../css/main.css";
 import "./bridge";
+import "./lab-bridge";
 import { Constants } from "./Constants";
 import { Events } from "./Events";
 import { app } from "./app";
