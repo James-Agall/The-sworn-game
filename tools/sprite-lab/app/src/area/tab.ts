@@ -32,7 +32,9 @@ export function mountArea(pane: HTMLElement, deps: Deps) {
   let buildings: BuildingTemplate[] = [];
   let lookup: A.BuildingLookup = () => undefined;
   let doc: Doc | null = null;
-  let dirty = false;
+  // Unsaved = differs from the file as opened / last saved (a new / duplicated / imported draft always is).
+  let savedSnap: string | null = null;
+  const isDirty = () => !!doc && (doc.src === "new" || JSON.stringify(doc.t) !== savedSnap);
   const history = new History<string>();
   let tool: Tool = "pencil";
   let brush = DEFAULT_BRUSH[kind];
@@ -181,12 +183,12 @@ export function mountArea(pane: HTMLElement, deps: Deps) {
 
   // ---------------- documents
   async function guardDirty(): Promise<boolean> {
-    if (!dirty || !doc) return true;
+    if (!isDirty() || !doc) return true;
     return confirmBox(`Discard unsaved changes to "${doc.t.id}"?`, "Discard");
   }
   function setDoc(d: Doc | null, keepHistory = false) {
     doc = d;
-    dirty = false;
+    savedSnap = d && d.src !== "new" ? JSON.stringify(d.t) : null;
     if (!keepHistory) history.clear();
     selection = null; pasting = false; selRef = -1; pending = null; flash = null;
     if (preview) { preview = null; previewBar.hidden = true; editBar.hidden = false; }
@@ -222,7 +224,7 @@ export function mountArea(pane: HTMLElement, deps: Deps) {
     const nt = A.newTemplate(kind);
     nt.id = uniqueId(nt.id);
     setDoc({ kind, src: "new", origId: null, hash: null, t: nt, path: null });
-    dirty = true; deps.onState();
+    deps.onState();
   }
   /** Copy the open template (a built-in or user one) to a new user id: a local draft until Save. */
   async function duplicateDoc(): Promise<boolean> {
@@ -239,7 +241,7 @@ export function mountArea(pane: HTMLElement, deps: Deps) {
     const copy = { ...JSON.parse(JSON.stringify(doc.t)), id, name: name || doc.t.name } as AnyTemplate;
     delete (copy as { builtin?: boolean }).builtin;
     setDoc({ kind, src: "new", origId: null, hash: null, t: copy, path: null });
-    dirty = true; deps.onState(); validateSoon(0);
+    deps.onState(); validateSoon(0);
     toast(`Editing the copy "${id}" (not saved yet)`, "info");
     return true;
   }
@@ -249,7 +251,6 @@ export function mountArea(pane: HTMLElement, deps: Deps) {
     try {
       const r = await api.deleteTemplate(kind, doc.origId!);
       toast(`Deleted ${r.path}${r.backup ? "; backup in " + r.backup : ""}`, "ok");
-      dirty = false;
       await loadLists(kind);
       setDoc(null);
     } catch (e) { toast("Delete failed: " + (e as Error).message, "err"); }
@@ -267,7 +268,7 @@ export function mountArea(pane: HTMLElement, deps: Deps) {
     const t0 = raw as unknown as AnyTemplate;
     if (typeof t0.id !== "string" || entries[k].some((e) => e.id === t0.id)) t0.id = uniqueId(typeof t0.id === "string" && A.ID_RE.test(t0.id) ? t0.id + "-import" : "imported");
     setDoc({ kind: k, src: "new", origId: null, hash: null, t: t0, path: null });
-    dirty = true; deps.onState();
+    deps.onState();
     toast(`Imported ${f.name} as "${t0.id}" (${A.KIND_LABEL[k]}); not saved yet`, "info");
   }
   function exportDoc() {
@@ -282,7 +283,6 @@ export function mountArea(pane: HTMLElement, deps: Deps) {
   function commit(next: AnyTemplate, before: string) {
     history.push(before);
     doc!.t = next;
-    dirty = true;
     invalidate(); validateSoon(); deps.onState();
   }
   function setRowsLive(next: string[]) {
@@ -290,7 +290,6 @@ export function mountArea(pane: HTMLElement, deps: Deps) {
     if (next.join("\n") === rows().join("\n")) return;
     if (!drag.changed) { history.push(drag.before); drag.changed = true; }
     doc!.t = { ...doc!.t, rows: next };
-    dirty = true;
     invalidate(); validateSoon(); deps.onState();
   }
   /** Paint `cells` (mirrored) with `ch`; a single-instance symbol (camp hearth H, settlement keep K) moves instead. */
@@ -371,7 +370,7 @@ export function mountArea(pane: HTMLElement, deps: Deps) {
         if (b.x !== nx || b.y !== ny) {
           if (!drag.changed) { history.push(drag.before); drag.changed = true; }
           const bs = st.buildings.slice(); bs[drag.ref] = { ...b, x: nx, y: ny };
-          doc.t = { ...st, buildings: bs }; dirty = true; invalidate(); validateSoon(); deps.onState();
+          doc.t = { ...st, buildings: bs }; invalidate(); validateSoon(); deps.onState();
         }
       }
       void e;
@@ -457,8 +456,8 @@ export function mountArea(pane: HTMLElement, deps: Deps) {
     if (u) r = G.paint(r, [{ x: w >> 1, y: h >> 1 }], u);
     commit({ ...t(), rows: r, ...(doc.kind === "settlements" ? { buildings: [] } : {}) } as AnyTemplate, before);
   }
-  function undo() { if (!doc) return; const s = history.undo(snapshot()); if (s !== null) { doc.t = JSON.parse(s); dirty = true; afterRestore(); } }
-  function redo() { if (!doc) return; const s = history.redo(snapshot()); if (s !== null) { doc.t = JSON.parse(s); dirty = true; afterRestore(); } }
+  function undo() { if (!doc) return; const s = history.undo(snapshot()); if (s !== null) { doc.t = JSON.parse(s); afterRestore(); } }
+  function redo() { if (!doc) return; const s = history.redo(snapshot()); if (s !== null) { doc.t = JSON.parse(s); afterRestore(); } }
   function afterRestore() { selection = null; selRef = -1; invalidate(true); renderMeta(); renderLibrary(); validateSoon(0); deps.onState(); }
 
   // ---------------- settlement buildings
@@ -520,7 +519,7 @@ export function mountArea(pane: HTMLElement, deps: Deps) {
     const e = ref && entries.buildings.find((x) => x.id === ref);
     if (!e) { toast("Pick a building first", "info"); return; }
     if (!(await guardDirty())) return;
-    dirty = false;
+    setDoc(null);                                            // discarded above: no second question
     await switchKind("buildings");
     await openEntry(e);
   }
@@ -930,7 +929,7 @@ export function mountArea(pane: HTMLElement, deps: Deps) {
       toast(`Saved ${r.path}${r.backup ? "; previous file in " + r.backup : ""}`, "ok", 5000);
       const renamed = doc.src === "user" && doc.origId !== doc.t.id ? doc.origId : null;
       doc.src = "user"; doc.origId = r.id; doc.hash = r.hash; doc.path = r.path;
-      dirty = false;
+      savedSnap = JSON.stringify(doc.t);
       await loadLists(doc.kind);
       if (renamed) toast(`The old file user/${renamed}.json is still there (delete it if it was a rename)`, "info", 6000);
       renderList(); updateBanner(); updateSavePath(); deps.onState();
@@ -972,7 +971,7 @@ export function mountArea(pane: HTMLElement, deps: Deps) {
   for (const [id, b] of toolBtns) b.classList.toggle("on", id === tool);
   return {
     view,
-    get dirty() { return dirty; },
+    get dirty() { return isDirty(); },
     get canUndo() { return history.canUndo; },
     get canRedo() { return history.canRedo; },
     get docLabel() { return doc ? `${doc.kind}: ${doc.t.id}${readOnly() ? " (built-in)" : ""}` : ""; },
@@ -986,6 +985,6 @@ export function mountArea(pane: HTMLElement, deps: Deps) {
       if (first) await openEntry(first); else setDoc(null);
     },
     // test hooks (smoke test)
-    debug: () => ({ kind, doc: doc && { ...doc, t: JSON.parse(JSON.stringify(doc.t)) }, errors: errors.slice(), warnings: warnings.slice(), dirty, tool, brush, coverage: doc ? coverage(doc.kind) : [], zoom: view.zoom, panX: view.panX, panY: view.panY }),
+    debug: () => ({ kind, doc: doc && { ...doc, t: JSON.parse(JSON.stringify(doc.t)) }, errors: errors.slice(), warnings: warnings.slice(), dirty: isDirty(), tool, brush, coverage: doc ? coverage(doc.kind) : [], zoom: view.zoom, panX: view.panX, panY: view.panY }),
   };
 }

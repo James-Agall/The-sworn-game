@@ -121,6 +121,50 @@ test("Area tab smoke: camp duplicate / paint / validate / save / reload, settlem
   assert.equal(await page.isDisabled("#area-save"), false);
   await page.selectOption("#area-src", "");
 
+  // the other tools on the user copy (each undone): rectangle, select + copy / paste, mirror painting, resize, fill
+  const dragCells = async (a: { x: number; y: number }, b: { x: number; y: number }) => {
+    const p0 = await cell(a.x, a.y), p1 = await cell(b.x, b.y);
+    await page.mouse.move(p0.x, p0.y); await page.mouse.down(); await page.mouse.move(p1.x, p1.y, { steps: 5 }); await page.mouse.up();
+  };
+  const rows0: string[] = d.doc.t.rows, W = rows0[0].length, H = rows0.length;
+  const undoTo = async () => { await page.keyboard.press("Control+z"); assert.deepEqual((await dbg()).doc.t.rows, rows0); };
+  await page.click('.area-sym[data-ch="r"]');
+  await page.keyboard.press("r");
+  await dragCells({ x: 0, y: H - 3 }, { x: 2, y: H - 1 });
+  d = await dbg();
+  assert.equal(d.doc.t.rows[H - 3].slice(0, 3) + d.doc.t.rows[H - 1].slice(0, 3), "rrrrrr", "rectangle outline");
+  await undoTo();
+  await page.keyboard.press("s");
+  await dragCells({ x: open.x, y: open.y }, { x: open.x, y: open.y + 1 });
+  await page.keyboard.press("Control+c");
+  await page.keyboard.press("Control+v");
+  await clickCell(W - 1, H - 2);
+  d = await dbg();
+  assert.equal(d.doc.t.rows[H - 2][W - 1], "x", "pasted the copied crate");
+  await undoTo();
+  await page.keyboard.press("p");
+  await page.keyboard.press("m");
+  await page.click('.area-sym[data-ch="b"]');
+  await clickCell(1, H - 1);
+  d = await dbg();
+  assert.equal(d.doc.t.rows[H - 1][1] + d.doc.t.rows[H - 1][W - 2], "bb", "mirror painting");
+  await undoTo();
+  await page.keyboard.press("m");
+  await page.click("#area-resize");
+  await page.fill(".modal-form input[name=w]", String(W + 2));
+  await page.click(".modal-form button[type=submit]");
+  d = await dbg();
+  assert.equal(d.doc.t.rows[0].length, W + 2);
+  assert.equal(d.doc.t.rows[0][1 + open.x], "x", "centre anchor shifts the content by 1");
+  await undoTo();
+  await page.keyboard.press("f");
+  await clickCell(W - 1, H - 1);
+  d = await dbg();
+  assert.ok(d.doc.t.rows.join("").split("b").length - 1 > 3, "flood fill");
+  await page.screenshot({ path: `${SHOTS}/area-camp-fill.png` });
+  await undoTo();
+  await page.keyboard.press("p");
+
   // settlement: duplicate a built-in hamlet, place a building on a road (collision), undo, turn the whole template
   await page.click('.kindbtn[data-kind="settlements"]');
   await page.click('.area-item[data-id="hamlet-chapel"]');
