@@ -794,7 +794,8 @@ export function raidTargetExists(): boolean {
 // Rule 1: one nightly raid at a time per clan. True while any group or mob of a nightly raid sent against `clanId`
 // is still on the map (grouped, released, leaving, or parked in a COLD chunk). Runs once per clan per day.
 export function nightlyRaidActive(clanId: number): boolean {
-  for (const g of raidGroups.values()) if (g.raidClan === clanId) return true;
+  // A group whose last member died this tick is not deleted until updateRaidGroups runs: only live members count.
+  for (const g of raidGroups.values()) if (g.raidClan === clanId && raidGroupMembers(g).length > 0) return true;
   for (const m of mobs.values()) if (m.raidClan === clanId && m.hp > 0) return true;
   for (const m of parkedMobs.values()) if (m.raidClan === clanId) return true;
   return false;

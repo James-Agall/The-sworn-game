@@ -190,6 +190,9 @@ else result(!!marchEvent, `"The horde marches on the colony" announced (events s
 // ---- Days 1 / 20 / 50: population-scaled size, no cap ----
 await hook("holdRaidAggro", { value: false });
 for (const day of [1, 20, 50]) {
+  // Raid cap (RAIDS-2026-11-26.md): no new nightly raid forms while the previous one is still on the map, so the
+  // previous raid's survivors are killed first (this sizing check used to rely on raids piling up).
+  for (const m of (await hook("raidState")).mobs.filter((x) => x.raidClan !== null)) await hook("damageMob", { mobId: m.id, amount: 1e9 });
   const r = await raidAtDay(day);
   const groupsNow = r.state.groups.filter((g) => r.fresh.some((m) => m.groupId === g.id));
   const lo = day * CYCLE + MID;
