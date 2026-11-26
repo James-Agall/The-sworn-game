@@ -4,8 +4,8 @@ import { vitalMeter, updateVitals } from "./vitals";
 // the hero bar, the pack / skills / actions panel, and a hold-E progress ring. E (held) = interact: the server talks,
 // gathers or starts station work; with nothing there the main view's building panel opens (fallback).
 import {
-  HERO_SKILL_LABEL, PACK_GOODS, PACK_LABEL, PERSONAL_BUILDS, type DialogueSnapshot, type HeroLifeSnapshot,
-  type PersonalBuild,
+  HERO_SKILL_LABEL, PACK_GOODS, PACK_LABEL, PACK_WEIGHT, PERSONAL_BUILDS, type DialogueSnapshot, type HeroLifeSnapshot,
+  type PackGood, type PersonalBuild,
 } from "@colony/shared/herolife";
 import type { ServerMessage } from "@colony/shared/protocol";
 import type { FamilyMemberSnapshot } from "@colony/shared/herolife";
@@ -122,6 +122,8 @@ export function setupHeroLife(deps: HeroLifeDeps): HeroLifeUi {
   // The hero sheet's columns (index.html #hero-modal): pack and actions left, needs + skills centre, family right.
   const host = (id: string) => document.getElementById(id) ?? document.body.appendChild(el("div", { id, class: "hl-box", hidden: "" }));
   const panel = host("hs-life");
+  // Inventory 2026-11-26: carried goods in the hero sheet (icons, quantity, weight, the load bar, drop / deposit).
+  const goodsBox = host("hs-goods");
   const needsBox = host("hs-needs");
   const skillsBox = host("hs-skills");
   const famPanel = host("hs-family");
@@ -188,6 +190,16 @@ export function setupHeroLife(deps: HeroLifeDeps): HeroLifeUi {
     b.blur();
     deps.send({ type: "heroAction", action: b.dataset.act, ...(b.dataset.build ? { build: b.dataset.build } : {}) });
   });
+  goodsBox.addEventListener("click", (e) => {
+    const b = (e.target as HTMLElement).closest<HTMLButtonElement>("button");
+    if (!b || !life) return;
+    const g = b.dataset.good as PackGood | undefined;
+    if (b.dataset.drop && g) {
+      const have = life.pack[g] ?? 0;
+      const qty = b.dataset.drop === "all" ? have : e.shiftKey ? Math.min(10, have) : 1;
+      if (qty > 0) deps.send({ type: "dropGood", good: g, qty });
+    } else if (b.dataset.act === "deposit") deps.send({ type: "heroAction", action: "deposit", ...(g ? { good: g } : {}) });
+  });
   carried.addEventListener("click", (e) => {
     const b = (e.target as HTMLElement).closest<HTMLButtonElement>("button[data-act]");
     if (!b) return;
@@ -220,6 +232,7 @@ export function setupHeroLife(deps: HeroLifeDeps): HeroLifeUi {
     if(!goods.length)carried.append(el('p',{},'No resources carried.'));
     for(const g of goods){const row=el('div',{class:'hl-row'});row.append(el('span',{},PACK_LABEL[g]),el('strong',{},String(life.pack[g])));carried.append(row);}
     carried.append(el('button',{'data-act':'deposit',class:'cmd-btn',title:'Deposit carried resources at a Town Center or storage chest'},'Deposit into stockpile'));
+    renderGoods();
     const acts=el('div',{class:'hl-actions'});
     acts.append(el('button',{'data-act':'eat',class:'cmd-btn'},'Eat'),el('button',{'data-act':'rest',class:'cmd-btn'},life.resting?'Get up':'Rest'));
     panel.append(acts);
@@ -238,6 +251,44 @@ export function setupHeroLife(deps: HeroLifeDeps): HeroLifeUi {
       r.append(el("span", {}, `${HERO_SKILL_LABEL[s.id]} L${s.level}`), el("span", {}, s.next === null ? "master" : `${s.next} to next`));
       skillsBox.appendChild(r);
     }
+  }
+
+  function renderGoods() {
+    if (!life) return;
+    const l = life;
+    const pct = Math.min(100, Math.round((l.weight / l.cap) * 100));
+    const state = l.weight >= l.cap ? "full" : l.weight / l.cap > 0.5 ? "heavy" : "";
+    const bar = el("div", { class: `hs-load ${state}`, role: "meter", "aria-valuemin": "0", "aria-valuemax": String(l.cap), "aria-valuenow": String(l.weight), "aria-label": "Carried weight" });
+    const fill = el("div", { class: "hs-load-fill" });
+    fill.style.width = `${pct}%`;
+    bar.append(fill);
+    const note = state === "full" ? "Full: you can't gather more" : state === "heavy" ? "Heavy load: you walk slower" : "Over half full slows you";
+    const head = el("div", { class: "hs-load-text" });
+    head.append(el("strong", {}, `${l.weight} / ${l.cap}`), el("span", {}, note));
+    const rows = el("div", { class: "hs-goods-list" });
+    const goods = PACK_GOODS.filter((g) => (l.pack[g] ?? 0) > 0);
+    if (!goods.length) rows.append(el("p", { class: "hs-inv-empty" }, "Nothing carried. Gather, harvest or pick things up."));
+    for (const g of goods) {
+      const n = l.pack[g] ?? 0;
+      const row = el("div", { class: "hs-good" });
+      const icon = el("span", { class: "hs-good-icon", "aria-hidden": "true" }, PACK_LABEL[g].charAt(0));
+      const img = el("img", { src: `/sprites/icon-${g}.png`, alt: "" });
+      img.addEventListener("error", () => img.remove());
+      icon.append(img);
+      const info = el("span", { class: "hs-good-info" });
+      const name = el("span", { class: "hs-good-name" }, PACK_LABEL[g]);
+      name.append(el("span", { class: "hs-good-qty" }, ` ×${n}`));
+      info.append(name, el("span", { class: "hs-good-wt" }, `${Math.round(n * PACK_WEIGHT[g] * 10) / 10} weight`));
+      const acts = el("span", { class: "hs-good-acts" });
+      const one = el("button", { class: "cmd-btn", "data-drop": "one", "data-good": g, title: `Drop 1 ${PACK_LABEL[g].toLowerCase()} on the ground (Shift: 10)`, "aria-label": `Drop 1 ${PACK_LABEL[g]} (Shift: 10)` }, "Drop 1");
+      const all = el("button", { class: "cmd-btn", "data-drop": "all", "data-good": g, title: `Drop all ${n} on the ground`, "aria-label": `Drop all ${PACK_LABEL[g]}` }, "All");
+      acts.append(one, all);
+      row.append(icon, info, acts);
+      rows.append(row);
+    }
+    const dep = el("button", { "data-act": "deposit", class: "cmd-btn", title: "Deposit carried goods into the stockpile at your Town Center (or its hall chest) or a storage chest" }, "Deposit into stockpile");
+    if (!goods.length) dep.setAttribute("disabled", "");
+    goodsBox.replaceChildren(head, bar, rows, dep);
   }
 
   function renderDialogue(d: DialogueSnapshot) {

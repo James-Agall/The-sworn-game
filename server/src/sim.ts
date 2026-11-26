@@ -57,6 +57,7 @@ import { heroSpeedMult, spawnSoloScout, updateHeroLife } from "./herolife.js";
 import { stepInteriorMovement, tryEnterAtDoor, updateInteriors } from "./interiors.js";
 import { minesDawn, updateMines } from "./mines.js";
 import { updateWinter } from "./winter.js";
+import { updateGroundItems } from "./groundItems.js";
 
 // One simulation tick (everything the pause freezes). The testHook "fastForward" runs it in a loop.
 const HAPPINESS_EVERY_TICKS = 5;
@@ -211,6 +212,8 @@ export function stepSimulation() {
   updateSiegeWorkshops();
   updateForges();
   updateGearPickup();
+  // Inventory 2026-11-26: dropped stacks rot away after 3 game days (checked once a second).
+  updateGroundItems();
   updateHeroRecruits();
   updateSpellStatuses();
   for(const player of players.values())stepPlayerCombat(player);

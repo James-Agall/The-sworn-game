@@ -5,7 +5,7 @@ import type { RaidForecast } from "./raidForecast.js";
 import type { WinterSnapshot } from "./winter.js";
 import type { FoodSnapshot } from "./food.js";
 import type { AgriSnapshot } from "./agri.js";
-import type { DialogueSnapshot, HeroActionKind, HeroLifeSnapshot, HeroTool, PersonalBuild } from "./herolife.js";
+import type { DialogueSnapshot, HeroActionKind, HeroLifeSnapshot, HeroTool, PackGood, PersonalBuild } from "./herolife.js";
 import type { CropId, StockCategory, ZoneKind, ZonesSnapshot } from "./zones.js";
 import type { BuildingPostsInfo, WorkPostOption, WorkTabSnapshot, WorkType } from "./work.js";
 import type { InteriorView } from "./interiors.js";
@@ -1471,7 +1471,13 @@ export type ClientMessage =
   | { type: "heroTool"; tool: HeroTool; tx: number; ty: number; crop?: CropId }
   | { type: "gatherStop" }
   | { type: "dialogueChoice"; choice: number }
-  | { type: "heroAction"; action: HeroActionKind; build?: PersonalBuild }
+  // Inventory 2026-11-26: `good` with action "deposit" deposits only that carried good.
+  | { type: "heroAction"; action: HeroActionKind; build?: PersonalBuild; good?: PackGood }
+  // Inventory 2026-11-26 (server/src/groundItems.ts): drop `qty` of one carried good / one pack gear item on the
+  // ground at the hero's feet (overworld only), and pick a ground stack up (within reach).
+  | { type: "dropGood"; good: PackGood; qty: number }
+  | { type: "dropGear"; itemId: string }
+  | { type: "pickupGround"; id: string }
   // Stardew phase 5c: leave the interior (Esc near the exit mat; walking onto the mat leaves by itself).
   | { type: "interiorEdit"; op: "base"|"floor"|"wall"|"place"|"remove"; base?:string; floor?:string; wall?:string; prop?:string; x?:number; y?:number; facing?:string }
   | { type:"adventureJournal"; op:"get"|"track"|"act"; id?:string }
@@ -1482,6 +1488,22 @@ export type ClientMessage =
   | { type: "mineAssault"; tileX: number; tileY: number };
 
 export interface InteriorSpellEffect {key:string;variant:number;fromX:number;fromY:number;x:number;y:number;spell:SpellId;radius?:number}
+
+// Inventory 2026-11-26: one dropped stack on the ground (k "g": `qty` of `good`; k "e": one gear item, described by
+// name / tier / slot / kind / icon only). x / y are world px.
+export interface GroundItemSnapshot {
+  id: string;
+  x: number;
+  y: number;
+  k: "g" | "e";
+  good?: PackGood;
+  qty?: number;
+  name?: string;
+  tier?: ItemTier;
+  slot?: ItemSlotKind;
+  kind?: string;
+  icon?: string;
+}
 
 export type ServerMessage =
   | {type:"interiorSpell";effect:InteriorSpellEffect}
@@ -1617,6 +1639,9 @@ export type ServerMessage =
       zones?: ZonesSnapshot;
       // Stardew phase 5d: animals outdoors and the clan's animal-house need flags (per player; omitted with none).
       livestock?: LivestockSnapshot;
+      // Inventory 2026-11-26: the ground stacks near this player (outdoors; per player, only when the list changed;
+      // a full replacement; [] = none).
+      ground?: GroundItemSnapshot[];
       // Clans (only while there are 2+): this player's clan id, every clan, and the clan of every player
       // building (CLAN_TILE_SNAPSHOT_STRIDE; per player, only when changed). The economy / army / population
       // / goal fields of this snapshot are the receiving player's clan's.

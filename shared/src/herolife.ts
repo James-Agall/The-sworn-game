@@ -194,6 +194,8 @@ export type DialogueAction =
   | "kin" | "court" | "courtGift" | "propose" | "marry" | "kinLevy" | "part"
   // Stardew phase 5c (interiors): open the building's panel, the bed (sleep to dawn / nap), the chest (store / take).
   | "interiorObject" | "craftRecipe" | "openStockpile" | "openBuilding" | "sleep" | "nap" | "chestPut" | "chestTake"
+  // Inventory 2026-11-26: the Great hall chest's deposit (all / one good) into the stockpile, and its private storage.
+  | "hallDeposit" | "chestPrivate"
   // Gap closure G6: a trader lists the clan's animals for sale.
   | "sellAnimals"
   // Gap closure G5: a tavern patron's rumour (camps / settlements / ore nearby) and a drink at the tavern.

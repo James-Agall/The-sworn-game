@@ -50,7 +50,7 @@ import { MINE_LABEL, isLayeredMine, isMineTile, mineLayerResourcesText } from "@
 import { mineHidesMiners, mineView } from "./mines.js";
 import {
   type ChoiceRt, type TalkInside, closeTalk, furnitureTalk, heroSpeedMult, lifeOf, nameFor, namedRoleMark, packWeight, restHeroFully,
-  handlePersonalCraft, setHeroResting, startTalk, stopHeroBusy, talkColorFor, toast,
+  handlePersonalCraft, packToStock, setHeroResting, startTalk, stopHeroBusy, talkColorFor, toast,
 } from "./herolife.js";
 import { namedRoleName, type QuestRole } from "@colony/shared/namedRoles";
 
@@ -854,7 +854,8 @@ export function interiorInteract(p: Player) {
     if (d > INTERIOR_USE_RANGE_TILES) continue;
     if (q.prop === "bed" || q.prop === "bedFine") offer(d, () => bedTalk(p, v.view.canSleep, v.view.threat, inside(q.x, q.y)));
     else if (WORK_PROPS.has(q.prop) && interiorWorkstation(p)) offer(d + 1, () => handlePersonalCraft(p));
-    else if(v.view.furniture?.some(f=>f.x===q.x&&f.y===q.y))offer(d,()=>handleInteriorUse(p,q.x,q.y));
+    // Stairs travel by stepping onto them (E there only says so): a chest / bed beside them comes first.
+    else if(v.view.furniture?.some(f=>f.x===q.x&&f.y===q.y))offer(d+(v.view.furniture.find(f=>f.x===q.x&&f.y===q.y)?.action==='travel'?0.5:0),()=>handleInteriorUse(p,q.x,q.y));
     else if (q.prop === "chest") offer(d, () => (v.view.chest ? chestTalk(p, "", inside(q.x, q.y)) : toast(p, "This chest is not yours")));
   }
   const de = dist(map.exit.x, map.exit.y);
@@ -899,9 +900,25 @@ const chestWeight = (c: Partial<Record<PackGood, number>>) => Math.round(PACK_GO
 const goodsText = (c: Partial<Record<PackGood, number>>) =>
   PACK_GOODS.filter((g) => (c[g] ?? 0) > 0).map((g) => `${c[g]} ${PACK_LABEL[g].toLowerCase()}`).join(", ") || "empty";
 
-function chestTalk(p: Player, head: string, at: TalkInside) {
+// Inventory 2026-11-26: the Great hall's chest (a Town Center / Keep) opens on "Deposit carried goods" (into the
+// clan's shared stockpile: everything, or one good); its private storage is one choice further.
+function hallChestTalk(p: Player, head: string, at: TalkInside) {
+  const life = lifeOf(p);
+  const goods = PACK_GOODS.filter((g) => (life.pack[g] ?? 0) > 0);
+  const choices: ChoiceRt[] = [
+    { label: "Deposit all carried goods into the stockpile.", action: "hallDeposit", arg: "all", disabled: goods.length ? undefined : "You carry nothing" },
+    ...goods.map((g): ChoiceRt => ({ label: `Deposit ${life.pack[g]} ${PACK_LABEL[g].toLowerCase()}.`, action: "hallDeposit", arg: g })),
+    { label: "Open shared Stockpile.", action: "openStockpile" },
+    { label: "Use the hall chest (private storage).", action: "chestPrivate" },
+  ];
+  const text = `${head ? head + "\n\n" : ""}Deposit carried goods into your shared stockpile.\nCarried (${packWeight(life)} / ${PACK_CAP}): ${goodsText(life.pack)}.`;
+  furnitureTalk(p, "Hall chest", text, choices, at);
+}
+
+function chestTalk(p: Player, head: string, at: TalkInside, privateView = false) {
   const I = p.interior;
   if (!I) return;
+  if (I.templateId === "hall" && I.storey === 0 && !privateView && sharedStockAccess(p)) return hallChestTalk(p, head, at);
   const chest = chests.get(I.key) ?? {};
   const life = lifeOf(p);
   const cap = chestCapFor(I.templateId);
@@ -958,6 +975,13 @@ export function interiorFurnitureChoice(p: Player, action: string, arg: unknown)
   }
   const chestProp = near("chest");
   if (!chestProp || !v.view.chest) return closeTalk(p);
+  if (action === "chestPrivate") return chestTalk(p, "", at(chestProp), true);
+  if (action === "hallDeposit") {
+    if (!sharedStockAccess(p)) return closeTalk(p);
+    const only = (PACK_GOODS as unknown[]).includes(arg) ? (arg as PackGood) : undefined;
+    const n = packToStock(lifeOf(p), undefined, only);
+    return chestTalk(p, n > 0 ? `You deposit ${n} ${only ? PACK_LABEL[only].toLowerCase() : "goods"} into the stockpile.` : "Nothing to deposit.", at(chestProp));
+  }
   const g = arg === "all" || (PACK_GOODS as unknown[]).includes(arg) ? (arg as PackGood | "all") : "all";
   const chest = chests.get(I.key) ?? {};
   const life = lifeOf(p);
@@ -1037,6 +1061,7 @@ export function handleInteriorEdit(p:Player,m:{op:string;base?:string;floor?:str
   const map=playerBaseMap(d,I.level),x=m.x!,y=m.y!;if(!Number.isInteger(x)||!Number.isInteger(y)||x<1||y<1||x>=map.w-1||y>=map.h-1||map.cells[y*map.w+x]!=='.'||(x===map.spawn.x&&y===map.spawn.y))return;
   d.props=map.props.filter(q=>q.x!==x||q.y!==y);
   if(m.op==='place'){if(!HOME_PROPS.includes(m.prop as any)||!['n','e','s','w'].includes(m.facing??''))return;d.props.push({prop:m.prop as any,x,y,facing:m.facing as any});}
+  if(!d.props.some(q=>q.prop==='chest')&&I.templateId==='hall'){toast(p,'The hall keeps its chest: it is where you deposit into the stockpile');return;}
   if(!d.props.some(q=>q.prop==='chest')&&Object.keys(chests.get(I.key)??{}).length){toast(p,'Empty the house chest before removing the last chest');return;}
  }else return;
  const map=playerBaseMap(d,I.level);if(!validHomeMap(map)){toast(p,'Keep the doorway, walking routes and furniture accessible');return;}

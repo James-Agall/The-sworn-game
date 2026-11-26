@@ -65,6 +65,9 @@ export interface Player {
   interior?: PlayerInterior;
   // Interiors: the tick of the last bump-enter attempt / exit (INTERIOR_BUMP_COOLDOWN_TICKS).
   interiorBumpTick?: number;
+  // Inventory 2026-11-26 (groundItems.ts): the last snapshot `ground` JSON sent, and the key it was built for.
+  groundSent?: string;
+  groundKey?: string;
 }
 export interface PlayerInterior {
   // The building's anchor "x,y" (also its chest key), tile and level when entered.
