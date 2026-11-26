@@ -329,7 +329,10 @@ if (BASELINE) {
       const keys = Object.keys(s.dump).filter((k) => !same(bs.dump[k], s.dump[k]));
       regress.push(`step ${s.name}: DOM dump differs in ${keys.map((k) => `${k}: ${JSON.stringify(bs.dump[k])} -> ${JSON.stringify(s.dump[k])}`).join("; ")}`);
     }
-    if (!same(bs.sent, s.sent)) regress.push(`step ${s.name}: sent messages differ ${JSON.stringify(bs.sent)} -> ${JSON.stringify(s.sent)}`);
+    // The Work panel re-requests its table on a timer while open: whether one more request lands inside the
+    // close step, or a running step, is timing (seen baseline vs baseline).
+    const dropTimed = (l) => (s.name === "close-work-btn" || RUNNING_STEPS.has(s.name) ? l.filter((t) => t !== "workTab") : l);
+    if (!same(dropTimed(bs.sent), dropTimed(s.sent))) regress.push(`step ${s.name}: sent messages differ ${JSON.stringify(bs.sent)} -> ${JSON.stringify(s.sent)}`);
     const a = readFileSync(path.join(BASELINE, bs.shot)).toString("base64");
     const b = readFileSync(path.join(OUT, s.shot)).toString("base64");
     const frac = await p2.evaluate(async ([a, b]) => {
@@ -350,7 +353,8 @@ if (BASELINE) {
     diffs.push([s.name, +frac.toFixed(5)]);
     // The world is frozen (paused on its first snapshot) for every step up to "unpause"; from there it runs for a
     // moment (the Cottage needs a tick), so villagers wander differently each run: a looser tolerance there.
-    const tol = RUNNING_STEPS.has(s.name) ? 0.03 : PIXEL_TOLERANCE;
+    // The interior's NPCs wander client-side even while paused (baseline-vs-baseline: up to 0.56%).
+    const tol = RUNNING_STEPS.has(s.name) ? 0.03 : s.name === "interior-enter" ? 0.015 : PIXEL_TOLERANCE;
     if (frac > tol) regress.push(`step ${s.name}: ${(frac * 100).toFixed(2)}% pixels differ (tolerance ${(tol * 100).toFixed(2)}%)`);
   }
   await b2.close();

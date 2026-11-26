@@ -199,6 +199,7 @@ import type {
 } from "./game/types";
 import { setupHudLayout } from "./game/hudLayout";
 import { createSavePanel } from "./game/savePanel";
+import { createGameOver } from "./game/gameOver";
 
 const SERVER_URL = import.meta.env.VITE_SERVER_URL || "ws://localhost:8080";
 // The same server answers plain HTTP: GET /saves lists the save slots (the menu has no socket yet).
@@ -5833,49 +5834,8 @@ async function main() {
   window.setInterval(() => {
     if (infoTile && !buildingPanelEl.hidden) requestBuildingInfo();
   }, BUILDING_INFO_REFRESH_MS);
-
-  // ---- Builders counter and game over ----
-  const statBuildersEl = document.getElementById("stat-builders")!;
-  const statRespawnEl = document.getElementById("stat-respawn")!;
-  function refreshBuilderCount(colonists: ColonistSnapshot[], isNight: boolean) {
-    let total = 0;
-    let working = 0;
-    for (const c of colonists) {
-      if (c.kind !== "builder") continue;
-      total++;
-      if (!isNight && (c.state === "building" || c.state === "carrying" || c.state === "repairing" || c.state === "toRepair")) working++;
-    }
-    statBuildersEl.textContent = `Builders  ${working}/${total} working`;
-  }
-  const gameOverEl = document.getElementById("game-over")!;
-  // Village life phase 5: a dead rider with `heirs` picks one (heir picker); dead without heirs is game over.
-  const heirPickerEl = document.getElementById("heir-picker")!;
-  const heirListEl = document.getElementById("heir-list")!;
-  let heirListKey = "";
-  function refreshGameOver(me: PlayerSnapshot | undefined) {
-    const heirs = me?.dead ? me.heirs ?? [] : [];
-    gameOverEl.hidden = !(me?.dead && heirs.length === 0);
-    heirPickerEl.hidden = heirs.length === 0;
-    const key = JSON.stringify(heirs);
-    if (key === heirListKey) return;
-    heirListKey = key;
-    heirListEl.replaceChildren(
-      ...heirs.map((h) => {
-        const b = document.createElement("button");
-        b.className = "menu-btn secondary heir-btn";
-        const role = h.kind.replace(/[A-Z]/g, (ch) => " " + ch.toLowerCase());
-        b.textContent = h.id === "church" ? h.name : `${h.name}: ${role}${h.heroLevel ? `, level ${h.heroLevel}` : ""}${h.ageDays !== undefined ? `, ${h.ageDays} days old` : ""}`;
-        b.addEventListener("click", () => {
-          b.blur();
-          sendMessage({ type: "chooseHeir", id: h.id });
-        });
-        return b;
-      })
-    );
-  }
-  document.getElementById("game-over-restart")!.addEventListener("click", (e) => {
-    (e.currentTarget as HTMLButtonElement).blur();
-    sendMessage({ type: "restart", difficulty: menuPrefs.preferredDifficulty, worldSize: menuPrefs.preferredWorldSize, creative: creativeUi.on, solo: menuPrefs.preferredSolo && !creativeUi.on });
+  const { refreshGameOver, refreshBuilderCount, statRespawnEl } = createGameOver({
+    sendMessage, creativeUi,
   });
 
   // ---- Networking ----
