@@ -14,10 +14,10 @@ import {
   BIOME_SEED_RADIUS_MAX, BIOME_SEED_RADIUS_MIN, BOSS_EQUIP_LOOT, CASTLE_RUIN_FOOTPRINT_RADIUS,
   CASTLE_RUIN_GROUNDS_RADIUS, CASTLE_RUIN_GUARDIANS_MAX, CASTLE_RUIN_GUARDIANS_MIN, CASTLE_RUIN_GUARDIAN_WEIGHTS,
   CASTLE_RUIN_LAYOUT, CASTLE_RUIN_LAYOUT_TILES, CASTLE_RUIN_SPAWN_DIST_FRACTIONS, ELITE_DAMAGE_MULT, ELITE_HP_MULT,
-  CAMP_MIN_START_DIST_MAX_FRACTION, ELITE_REWARD, ENCAMPMENT_EXTRAS, NEAR_START_CAMP_RING, NEAR_START_CAMPS, ENCAMPMENT_GUARDIAN_WEIGHTS, MINI_BOSS_KINDS, MOB_KIND_CONFIG, MOB_MARK_DEFAULTS,
+  CAMP_MIN_START_DIST_MAX_FRACTION, ELITE_REWARD, NEAR_START_CAMP_RING, NEAR_START_CAMPS, MINI_BOSS_KINDS, MOB_KIND_CONFIG, MOB_MARK_DEFAULTS,
   NEIGHBORS_8, POI_SITE_FOOTPRINT_RADIUS, POI_SITE_MIN_SPACING, POI_SITE_WATER_CLEARANCE, POND_EDGE_JITTER_TILES,
-  POND_MIN_SPACING, POND_NOISE_CELL_TILES, POND_RADIUS_MAX, POND_RADIUS_MIN, RUIN_CENTERPIECES, RUIN_EXTRAS,
-  RUIN_GUARDIAN_WEIGHTS, SITE_KIND_HAS_HEARTH, SITE_POI_CLEARANCE_TILES, SPAWN_CLEAR_RADIUS_TILES, SPAWN_PLAINS_RADIUS_TILES,
+  POND_MIN_SPACING, POND_NOISE_CELL_TILES, POND_RADIUS_MAX, POND_RADIUS_MIN,
+  SITE_KIND_HAS_HEARTH, SITE_POI_CLEARANCE_TILES, SPAWN_CLEAR_RADIUS_TILES, SPAWN_PLAINS_RADIUS_TILES,
   WARLORD_DAMAGE_MULT, WARLORD_HP_MULT, WARLORD_REWARD, clampWorldSize,
 } from "./constants.js";
 import { colonists, hearths, mobs, players, scaledCount, scaledCountSub, state, wildlife } from "./state.js";
@@ -29,6 +29,7 @@ import {
   TOWN_CENTER_TILE, isAbbeyClergy, spawnColonistForPost, spawnStartingPeople, townCenterMaxHp,
 } from "./colonists.js";
 import { applyMobSize } from "./mobs.js";
+import { ENCAMPMENT_GUARDIAN_WEIGHTS, ENCAMPMENT_POI, RUIN_GUARDIAN_WEIGHTS, RUIN_POI } from "./poiTemplates.js";
 import { clearSites, generateForts, isInSiteGrounds, nearSiteGrounds } from "./sites.js";
 import { generateSettlements } from "./settlementTemplates.js";
 import { registerHearth } from "./hearths.js";
@@ -398,7 +399,8 @@ export function pickEncampmentGuardianKind(): MobKind {
 
 // One POI site: a centerpiece decoration tile, 0-3 extra decorations on its 8 neighbors, and a
 // group of dormant guardians standing on free tiles next to that cluster, all sharing one siteId.
-// Ruins and encampments differ only in the decoration tiles and guardian kinds. (World-gen's bandit camps are
+// Ruins and encampments differ only in their pools (server/data/pois/<kind>.json: tiles, counts, guardian kinds;
+// a single centrepiece is used without a random draw). The draws below run in this order on the seeded stream. (World-gen's bandit camps are
 // templated since 2026-11-06: generateCampSites / stampCamp; an "encampment" here stamps a tier-1 template.)
 export function placePoiSite(siteKind: "ruin" | "encampment", center: TileCoord) {
   if (siteKind === "encampment") {
@@ -406,11 +408,12 @@ export function placePoiSite(siteKind: "ruin" | "encampment", center: TileCoord)
     stampCamp(t, center, pickCampTransform(t));
     return;
   }
+  const poi = siteKind === "ruin" ? RUIN_POI : ENCAMPMENT_POI;
   const siteId = randomUUID();
   const centerpiece =
-    siteKind === "ruin" ? RUIN_CENTERPIECES[randInt(0, RUIN_CENTERPIECES.length - 1)] : TileType.PropCampfire;
-  const extraCount = siteKind === "ruin" ? randInt(0, 2) : randInt(1, 3);
-  const extraPool = siteKind === "ruin" ? RUIN_EXTRAS : ENCAMPMENT_EXTRAS;
+    poi.centerpieces.length > 1 ? poi.centerpieces[randInt(0, poi.centerpieces.length - 1)] : poi.centerpieces[0];
+  const extraCount = randInt(poi.extraCount[0], poi.extraCount[1]);
+  const extraPool = poi.extras;
   const decorations: TileCoord[] = [center];
   setTile(tileIndex(center.x, center.y), centerpiece);
   for (const offset of shuffled(NEIGHBORS_8).slice(0, extraCount)) {
@@ -420,8 +423,8 @@ export function placePoiSite(siteKind: "ruin" | "encampment", center: TileCoord)
   }
 
   const guardianSpots: TileCoord[] = [];
-  for (let dx = -POI_SITE_FOOTPRINT_RADIUS; dx <= POI_SITE_FOOTPRINT_RADIUS; dx++) {
-    for (let dy = -POI_SITE_FOOTPRINT_RADIUS; dy <= POI_SITE_FOOTPRINT_RADIUS; dy++) {
+  for (let dx = -poi.footprintRadius; dx <= poi.footprintRadius; dx++) {
+    for (let dy = -poi.footprintRadius; dy <= poi.footprintRadius; dy++) {
       const t = { x: center.x + dx, y: center.y + dy };
       if (state.tiles[tileIndex(t.x, t.y)] !== TileType.Empty) continue;
       if (decorations.some((d) => Math.max(Math.abs(d.x - t.x), Math.abs(d.y - t.y)) === 1)) {
@@ -429,10 +432,10 @@ export function placePoiSite(siteKind: "ruin" | "encampment", center: TileCoord)
       }
     }
   }
-  const guardianCount = siteKind === "ruin" ? randInt(2, 3) : randInt(2, 4);
+  const guardianCount = randInt(poi.guardianCount[0], poi.guardianCount[1]);
   const kinds: MobKind[] = [];
   for (const spot of shuffled(guardianSpots).slice(0, guardianCount)) {
-    kinds.push(spawnGuardian(siteKind === "ruin" ? pickRuinGuardianKind() : pickEncampmentGuardianKind(), spot, siteId, siteKind).kind);
+    kinds.push(spawnGuardian(pickWeightedGuardianKind(poi.guardians), spot, siteId, siteKind).kind);
   }
   // Camp hearths: a site kind with `hasHearth` gets a destroyable hearth on its centrepiece.
   if (SITE_KIND_HAS_HEARTH[siteKind]?.hasHearth) registerHearth(siteId, siteKind, center, kinds);

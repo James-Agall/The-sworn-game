@@ -22,6 +22,7 @@
     "./streaming": "./src/streaming.ts",
     "./camps": "./src/camps.ts",
     "./siteTemplates": "./src/siteTemplates.ts",
+    "./poiTemplates": "./src/poiTemplates.ts",
     "./structures": "./src/structures.ts",
     "./rooms": "./src/rooms.ts",
     "./zones": "./src/zones.ts",

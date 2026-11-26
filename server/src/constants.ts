@@ -1311,21 +1311,9 @@ export const POI_SITE_MIN_SPACING = 10;
 export const POI_SITE_FOOTPRINT_RADIUS = 2;
 // ...and there must be no Water within this Chebyshev radius.
 export const POI_SITE_WATER_CLEARANCE = 3;
-export const RUIN_CENTERPIECES = [TileType.RuinWall1, TileType.RuinWall2, TileType.RuinArch];
-export const RUIN_EXTRAS = [TileType.RuinStatue, TileType.RuinRubble];
-export const ENCAMPMENT_EXTRAS = [TileType.PropCart, TileType.PropBarrel, TileType.PropCrate, TileType.PropFence];
-// Skeleton is the most thematic ruin guardian: 60% skeleton, 20% darkShaman, 20% orc.
-export const RUIN_GUARDIAN_WEIGHTS: { kind: MobKind; weight: number }[] = [
-  { kind: "skeleton", weight: 3 },
-  { kind: "darkShaman", weight: 1 },
-  { kind: "orc", weight: 1 },
-];
-// Clubman is the rank-and-file guard, Archer the support, Elite a rare mini-boss.
-export const ENCAMPMENT_GUARDIAN_WEIGHTS: { kind: MobKind; weight: number }[] = [
-  { kind: "banditClubman", weight: 5 },
-  { kind: "banditArcher", weight: 3 },
-  { kind: "banditElite", weight: 1 },
-];
+// The ruin / encampment pools (RUIN_CENTERPIECES, RUIN_EXTRAS, ENCAMPMENT_EXTRAS, RUIN_GUARDIAN_WEIGHTS,
+// ENCAMPMENT_GUARDIAN_WEIGHTS) and their counts are data since Stage B (2026-11-26): server/data/pois/<id>.json,
+// loaded by poiTemplates.ts (format and validator in shared/src/poiTemplates.ts).
 // Saint Wren's Abbey: exactly one per world, a 9x9 walled complex, north at the top. H is the hall
 // (church art) on the north side of the cloister; S the worn stone statue at the centre of the
 // garth; X crosses down the east side (the cemetery); L lantern posts flanking the hall doors and the

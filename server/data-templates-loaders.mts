@@ -87,6 +87,42 @@ const quiet = <T,>(fn: () => T): T => {
   quiet(() => store.loadSiteTemplates());
 }
 
+// ---- B. POI pools ----
+{
+  const P = await import("@colony/shared/poiTemplates");
+  const store = await import("./src/poiTemplates.js");
+  const { MOB_KIND_CONFIG } = await import("./src/constants.js");
+  const mobKinds = Object.keys(MOB_KIND_CONFIG);
+  const files = builtinFiles("pois");
+  check(files.join() === "encampment.json,ruin.json", `pois: the built-in files (${files.join(", ")})`);
+  for (const f of files) {
+    const raw = readJson("pois", f);
+    const errs = P.validatePoiTemplate(raw, { mobKinds });
+    check(errs.length === 0 && raw.id === f.replace(/\.json$/, ""), `pois/${f}: valid, id matches the file name ${errs.join("; ")}`);
+    check(JSON.stringify(P.normalisePoiTemplateFile(raw), null, 2) + "\n" === text("pois", f), `pois/${f}: round-trips byte for byte`);
+  }
+  check(JSON.stringify(store.RUIN_POI.centerpieces) === JSON.stringify(store.RUIN_CENTERPIECES) && store.RUIN_POI.extraCount.join() === "0,2" && store.RUIN_POI.guardianCount.join() === "2,3", "pois: the ruin pool and its counts");
+  const good = readJson("pois", "ruin.json");
+  const bad = (edit: (o: any) => void) => { const o = clone(good); edit(o); return P.validatePoiTemplate(o, { mobKinds }); };
+  rejects(bad((o) => { o.extras.push("NoSuchTile"); }), "an unknown POI tile", /unknown tile "NoSuchTile"/);
+  rejects(bad((o) => { o.centerpieces = []; }), "an empty centrepiece pool", /centerpieces/);
+  rejects(bad((o) => { o.extraCount = [3, 1]; }), "an inverted extra count", /extraCount/);
+  rejects(bad((o) => { o.extraCount = [0, 9]; }), "more extras than neighbours", /extraCount/);
+  rejects(bad((o) => { o.guardians[0].kind = "dragon"; }), "an unknown guardian kind", /unknown kind "dragon"/);
+  rejects(bad((o) => { o.guardians[0].weight = 0; }), "a zero guardian weight", /weight/);
+  rejects(bad((o) => { o.footprintRadius = 3; }), "a footprint beyond the cleared ground", /footprintRadius/);
+  const userDir = path.join(scratch, "pois-user");
+  process.env.COLONY_POI_USER_DIR = userDir;
+  check(store.saveUserPoiTemplate({ ...clone(good), id: "my-ruin" }) === null, "pois: a user pool saves");
+  check(/built-in/.test(store.saveUserPoiTemplate(clone(good)) ?? ""), "pois: saving over a built-in id is refused");
+  writeFileSync(path.join(userDir, "ruin.json"), JSON.stringify({ ...clone(good), extras: ["Rock"] }));
+  quiet(() => store.loadPoiTemplates());
+  const ids = store.poiTemplateFiles().map((t) => t.id);
+  check(ids.includes("my-ruin") && store.poiTemplateFiles().find((t) => t.id === "ruin")!.builtin === true && store.RUIN_EXTRAS.length === 2, "pois: user pools load; a user ruin.json is skipped (world-gen keeps the built-in)");
+  check(store.deleteUserPoiTemplate("my-ruin") === null, "pois: a user pool deletes");
+  rmSync(userDir, { recursive: true, force: true });
+}
+
 // ---- the older template stores still load; every settlement profile is a site template ----
 {
   const { loadCampTemplates } = await import("./src/camps.js");

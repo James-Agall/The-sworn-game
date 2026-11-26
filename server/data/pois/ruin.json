@@ -1,0 +1,35 @@
+{
+  "id": "ruin",
+  "centerpieces": [
+    "RuinWall1",
+    "RuinWall2",
+    "RuinArch"
+  ],
+  "extras": [
+    "RuinStatue",
+    "RuinRubble"
+  ],
+  "extraCount": [
+    0,
+    2
+  ],
+  "guardianCount": [
+    2,
+    3
+  ],
+  "guardians": [
+    {
+      "kind": "skeleton",
+      "weight": 3
+    },
+    {
+      "kind": "darkShaman",
+      "weight": 1
+    },
+    {
+      "kind": "orc",
+      "weight": 1
+    }
+  ],
+  "footprintRadius": 2
+}

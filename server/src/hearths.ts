@@ -4,11 +4,12 @@ import { randomUUID } from "node:crypto";
 import { type MobKind, TileType, TILE_SIZE } from "@colony/shared/protocol";
 import type { AttackObjective, Colonist, HearthState, Mob, PoiSiteKind, TileCoord } from "./types.js";
 import {
-  BREACH_WALL_COST, CAMP_CHEST_LOOT, CATAPULT_BUILDING_MULT, ENCAMPMENT_EXTRAS, HEARTH_AUTO_TARGET_TILES, HEARTH_DEFAULT_HP, HEARTH_GUARD_RADIUS_TILES,
+  BREACH_WALL_COST, CAMP_CHEST_LOOT, CATAPULT_BUILDING_MULT, HEARTH_AUTO_TARGET_TILES, HEARTH_DEFAULT_HP, HEARTH_GUARD_RADIUS_TILES,
   PRISONER_WALKUP_TILES,
   HEARTH_LOOT_PER_GUARDIAN, LINE_LEASH_TILES, NEIGHBORS_8, POI_SITE_FOOTPRINT_RADIUS, RAID_LEAVE_MAX_TICKS,
   SIEGE_BUILDING_MULT, SITE_KIND_HAS_HEARTH, STRUCTURE_TARGET_PREFIX, TACTICS_SCAN_TILES,
 } from "./constants.js";
+import { ENCAMPMENT_EXTRAS } from "./poiTemplates.js";
 import {
   colonists, commandedTargets, hearthEvents, hearths, mobs, ownerSiteIds, players, regiments, state, structureBreach,
   tileOwner,
