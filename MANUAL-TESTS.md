@@ -1631,3 +1631,28 @@ Automated: `npm test -- road-water` (6 seeds at 160 / 512 / 1024, version 22 vs 
 10. Mobile width (~400 px): the sheet is one column, the pack grid has 8 columns, the goods rows and buttons fit without overflow.
 
 Automated: `npm test -- ground-items hall-chest`.
+
+## Sprite Lab (26 November 2026)
+
+Start with `npm run lab` and open the printed URL (http://127.0.0.1:5180/). Saves go into `client/public/rig/parts/`;
+every overwritten file is copied to `art-sources/lab/backups/` first. Try it on a copy if you prefer:
+`npm run lab -- --root <copy of the repo>`.
+
+1. Parts tab, set `grounded-v2`: the list shows thumbnails; click `upperArm.t1`. Wheel zooms around the cursor, dragging the
+   empty area pans, `0` fits, `G` toggles the grid.
+2. Drag the red pivot: the Pivot fields follow (half pixels; Shift = whole pixels) and the orange dot appears. Drag the
+   yellow joint down: Bone length changes. On `head` (len 0) Alt+drag pulls the joint out. Ctrl+Z / Ctrl+Y undo / redo.
+3. Click skin and hair swatches with `preview` ticked on a head and a hair part: the colours match the in-game choices.
+4. Ctrl+S. The toast names the backup folder. `git diff client/public/rig/parts/grounded-v2/manifest.json` shows only the
+   entries you changed. Reload the page: the change is still there. The assembled strip on the right now uses it.
+5. "Edit this part in Draw": the part opens in the editor. Pick a Reference part (e.g. `foreArm` while editing
+   `upperArm`): it shows faintly, lined up at the joint. Draw with pen, mirror pen, fill, rectangle; add a layer; use the
+   onion skin; undo inside the editor. The right strip shows the part at 1x/2x/4x in-game size next to the hero sprite.
+6. "Send back to Parts": the toast says saved; the Parts thumbnail changed; the pivot is unchanged.
+7. Draw tab, "New part" `foreArm.test` 32x32, draw something, Send back: a new part with its pivot at the bottom centre.
+   Delete it again in Parts and save (its PNG goes to the backups).
+8. Compare tab: pick pose / helm / shield; the assembled hero stands next to `base-05.png` at 1x/2x/4x on the ruler; the
+   footer gives both heights. The validators list is green / amber; open a warning to see which parts.
+9. Terminal: `npm run lab:validate -- grounded-v2` prints the same report and exits 0 (warnings only).
+
+Automated: `npm run lab:test` (server security, manifest round trips, validators, one headless browser run).

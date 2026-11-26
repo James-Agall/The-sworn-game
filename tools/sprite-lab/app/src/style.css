@@ -112,3 +112,6 @@ iframe.piskel { width: 100%; height: 100%; border: 0; background: #1e1e1e; displ
 .toast { background: var(--panel2); border: 1px solid var(--line); border-left: 4px solid var(--dim); border-radius: 5px; padding: 8px 12px; max-width: 460px; box-shadow: 0 4px 18px rgba(0,0,0,0.4); }
 .toast.ok { border-left-color: var(--ok); } .toast.err { border-left-color: var(--fail); }
 input.wide { width: 300px; }
+.modal-form label.check { flex-wrap: wrap; gap: 6px; }
+.modal-form label.check input { order: -1; }
+.modal-form label.check small { flex-basis: 100%; }

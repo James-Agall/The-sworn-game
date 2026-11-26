@@ -1,9 +1,14 @@
 # Sprite Lab: handoff (2026-11-26)
 
 ## Progress (round 2, newest last)
-- Steps 1-4 DONE: package.json + root scripts (`lab`, `lab:test`, `lab:validate`), server (`server/lab.ts`, `paths.ts`,
-  `store.ts`, `sets.ts`, `palette.ts`, `png.ts`, `main.ts`), validators (`shared/validators.ts`) + CLI, recolour
-  (`shared/recolour.ts`, constants extracted from heroRig.ts), tests (`test/*.test.ts`, 37 pass).
+- Steps 1-7 DONE (see README.md for the user-facing description, NOTICE.md for Piskel).
+  - Server + validators + CLI + tests (159f14c); pristine Piskel (d818db5); app + tabs (5686220); bridge + piskel-dist
+    (c90d838); smoke test (23c25a5); docs + MANUAL-TESTS (this commit).
+  - `npm run lab:test`: server, manifest, validators and the headless smoke test all pass.
+- Decisions made this round: browser PNG codec (`app/src/png.ts`) so pixels never pass through a canvas; the Piskel bridge
+  moves raw RGBA (not PNG data URLs); hair / hairBack / helm are "overlay" families whose pivot may lie outside the image
+  (they hang on the head's neck point); torso / head / pelvis / hair / helm bones point UP (`boneDir` in shared/names.ts).
+- Next rounds: Rig tab, Area tab (see the final report / README limitations).
 
 (Original round-1 notes follow.)
 
