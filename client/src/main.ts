@@ -18,7 +18,7 @@ import { initPerfOverlay } from "./perfOverlay";
 import { heroFrame, loadHeroRig, rigTextureScale } from "./heroRig";
 import {ADVENTURE_GEAR,adventureTrait} from "@colony/shared/expeditions";
 import { PLAYER_GEAR_SLOTS, PLAYER_WEAPON_KINDS } from "@colony/shared/protocol";
-import { menuPrefs, setupMainMenu, setActiveDifficulty, renderSaveRows, describeSave, saveSlotLabel, clanParam } from "./menu";
+import { menuPrefs, setupMainMenu, setActiveDifficulty, saveSlotLabel, clanParam } from "./menu";
 import { setupChronicle } from "./chronicle";
 import { setupEconomyPanel, type GoodKey } from "./economyPanel";
 import { setupProgressionPanel } from "./progressionPanel";
@@ -80,38 +80,10 @@ const heroToolsRef: { ui: ReturnType<typeof setupHeroTools> | null } = { ui: nul
 const interiorRef: { ui: InteriorUi | null } = { ui: null };
 let combatControls: ReturnType<typeof setupPlayerCombat> | undefined;
 import type {
-  ClientMessage,
-  SiteFaction,
-  SiteSnapshot,
-  SiteRelationSnapshot,
-  QuestSnapshot,
-  RelationTier,
-  TradeGood,
-  ServerMessage,
-  PlayerSnapshot,
-  ColonistSnapshot,
-  ColonistKind,
-  MobSnapshot,
-  MobKind,
-  AttackEffect,
-  Stance,
-  GravestoneSnapshot,
-  GameEventCategory,
-  Difficulty,
-  WildlifeKind,
-  TownCenterSnapshot,
-  BuildingInfo,
-  SaveInfo,
-  SaveSlot,
-  GoalSnapshot,
-  GateLock,
-  EquipSlot,
-  EquipmentStock,
-  GearItem,
-  GearSlot,
-  HeroProfileSnapshot,
-  HeroSheetSnapshot,
-  HeroClass,
+  ClientMessage, SiteFaction, SiteSnapshot, SiteRelationSnapshot, QuestSnapshot, RelationTier, TradeGood,
+  ServerMessage, PlayerSnapshot, ColonistSnapshot, ColonistKind, MobSnapshot, MobKind, AttackEffect, Stance,
+  GravestoneSnapshot, GameEventCategory, Difficulty, WildlifeKind, TownCenterSnapshot, BuildingInfo, GoalSnapshot,
+  GateLock, EquipSlot, EquipmentStock, GearItem, GearSlot, HeroProfileSnapshot, HeroSheetSnapshot, HeroClass,
   ItemStats,
 } from "@colony/shared/protocol";
 import { TICK_RATE } from "@colony/shared/protocol"; // long days: respawn-window ETA
@@ -226,6 +198,7 @@ import type {
   ActiveEffect, FightArrow, ArmedOrder, StrategySetting, LeftPress, OrderPress,
 } from "./game/types";
 import { setupHudLayout } from "./game/hudLayout";
+import { createSavePanel } from "./game/savePanel";
 
 const SERVER_URL = import.meta.env.VITE_SERVER_URL || "ws://localhost:8080";
 // The same server answers plain HTTP: GET /saves lists the save slots (the menu has no socket yet).
@@ -7243,72 +7216,9 @@ async function main() {
     }
     } finally { if(message.type==="snapshot")perf.phase("snapshot apply",snapshotStart); }
   });
-
-  // Quick-save button: saves to the slot you last saved to (Slot 1 the first time), no dialog.
-  function getLastSaveSlot(): SaveSlot {
-    try {
-      const v = localStorage.getItem("sworn.lastSaveSlot");
-      if (v === "slot1" || v === "slot2" || v === "slot3") return v;
-    } catch {
-      /* ignore */
-    }
-    return "slot1";
-  }
-  function setLastSaveSlot(slot: SaveSlot) {
-    try {
-      localStorage.setItem("sworn.lastSaveSlot", slot);
-    } catch {
-      /* ignore */
-    }
-  }
-  document.getElementById("save-btn")!.addEventListener("click", () => {
-    sendMessage({ type: "saveGame", slot: getLastSaveSlot() });
+  const { renderSavePanel } = createSavePanel({
+    sendMessage, creativeUi,
   });
-
-  // In-game Save Game section (top of the Settings modal): 3 manual slots, plus Load for every save.
-  let latestSaves: SaveInfo[] = [];
-  function renderSavePanel(saves: SaveInfo[]) {
-    latestSaves = saves;
-    const bySlot = new Map(saves.map((sv) => [sv.slot, sv]));
-    renderSaveRows(
-      document.getElementById("save-slot-list")!,
-      // Creative mode: a creative game saves only to its own slot.
-      ((creativeUi.on ? ["creative"] : ["slot1", "slot2", "slot3"]) as SaveSlot[]).map((slot) => ({
-        slot,
-        info: bySlot.get(slot),
-        buttons: [
-          {
-            label: "Save",
-            onClick: () => {
-              const existing = latestSaves.find((sv) => sv.slot === slot);
-              if (existing && !window.confirm(`Overwrite ${saveSlotLabel(slot)} (${describeSave(existing)})?`)) return;
-              setLastSaveSlot(slot);
-              sendMessage({ type: "saveGame", slot });
-            },
-          },
-        ],
-      }))
-    );
-    renderSaveRows(
-      document.getElementById("save-load-list")!,
-      saves.map((sv) => ({
-        slot: sv.slot,
-        info: sv,
-        buttons: [
-          {
-            label: "Load",
-            secondary: true,
-            onClick: () => {
-              if (!window.confirm(`Load ${saveSlotLabel(sv.slot)} for everyone connected? Unsaved progress is lost.`)) return;
-              sendMessage({ type: "loadGame", slot: sv.slot });
-              document.getElementById("settings-modal")!.hidden = true;
-            },
-          },
-        ],
-      })),
-      "No saves yet"
-    );
-  }
   // Refresh the list whenever the Settings modal opens (another player may have saved meanwhile).
   document.getElementById("settings-btn")!.addEventListener("click", () => sendMessage({ type: "listSaves" }));
 
