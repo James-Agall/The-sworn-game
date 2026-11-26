@@ -9,7 +9,7 @@ export async function renderRigContactSheets(page,output){
   const base={appearance:defaultLook,weapon:'unarmed',weaponTier:1,armour:0,helmet:false,helmTier:0,shield:false,shieldTier:0};
   const result=[];
   function sheet(name,w,h){const c=document.createElement('canvas');c.width=w;c.height=h;const g=c.getContext('2d');g.fillStyle='#cad0b1';g.fillRect(0,0,w,h);g.font='13px sans-serif';return{c,g,save:()=>result.push({name,url:c.toDataURL('image/png')})};}
-  function draw(g,v,state,phase,mounted,x,y,k=1){const f=heroFrame(v,{state,phase},mounted);if(!f)throw Error('Missing rig '+JSON.stringify(v));g.drawImage(f.canvas,x-120*k,y-(mounted?211:163)*k,f.canvas.width*k,f.canvas.height*k);return f;}
+  function draw(g,v,state,phase,mounted,x,y,k=1){const f=heroFrame(v,{state,phase},mounted,true);if(!f)throw Error('Missing rig '+JSON.stringify(v));g.drawImage(f.canvas,x-120*k,y-(mounted?211:163)*k,f.canvas.width*k,f.canvas.height*k);return f;}
   for(const gender of ['m','f'])for(const build of [0,1,2]){
    const {g,save}=sheet(`rig-${gender}-build${build}`,1280,16*150);let row=0;
    for(const weapon of ['sword','axe','spear','bow'])for(const armour of [0,1,2,3]){

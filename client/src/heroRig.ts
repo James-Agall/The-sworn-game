@@ -119,13 +119,15 @@ function motion(keys: number[][], u: number) {
 }
 function draw(g: CanvasRenderingContext2D, p: Part | undefined, at: Vec, angle = 0, limb = false, widthScale = 1, heightScale = 1) { if (!p)
     return; g.save(); g.translate(...at); g.rotate(angle * D * (limb ? -1 : 1)); g.scale(widthScale, heightScale); g.drawImage(p.image, -p.pivot[0], -p.pivot[1]); g.restore(); }
-// The NPC-style male sheets are the player art. The rig is only used when a caller asks for it (the dormant creator).
+// The NPC-style male sheets are the player art. The painted-part rig is drawn instead when a caller asks for it
+// (allowRig: contact sheets, reviews) or the page was opened with `?rig=1` (James's in-game rig review).
+const preferRig = typeof location !== "undefined" && new URLSearchParams(location.search).get("rig") === "1";
 export function heroFrame(v: HeroVisual, pose: HeroPose, mounted = false, allowRig = false) {
-    const authored = npcHeroFrame(v, pose, mounted);
-    if (authored) { scales.set(authored.texture, 25 / authored.bodyHeight); return authored; }
-    if (!allowRig) return undefined;
-    if (!ready)
-        return undefined;
+    if (!(allowRig || preferRig) || !ready) {
+        const authored = npcHeroFrame(v, pose, mounted);
+        if (authored) scales.set(authored.texture, 25 / authored.bodyHeight);
+        return authored;
+    }
     const a = sanitizeHeroAppearance(v.appearance), phase = pose.state === "attack" ? Math.max(0, Math.min(1, pose.phase)) : ((pose.phase % 1) + 1) % 1;
     const n = pose.state === "attack" ? 36 : pose.state === "walk" ? 32 : 12, q = Math.round(phase * n) / n;
     const key = JSON.stringify([{ ...a, name: "", look: "wanderer" }, v.armour, v.weapon, v.weaponTier, v.helmTier, v.shieldTier, v.helmet, v.shield, pose.state, q, mounted, pose.facing ?? 1]);
