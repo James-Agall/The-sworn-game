@@ -32,7 +32,7 @@ import { updateMob } from "./mobs.js";
 import { updateSites, updateSiteWorker } from "./sites.js";
 import { updateConstructionSites } from "./construction.js";
 import { updatePlayerMorale, updateRegiments } from "./tactics.js";
-import { spawnRaid, updateRaidGroups } from "./raids.js";
+import { nightlyRaidActive, raidTargetExists, spawnRaid, updateRaidGroups } from "./raids.js";
 import { evaluateGoals } from "./goals.js";
 import { heroProfileOf, updateForges, updateGearPickup, updateHeroRecruits } from "./heroes.js";
 import { spellBuffSpeedMult, updateSpellStatuses } from "./spells.js";
@@ -123,7 +123,9 @@ export function stepSimulation() {
       forEachClan((clan) => {
         // Solo hero phase 4: a Solo hero without a camp is not raided (the world's camps and warbands still roam).
         if ((clan.id === 0 && !state.solo) || clanTownCenters().length > 0) {
-          spawnRaid(dayIndex);
+          // Raid cap (RAIDS-2026-11-26.md): one nightly raid at a time per clan, and none at all while the
+          // colony has nothing a raid could attack (no unwarded Town Center or building).
+          if (raidTargetExists() && !nightlyRaidActive(clan.id)) spawnRaid(dayIndex);
           // Forts phase G: overgrown founded camps raid their nearest clan too.
           spawnCampRaids(dayIndex);
         } else if (clan.id === 0) spawnSoloScout(dayIndex);
