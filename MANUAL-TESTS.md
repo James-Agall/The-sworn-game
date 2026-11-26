@@ -1551,3 +1551,18 @@ Automated: `node server/interactions-test.mjs`; `COLONY_WORLD_SEED=42 npm test -
 5. Optional `?perf=1`: compare warm frame time and snapshot gaps. Inspect scenery active/total, bounded floor cache and occluder count (zero in front, positive behind). First-time asset/geometry loading can still cause transient hitches.
 
 Automated: `node client/render-depth-test.mjs`; `npm test -- scale-rider strategy-view interior-refresh`; `COLONY_WORLD_SEED=7 npm test -- tile-sprites-roundtrip`.
+
+## Inventory, drop and town centre chest (26 November 2026)
+
+1. Open Inventory (backpack button or `). The pack is a grid of 40 slots; empty slots are dashed. Take a few armoury pieces of different tiers: borders are bronze (T1), silver (T2), gold (T3), teal (relic). Hover a filled slot, then Tab onto one: the tooltip shows name, tier, slot (and weapon kind) and every stat.
+2. Click (or Enter) a sword: it is equipped on the stand, the old one returns to the pack. Click the equipped weapon/helm on the stand to unequip.
+3. Right-click a pack item (or Shift+F10 / the context-menu key on a focused one): a small menu offers Equip / Drop on the ground / Cancel; Escape closes it and focus returns to the slot. Delete on a focused item drops it.
+4. Under the grid, "Carried goods" lists each good with its icon, ×count and weight, plus a load bar `x / 40` (green, amber over half "you walk slower", red when full). Press Drop 1, Shift+Drop 1 (10) and All on different goods; the counts and bar update and a toast confirms each drop.
+5. Close the sheet. The dropped stacks lie at the hero's feet (several on one tile fan out). Stand next to them: "E: pick up …" appears; press E (with nobody to talk to nearby) to pick up the nearest. Hover a stack: "Click: pick up …"; click it. Walk 3+ tiles away and click: "Walk closer".
+6. Fill the pack close to 40 weight and pick up a big wood stack: only what fits is taken, the rest stays on the ground (toast says how many). With 40 gear items, picking up dropped gear is refused ("Your pack is full (40 items)").
+7. Try to drop inside a building: refused ("step outside first"). Drop something, then save, load: the stacks are still there. Start a new game: none.
+8. Walk north into your Town Center's door (the Elder by the door answers E there). In the Great hall walk to the chest and press E: "Hall chest — Deposit carried goods" lists what you carry with "Deposit all", one "Deposit N <good>" per good, "Open shared Stockpile" and "Use the hall chest (private storage)". Deposit one good, then all; the Stockpile counts go up (fish counts as meat).
+9. Outside, far from the Town Center and any chest, press "Deposit into stockpile": "Stand next to your Town Center or a storage chest to deposit".
+10. Mobile width (~400 px): the sheet is one column, the pack grid has 8 columns, the goods rows and buttons fit without overflow.
+
+Automated: `npm test -- ground-items hall-chest`.
