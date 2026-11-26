@@ -118,3 +118,53 @@ Baseline noise (two runs of the unmodified build): 0.00-0.03% on frozen steps (0
 interior NPCs), 0.47-0.89% on the running steps. Baseline errors: one console error ("Failed to load resource: 404")
 and six failed requests: `ruinedKeep.png`, `siteKeep.png`, `siteTent.png` (404 + aborted each): known missing
 optional sprites.
+
+## 6. Result (stopped early on 2026-11-26: usage limit)
+
+Status: PARTIAL. `main.ts` went from 9,081 lines to 6,065. The target was under ~1,500. Work stopped because usage
+ran out, not because the code was too tangled to move.
+
+Commits on `main-split` (one seam each). Every commit passed tsc on shared, server and client. Every extraction
+commit also passed `client/split-smoke.mjs` against the baseline (no checklist failures, no page errors, the same
+console error and failed-request lists, pixel diffs inside tolerance):
+
+| Commit | Module | Lines |
+|--------|--------|-------|
+| 05678b4 | `game/types.ts` (types only; the bundle is byte-identical) + split-smoke + this plan | 125 |
+| 5599eb1 | `game/hudLayout.ts` | 27 |
+| 91e2425 | `game/savePanel.ts` | 80 |
+| b05e2d5 | `game/gameOver.ts` (+ split-smoke tolerances for noise measured between two baseline runs) | 59 |
+| c78eeb7 | `game/hudStatus.ts` | 159 |
+| f73c500 | `game/soundHooks.ts` | 181 |
+| e066f87 | `game/fightArrows.ts` | 202 |
+| a5e4e77 | `game/minimap.ts` | 496 |
+| 7218405 | `game/heroSheet.ts` | 592 |
+| c758ae8 | `game/spellBar.ts` | 162 |
+| 9fa964e | `game/hudPanels.ts` | 195 |
+| 7ec4750 | `game/timeControls.ts` | 90 |
+| a9a9275 | `game/buildingPanel.ts` | 915 |
+
+Main bundle chunk: 974,739 bytes before, 983,323 after a9a9275 (+0.9%: the getter objects and the destructuring).
+The `?perf=1` comparison was NOT done.
+
+Shared `let` state kept in main.ts on purpose, because the message handler or another feature writes it:
+`fightPeek`, `fightPeekCam`, `strategicMapDirty`, `spellCdAt`, `latestPlayersForSpells`, `lastGoalIndex`,
+`latestQuests`, `questCycleTicks`, `questSeen`.
+
+Remaining, in the recommended order (re-run the analyser first, because line numbers have moved):
+1. Strategy view (seam 14), then selection (15), toolbar (16), keyboard (17), adventure HUD (18), pointer input (19).
+   Keep `latestColonists`, `latestMobs`, `latestTaskForces`, `selectedIds`, `currentTool` and `panDrag` in main.
+2. Render core (20): texture loading (contains `await`s, so it needs an async factory), anim sets, tile sprites,
+   critters and wildlife, unit upserts, FX, chunk streaming. These are per-frame paths, so measure `?perf=1` before
+   and after.
+3. The socket message handler (21) stays in main.ts.
+
+Notes for the next agent:
+- The codemod tooling lives in the old session's scratchpad `tools/` (analyze.mjs, extract.mjs, prune.mjs, seam.sh).
+  It is not in the repo and may be gone. Its approach is described in section 1.
+- An uncommitted attempt to add a building-panel step to split-smoke was reverted. The Town Center click did not
+  open the panel. The `hb-interact` button approach was never verified.
+- `server/character-sheet-test.mjs` fails 3 checks. This was already the case before the split: it was run on the
+  unmodified tree at the start of this session. `client/render-depth-test.mjs` passes.
+- `npm run smoke` was not run.
+- HANDOVER-CODEX.md section 2 has not been updated yet.
