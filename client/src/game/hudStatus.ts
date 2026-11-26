@@ -14,11 +14,11 @@ import type { GameEventCategory } from "@colony/shared/protocol";
 export interface HudStatusContext {
   app: Application;
   applySeason: (season: number) => void;
-  pushEventToast: (category: GameEventCategory, text: string) => void;
+  readonly pushEventToast: (category: GameEventCategory, text: string) => void;
 }
 
 export function createHudStatus(game: HudStatusContext) {
-  const { app, applySeason, pushEventToast } = game;
+  const { app, applySeason } = game;
   // Core stats (wood/iron/rock/gold/pop/time/happiness/army/selected) used to live here as a
   // floating canvas HUD; they're now DOM elements pinned to the top of #economy-panel, merged
   // into the same single menu as the goods/market panel. See the DOM refs set up below.
@@ -129,7 +129,7 @@ export function createHudStatus(game: HudStatusContext) {
   function refreshRaidForecast(f: RaidForecast | undefined) {
     const text = f ? raidForecastText(f) : "";
     if (text === shownRaidForecast) return;
-    if (text && !shownRaidForecast) pushEventToast("raid", text);
+    if (text && !shownRaidForecast) game.pushEventToast("raid", text);
     shownRaidForecast = text;
     raidForecastEl.textContent = text;
     raidForecastEl.hidden = !text;

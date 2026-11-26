@@ -16,7 +16,7 @@ export interface FightArrowsContext {
   worldLayer: Container;
   playerSprites: Map<string, EntityVisual>;
   strategyCam: StrategyCamera;
-  pushEventToast: (category: GameEventCategory, text: string) => void;
+  readonly pushEventToast: (category: GameEventCategory, text: string) => void;
   fightPeek: { x: number; y: number; until: number } | null;
   fightPeekCam: { x: number; y: number } | null;
   readonly tileSize: number;
@@ -25,7 +25,7 @@ export interface FightArrowsContext {
 }
 
 export function createFightArrows(game: FightArrowsContext) {
-  const { currentInput, app, worldLayer, playerSprites, strategyCam, pushEventToast } = game;
+  const { currentInput, app, worldLayer, playerSprites, strategyCam } = game;
   // ---- Off-screen fight notifiers (ROADMAP "Off-screen fight notifiers — landed 2026-10-23") ----
   // The snapshot's per-player `fights` (server-clustered) become one DOM arrow each, clamped to the
   // screen rim by placeEdgeArrow and hidden while the fight is on screen; a fight the server drops fades
@@ -136,7 +136,7 @@ export function createFightArrows(game: FightArrowsContext) {
         if (now - lastFightToastAt >= FIGHT_TOAST_THROTTLE_MS && !fightIsOnScreen(f)) {
           lastFightToastAt = now;
           const { dir, tiles } = fightBearing(f);
-          pushEventToast("raid", `${fightTitle(f)} to the ${dir} (${tiles} tiles)`);
+          game.pushEventToast("raid", `${fightTitle(f)} to the ${dir} (${tiles} tiles)`);
         }
       }
     }
