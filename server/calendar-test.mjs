@@ -20,8 +20,8 @@ const result = (ok, msg) => {
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const T = { Empty: 0, Wall: 1, Road: 60, WoodDoor: 110 };
 const TILE = 32;
-const GAME_DAY = 20 * (300 + 75);
-const DAY = 20 * 300;
+const GAME_DAY = 20 * (450 + 112);
+const DAY = 20 * 450;
 
 const c = { ws: new WebSocket(`ws://localhost:${PORT}`), welcome: null, snap: null, events: [], hook: new Map(), save: null, welcomes: 0 };
 c.ws.on("message", (raw) => {

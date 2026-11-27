@@ -20,7 +20,7 @@ const result = (ok, msg) => {
 };
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const TILE = 32;
-const GAME_DAY_TICKS = 7500; // DAY_TICKS (300 s) + NIGHT_TICKS (75 s) at 20 Hz
+const GAME_DAY_TICKS = 11240; // DAY_TICKS (450 s) + NIGHT_TICKS (112 s) at 20 Hz
 
 const c = { ws: new WebSocket(`ws://localhost:${PORT}`), welcome: null, welcomes: 0, snap: null, listeners: [], pending: [], waiters: [] };
 c.ws.on("message", (raw) => {

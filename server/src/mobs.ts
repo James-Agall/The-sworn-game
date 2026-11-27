@@ -328,6 +328,23 @@ export function buildingNearby(x: number, y: number, than: number, wards: TileCo
   return false;
 }
 
+// The nearest unwarded non-wall building within `limitPx` of (x, y) (not in `skip`, keys "x,y"), or null.
+// Raid groups use it with RAID_SIDE_ENGAGE_TILES (a short reach), unlike buildingNearby's 6 tiles.
+export function nearestBuildingWithin(x: number, y: number, limitPx: number, wards: TileCoord[], skip?: ReadonlySet<string>): TileCoord | null {
+  let best: TileCoord | null = null;
+  let bestD = limitPx;
+  for (const b of buildingTargetCandidates()) {
+    const cx = b.x * TILE_SIZE + TILE_SIZE / 2;
+    const cy = b.y * TILE_SIZE + TILE_SIZE / 2;
+    if (Math.abs(cx - x) > limitPx || Math.abs(cy - y) > limitPx) continue;
+    const d = Math.hypot(cx - x, cy - y);
+    if (d >= bestD || skip?.has(`${b.x},${b.y}`) || isWarded(cx, cy, wards)) continue;
+    best = b;
+    bestD = d;
+  }
+  return best;
+}
+
 // `mob` (optional) lets a building / Town Center target resolve to the approach tile its pick chose.
 export function resolveTargetPosition(
   targetType: MobTargetType,

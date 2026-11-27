@@ -11,7 +11,7 @@ const DIR = path.dirname(fileURLToPath(import.meta.url));
 const TSX = [path.join(DIR, "node_modules/.bin/tsx"), path.join(DIR, "../node_modules/.bin/tsx")].find((p) => existsSync(p));
 const TILE = 32;
 const TICK = 20;
-const DAY = TICK * 300;
+const DAY = TICK * 450;
 const T = { Empty: 0, Wall: 1, LumberjackPost: 3, KnightPost: 5, House: 13, MilitiaPost: 32, Pasture: 21, Gate: 70, Moat: 75, Drawbridge: 76 };
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const t0 = Date.now();

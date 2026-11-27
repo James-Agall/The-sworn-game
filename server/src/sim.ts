@@ -9,7 +9,7 @@ import { updatePrisonerWalkUp } from "./hearths.js";
 import { TICK_RATE, PLAYER_SPEED, PLAYER_HALF_SIZE } from "@colony/shared/protocol";
 import {
   FIGHT_SCAN_TICKS, LUMBERJACK_TREE_INTERVAL_TICKS,
-  TREE_RESPAWN_INTERVAL_TICKS, dt, GAME_DAY_TICKS,
+  TREE_RESPAWN_INTERVAL_TICKS, dt, GAME_DAY_TICKS, AUTOSAVE_INTERVAL_TICKS,
 } from "./constants.js";
 import { clans, colonists, gravestones, lap, lapReset, mobs, players, state, tileOwner } from "./state.js";
 import { mobFrozenByStreaming, updateChunkStates, warmMobStride } from "./chunks.js";
@@ -93,6 +93,7 @@ export function stepSimulation() {
     strifeDawn();
     state.autosaveDue = true;
   }
+  if (state.cycleTick > 0 && state.cycleTick % AUTOSAVE_INTERVAL_TICKS === 0) state.autosaveDue = true;
 
   if (nightNow && !state.wasNight) {
     broadcastEvent("night", "Night falls");

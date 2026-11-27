@@ -14,9 +14,10 @@ import {
   RAID_HEADING_SMOOTHING, RAID_HORDE_SHARE_MAX, RAID_HORDE_SHARE_MIN, RAID_LOITER_CHANCE_PER_TICK,
   RAID_LOITER_RADIUS_TILES, RAID_MARCH_REPATH_TICKS, RAID_REACH_BUDGET, RAID_REACH_RADIUS, RAID_REAR_RANK_TILES,
   RAID_RELEASE_ROW_TICKS, RAID_SIZE_PER_DAY, RAID_SPAWN_DIST_STEPS, RAID_TRAVEL_MARGIN_TICKS, RAID_TRAVEL_SLACK,
-  RAID_WEDGE_LOOSENESS, GAME_DAY_TICKS, RAID_LEAVE_MAX_TICKS, ROUT_TOAST_COOLDOWN_TICKS,
+  RAID_WEDGE_LOOSENESS, GAME_DAY_TICKS, RAID_LEAVE_MAX_TICKS, ROUT_TOAST_COOLDOWN_TICKS, RAID_SIDE_ENGAGE_TILES, RAID_SIDE_TARGET_MAX, RAID_SIDE_TARGET_TIMEOUT_TICKS,
+  RAID_WARNING_MAX_TICKS, RAID_WARNING_REFRESH_TICKS,
 } from "./constants.js";
-import { colonists, mobs, parkedMobs, players, raidGroups, state } from "./state.js";
+import { clans, colonists, mobs, parkedMobs, players, raidGroups, state } from "./state.js";
 import { raidForecastBand, type RaidForecast, type RaidForecastEdge } from "@colony/shared/raidForecast";
 import { biomeSpeedMultiplier, inBounds, isNightNow, ownerAt, resourceKey, tileIndex, tileOfPixel, tileToPixelCenter, dayIndexAt, dayTicksFor, nightTicksFor } from "./tiles.js";
 import {advanceGroundApproach} from "./groundNavigation.js";
@@ -26,12 +27,14 @@ import { TOWN_CENTER_TILE, activeWardSources, civilianPopulationUsed, highestTow
 import { isGuardOrMilitiaKind, isRearMob, isSiegeKind, mobRole } from "./units.js";
 import { raidSiegeCap } from "./siege.js";
 import {
-  applyHungerMark, applyMobSize, buildingNearby, buildingTargetCandidates, hungerMarkChance, hungerMarkLabel, mobBodyRadius, mobKindLabel,
+  applyHungerMark, applyMobSize, buildingNearby, buildingTargetCandidates, nearestBuildingWithin, hungerMarkChance, hungerMarkLabel, mobBodyRadius, mobKindLabel,
   pickMobTarget, resolveTargetPosition,
 } from "./mobs.js";
 import { clearMobTarget, fleeEdgePoint } from "./tactics.js";
 import { broadcastEvent } from "./net.js";
-import { clanTownCenters } from "./clans.js";
+import { clanTownCenters, townCentersOfClan } from "./clans.js";
+import { compassDirection, type RaidWarning, type RaidWarningClearReason } from "@colony/shared/raidWarning";
+import type { ServerMessage } from "@colony/shared/protocol";
 import { campRaidBonus } from "./sites.js";
 
 // ---- Raid waves ----
@@ -304,6 +307,7 @@ export function spawnRaid(dayIndex: number) {
 
   const siegeLeft: Partial<Record<SiegeKind, number>> = {};
   for (const k of SIEGE_KINDS) siegeLeft[k] = isRaidKindUnlocked(k, dayIndex) ? raidSiegeCap(dayIndex, k) : 0;
+  const raidId = randomUUID();
   const markChance = hungerMarkChance(dayIndex);
   let marksLeft = markChance > 0 ? Math.max(1, Math.floor(combined / HUNGER_MARK_RAIDERS_PER_MARK)) : 0;
   const marked: Mob[] = [];
@@ -325,6 +329,8 @@ export function spawnRaid(dayIndex: number) {
       offsets: new Map(),
       repathCooldown: 0,
       raidClan: state.clan.id,
+      raidId,
+      clan: state.clan.id,
     };
     let freshCount = size;
     if (isHorde) {
@@ -360,6 +366,7 @@ export function spawnRaid(dayIndex: number) {
     }
   });
   if (announceEdge) broadcastEvent("raid", `Raiders gather at the ${announceEdge} edge`);
+  if (announceEdge) openRaidWarning(raidId, state.clan.id);
   // One toast: the first marked elite by name, the rest as a count.
   if (marked.length > 0) {
     const first = marked[0];
@@ -402,6 +409,8 @@ export function raidGroupMembers(group: RaidGroup): Mob[] {
 // released whole.
 export function engageRaidGroup(group: RaidGroup) {
   if (group.engagedTick !== undefined) return;
+  const warning = group.raidId ? raidWarnings.get(group.raidId) : undefined;
+  if (warning && !sideRaids.has(group.id)) warning.contact = true;
   const leader = group.leaderId ? mobs.get(group.leaderId) : undefined;
   const members = raidGroupMembers(group);
   const anchor = leader && leader.groupId === group.id ? leader : members[0];
@@ -579,21 +588,175 @@ export function raidMarchGoal(leader: Mob): { x: number; y: number } | null {
   return picked ? resolveTargetPosition(picked.type, picked.id) : null;
 }
 
-export function raidGroupShouldEngage(leader: Mob, goal: { x: number; y: number }): boolean {
+// Why a marching group should stop marching: "contact" (the goal, a guard or a player is in range: the group
+// fights and breaks up for good), a side building ({ side }: a building right on its route, see below), or
+// null. Raid march fix (2026-11-27): the group no longer dissolves for every building within
+// MOB_BUILDING_AGGRO_TILES (6); only for one within RAID_SIDE_ENGAGE_TILES (2) of its leader, at night, at most
+// RAID_SIDE_TARGET_MAX times per raid, never one it already gave up on or finished.
+export function raidEngageReason(group: RaidGroup | undefined, leader: Mob, goal: { x: number; y: number }): "contact" | { side: TileCoord } | null {
   const range = RAID_ENGAGE_RANGE_TILES * TILE_SIZE;
-  if (Math.hypot(goal.x - leader.x, goal.y - leader.y) <= range) return true;
+  if (Math.hypot(goal.x - leader.x, goal.y - leader.y) <= range) return "contact";
   const wards = activeWardSources();
-  // Houses and other buildings met on the way are attacked first (see MOB_BUILDING_AGGRO_TILES).
-  if (buildingNearby(leader.x, leader.y, Infinity, wards)) return true;
   for (const c of colonists.values()) {
     if (!isGuardOrMilitiaKind(c.kind)) continue;
-    if (Math.hypot(c.x - leader.x, c.y - leader.y) <= range && !isWarded(c.x, c.y, wards)) return true;
+    if (Math.hypot(c.x - leader.x, c.y - leader.y) <= range && !isWarded(c.x, c.y, wards)) return "contact";
   }
   for (const p of players.values()) {
     if (p.dead || p.interior) continue;
-    if (Math.hypot(p.x - leader.x, p.y - leader.y) <= range && !isWarded(p.x, p.y, wards)) return true;
+    if (Math.hypot(p.x - leader.x, p.y - leader.y) <= range && !isWarded(p.x, p.y, wards)) return "contact";
   }
-  return false;
+  // By day a group just keeps walking (it holds near the colony, not at a farm); side targets are a night thing.
+  if (!isNightNow() || (group?.sideCount ?? 0) >= RAID_SIDE_TARGET_MAX) return null;
+  const tile = nearestBuildingWithin(leader.x, leader.y, RAID_SIDE_ENGAGE_TILES * TILE_SIZE, wards, new Set(group?.sideDone ?? []));
+  return tile ? { side: tile } : null;
+}
+
+export function raidGroupShouldEngage(leader: Mob, goal: { x: number; y: number }, group?: RaidGroup): boolean {
+  return raidEngageReason(group, leader, goal) !== null;
+}
+
+// ---- Side targets: a group breaks off for a building on its route, then re-forms and marches on ----
+// The group is released like any contact (rows), and parked here (by group id) while its mobs work on
+// sideTile. updateSideRaids re-forms the SAME group (same id, so regimentId / morale still match) once the
+// building is gone, or gives the target up after RAID_SIDE_TARGET_TIMEOUT_TICKS. Dawn drops the record: the
+// ordinary per-mob rules (incl. leaving when there is nothing to attack) take over.
+export const sideRaids = new Map<string, RaidGroup>();
+
+export function beginSideTarget(group: RaidGroup, tile: TileCoord) {
+  group.sideCount = (group.sideCount ?? 0) + 1;
+  group.sideTile = tile;
+  group.sideSince = state.cycleTick;
+  sideRaids.set(group.id, group);
+  engageRaidGroup(group);
+}
+
+export function reformRaidGroup(group: RaidGroup, members: Mob[]) {
+  if (group.sideTile) (group.sideDone ??= []).push(`${group.sideTile.x},${group.sideTile.y}`);
+  group.sideTile = undefined;
+  group.sideSince = undefined;
+  group.engagedTick = undefined;
+  group.anchorX = undefined;
+  group.anchorY = undefined;
+  group.state = "marching";
+  group.headingX = undefined;
+  group.headingY = undefined;
+  group.memberIds = members.map((m) => m.id);
+  for (const m of members) {
+    m.groupId = group.id;
+    m.passive = false;
+    m.path = [];
+    m.targetType = null;
+    m.targetId = null;
+  }
+  raidGroups.set(group.id, group);
+  assignRaidLeader(group);
+  sideRaids.delete(group.id);
+}
+
+export function updateSideRaids() {
+  if (sideRaids.size === 0) return;
+  const night = isNightNow();
+  for (const [id, group] of Array.from(sideRaids)) {
+    // Still releasing rows (the group stays in raidGroups until everyone is out).
+    if (raidGroups.has(id)) continue;
+    const members: Mob[] = [];
+    for (const m of mobs.values()) if (m.regimentId === id && m.groupId === null && !m.warbandId) members.push(m);
+    if (members.length === 0 || !night) {
+      sideRaids.delete(id);
+      continue;
+    }
+    const tile = group.sideTile;
+    const gone = !tile || resolveTargetPosition("building", `${tile.x},${tile.y}`) === null;
+    const stuck = state.cycleTick - (group.sideSince ?? state.cycleTick) >= RAID_SIDE_TARGET_TIMEOUT_TICKS;
+    if (gone || stuck) reformRaidGroup(group, members);
+  }
+}
+
+// ---- Raid warning: the owning clan's players hear of a raid, its direction, distance and ETA ----
+interface RaidWarningRecord {
+  clan: number;
+  startTick: number;
+  lastSent: number;
+  // A group of the raid made contact (so the end reads "contact", not "defeated").
+  contact: boolean;
+}
+export const raidWarnings = new Map<string, RaidWarningRecord>();
+// Everything sent is also remembered here (tests read it; no socket needed).
+export const raidWarningLog: { to: number; kind: "warn" | "clear"; warning?: RaidWarning; id?: string; reason?: RaidWarningClearReason }[] = [];
+
+function sendToClan(clanId: number, message: ServerMessage) {
+  const payload = JSON.stringify(message);
+  for (const p of players.values()) {
+    if (clans.length > 1 && p.clan !== clanId) continue;
+    if (p.socket.readyState === p.socket.OPEN) p.socket.send(payload);
+  }
+}
+
+export function openRaidWarning(raidId: string, clan: number) {
+  raidWarnings.set(raidId, { clan, startTick: state.cycleTick, lastSent: -Infinity, contact: false });
+  updateRaidWarnings();
+}
+
+// The warning for one raid read off its live groups, or null when none of it is left to warn about.
+export function raidWarningFor(raidId: string, clan: number): RaidWarning | null {
+  const live: RaidGroup[] = [];
+  for (const g of raidGroups.values()) if (g.raidId === raidId && g.engagedTick === undefined) live.push(g);
+  for (const g of sideRaids.values()) if (g.raidId === raidId) live.push(g);
+  let count = 0;
+  let lead: { g: RaidGroup; n: number; x: number; y: number; speed: number } | null = null;
+  for (const g of live) {
+    const ms = raidGroups.has(g.id)
+      ? raidGroupMembers(g)
+      : Array.from(mobs.values()).filter((m) => m.regimentId === g.id && m.groupId === null);
+    if (ms.length === 0) continue;
+    count += ms.length;
+    if (!lead || ms.length > lead.n) {
+      const l = (g.leaderId && mobs.get(g.leaderId)) || ms[0];
+      lead = { g, n: ms.length, x: l.x, y: l.y, speed: Math.max(1, Math.min(...ms.map((m) => m.speed))) };
+    }
+  }
+  if (!lead || count === 0) return null;
+  const tc = townCentersOfClan(clan)[0] ?? TOWN_CENTER_TILE;
+  const from = tileOfPixel(lead.x, lead.y);
+  // A Town Center is a solid tile (findPath cannot end on it): route to the tile its attackers stand on.
+  const approach = resolveTargetPosition("townCenter", resourceKey(tc.x, tc.y));
+  const route = findPath(from, approach ? tileOfPixel(approach.x, approach.y) : tc);
+  const tiles = route ? route.length : Math.hypot(tc.x - from.x, tc.y - from.y) * 1.5;
+  const px = Math.max(0, tiles - RAID_ENGAGE_RANGE_TILES) * TILE_SIZE;
+  const travel = Math.ceil(((px * RAID_TRAVEL_SLACK) / lead.speed) * TICK_RATE);
+  // A passive group has not set out yet: it leaves at its aggroTick.
+  const wait = lead.g.state === "passive" ? Math.max(0, lead.g.aggroTick - state.cycleTick) : 0;
+  return {
+    id: raidId,
+    dir: compassDirection(from.x - tc.x, from.y - tc.y),
+    distanceTiles: Math.round(tiles),
+    etaTicks: wait + travel,
+    count,
+    tx: from.x,
+    ty: from.y,
+    homeX: tc.x,
+    homeY: tc.y,
+  };
+}
+
+export function updateRaidWarnings() {
+  for (const [raidId, rec] of Array.from(raidWarnings)) {
+    const w = raidWarningFor(raidId, rec.clan);
+    const expired = state.cycleTick - rec.startTick > RAID_WARNING_MAX_TICKS;
+    if (!w || expired) {
+      const reason: RaidWarningClearReason = expired && w ? "expired" : rec.contact ? "contact" : "defeated";
+      raidWarnings.delete(raidId);
+      raidWarningLog.push({ to: rec.clan, kind: "clear", id: raidId, reason });
+      if (raidWarningLog.length > 200) raidWarningLog.shift();
+      sendToClan(rec.clan, { type: "raidWarningCleared", cleared: { id: raidId, reason } });
+      continue;
+    }
+    if (state.cycleTick - rec.lastSent < RAID_WARNING_REFRESH_TICKS) continue;
+    rec.lastSent = state.cycleTick;
+    raidWarningLog.push({ to: rec.clan, kind: "warn", warning: w });
+    if (raidWarningLog.length > 200) raidWarningLog.shift();
+    sendToClan(rec.clan, { type: "raidWarning", warning: w });
+  }
 }
 
 // Straight-line step toward (tx, ty); false (and no move) if the step would enter a solid tile.
@@ -663,8 +826,11 @@ export function marchRaidGroup(group: RaidGroup, dt: number) {
     if (!raidTargetExists()) leaveRaidGroup(group);
     return;
   }
-  if (raidGroupShouldEngage(leader, goal)) {
-    if (isNightNow()) engageRaidGroup(group);
+  if (!goal) return;
+  const reason = raidEngageReason(group, leader, goal);
+  if (reason) {
+    if (reason !== "contact") beginSideTarget(group, reason.side);
+    else if (isNightNow()) engageRaidGroup(group);
     else holdRaidGroup(group, leader, dt);
     return;
   }
@@ -716,6 +882,8 @@ export function marchRaidGroup(group: RaidGroup, dt: number) {
 
 export function updateRaidGroups(dt: number) {
   const night = isNightNow();
+  updateSideRaids();
+  if (state.cycleTick % TICK_RATE === 0) updateRaidWarnings();
   for (const group of raidGroups.values()) {
     const members = raidGroupMembers(group);
     if (members.length === 0) {

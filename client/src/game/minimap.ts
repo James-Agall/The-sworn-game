@@ -7,6 +7,7 @@ import { Biome, TileType, VISION_RADIUS_COLONIST, VISION_RADIUS_PLAYER } from "@
 import { StrategyCamera } from "../strategy/camera";
 import type { VisionSource } from "../strategy/lod";
 import { MinimapClass, decodeMaskRuns, minimapCellClass, minimapClassOf } from "@colony/shared/streaming";
+import { raidWarningsLive } from "./raidWarnings";
 import { QUEST_MARKER_IMAGES } from "../worldVisuals";
 
 // Closure state from main.ts. Plain fields are fixed references (objects mutated in place, functions); the
@@ -362,6 +363,24 @@ export function createMinimap(game: MinimapContext) {
       ctx.fillRect(cx - size / 2, cy - size / 2, size, size);
       ctx.fillStyle = "#f1c40f";
       ctx.fillRect(cx - 1.5 * u, cy - 1.5 * u, 3 * u, 3 * u);
+    }
+
+    // Raid warning: a pulsing red marker on each live raid's raiders (see hudStatus.ts).
+    for (const w of raidWarningsLive.values()) {
+      const rx = (w.tx + 0.5) * s;
+      const ry = (w.ty + 0.5) * s;
+      const pulse = 4.5 * u + (Math.sin(performance.now() / 220) + 1) * 1.5 * u;
+      ctx.beginPath();
+      ctx.arc(rx, ry, pulse, 0, Math.PI * 2);
+      ctx.fillStyle = "rgba(200,40,30,0.35)";
+      ctx.fill();
+      ctx.beginPath();
+      ctx.arc(rx, ry, 3 * u, 0, Math.PI * 2);
+      ctx.fillStyle = "#e0392b";
+      ctx.fill();
+      ctx.lineWidth = u;
+      ctx.strokeStyle = "#1a0f06";
+      ctx.stroke();
     }
 
     // Forts phase D2: a quest marker (gold diamond; green once accepted) on each open quest's target tile.

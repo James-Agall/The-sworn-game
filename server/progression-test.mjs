@@ -207,7 +207,7 @@ await hook("fastForward", { ticks: 5 });
 await sleep(300);
 const breadBefore = (items().bread ?? []).reduce((a, b) => a + b, 0);
 const grainBefore = c.snap.grain;
-await hook("setCycleTick", { tick: 20 * 375 - 3 });
+await hook("setCycleTick", { tick: 11240 - 3 });
 await hook("fastForward", { ticks: 6 });
 await sleep(300);
 const breadAfter = (items().bread ?? []).reduce((a, b) => a + b, 0);

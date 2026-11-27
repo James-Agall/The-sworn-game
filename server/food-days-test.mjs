@@ -86,7 +86,7 @@ await setStock({ grain: perDay * 10, meat: 0, fruit: 0 });
 let n0 = lowEvents();
 await eat();
 result(lowEvents() === n0, `stocked (10 days): no "Food is low" toast`);
-await setStock({ grain: Math.floor(perDay * 2.5), meat: 0, fruit: 0 });
+await setStock({ grain: Math.ceil(perDay * 2.5), meat: 0, fruit: 0 }); // ceil: with an odd perDay (5.62 x 10 people = 57) floor(x.5) read as 2.4 days
 n0 = lowEvents();
 await eat();
 result(lowEvents() === n0 + 1 && /Food is low: about 2.5 days/.test(c.events.filter((e) => /^Food is low/.test(e)).at(-1) ?? ""), `2.5 days left: one toast (${c.events.filter((e) => /^Food is low/.test(e)).at(-1)})`);

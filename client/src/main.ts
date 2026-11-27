@@ -3554,7 +3554,7 @@ async function main() {
   let fightPeek: { x: number; y: number; until: number } | null = null;
   // The eased camera focus while peeking or easing back (null = locked on the player).
   let fightPeekCam: { x: number; y: number } | null = null;
-  const { weatherUi, WEATHER_OVERLAY_PREF, pausedBanner, refreshCalendar, refreshFood, refreshWinter, refreshAgri, refreshRaidForecast } = createHudStatus({
+  const { weatherUi, WEATHER_OVERLAY_PREF, pausedBanner, refreshCalendar, refreshFood, refreshWinter, refreshAgri, refreshRaidForecast, onRaidWarning, onRaidWarningCleared, clearRaidWarnings } = createHudStatus({
     app, applySeason, get pushEventToast() { return pushEventToast; },
   });
 
@@ -3767,6 +3767,7 @@ async function main() {
       perf.setScene(colonistSprites.size+mobSprites.size+playerSprites.size,tileSpriteLayer.children.length+decorSpriteLayer.children.length+floorChunks.size);
     }
     if (message.type === "welcome") {
+      clearRaidWarnings();
       groundUi.clear();
       scenery.clear();hiddenHero.clear();chunkInbox.clear();
       myId = message.id;
@@ -4026,6 +4027,10 @@ async function main() {
       pushEventToast(message.category, message.text);
       if (message.category === "upgrade") fxOnUpgradeEvent();
       soundOnEvent(message.category, message.text);
+    } else if (message.type === "raidWarning") {
+      onRaidWarning(message.warning);
+    } else if (message.type === "raidWarningCleared") {
+      onRaidWarningCleared(message.cleared);
     } else if (message.type === "explored") {
       markExplored(message.tiles);
     } else if (message.type === "loadProgress") {

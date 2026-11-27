@@ -4,6 +4,8 @@ import { Application, Text } from "pixi.js";
 import { setupWeatherOverlay } from "../weather";
 import { SEASONS, WEATHER_LABEL, calendarLabel, type CalendarSnapshot } from "@colony/shared/calendar";
 import { raidForecastText, type RaidForecast } from "@colony/shared/raidForecast";
+import { isRaidWarning, isRaidWarningCleared, raidClearedText, raidWarningText, type RaidWarning } from "@colony/shared/raidWarning";
+import { raidWarningsLive } from "./raidWarnings";
 import { FUEL_LOW_DAYS, type WinterSnapshot } from "@colony/shared/winter";
 import { foodLevel, type FoodSnapshot } from "@colony/shared/food";
 import type { AgriSnapshot } from "@colony/shared/agri";
@@ -125,6 +127,45 @@ export function createHudStatus(game: HudStatusContext) {
   raidForecastEl.style.cssText = "position:fixed;top:44px;left:50%;transform:translateX(-50%);padding:2px 10px;background:rgba(40,12,12,.8);color:#f3c9a8;border:1px solid #7a2a22;border-radius:4px;font:12px sans-serif;z-index:20;pointer-events:none";
   raidForecastEl.hidden = true;
   document.body.appendChild(raidForecastEl);
+  // Raid warning (shared/src/raidWarning.ts): a small dismissible banner under the forecast line with direction,
+  // distance and ETA (refreshed by the server every few seconds), a toast when the raid is over, and a pulsing red
+  // marker on the minimap at the raiders' position. Dismissing hides the banner for that raid only.
+  const raidWarningDismissed = new Set<string>();
+  const raidWarnEl = document.createElement("div");
+  raidWarnEl.id = "raid-warning";
+  raidWarnEl.style.cssText = "position:fixed;top:66px;left:50%;transform:translateX(-50%);padding:3px 6px 3px 10px;background:rgba(60,14,10,.88);color:#ffd9c2;border:1px solid #b33a2a;border-radius:4px;font:12px sans-serif;z-index:20;display:flex;gap:8px;align-items:center";
+  raidWarnEl.hidden = true;
+  const raidWarnText = document.createElement("span");
+  const raidWarnClose = document.createElement("button");
+  raidWarnClose.textContent = "x";
+  raidWarnClose.title = "Dismiss";
+  raidWarnClose.style.cssText = "background:none;border:0;color:#ffd9c2;cursor:pointer;font:12px sans-serif;padding:0 2px";
+  raidWarnClose.addEventListener("click", () => {
+    for (const id of raidWarningsLive.keys()) raidWarningDismissed.add(id);
+    refreshRaidWarning();
+  });
+  raidWarnEl.append(raidWarnText, raidWarnClose);
+  document.body.appendChild(raidWarnEl);
+  function refreshRaidWarning() {
+    let shown: RaidWarning | null = null;
+    for (const w of raidWarningsLive.values()) if (!raidWarningDismissed.has(w.id) && (!shown || w.etaTicks < shown.etaTicks)) shown = w;
+    raidWarnEl.hidden = !shown;
+    if (shown) raidWarnText.textContent = raidWarningText(shown) + (shown.count > 0 ? ` (${shown.count})` : "");
+  }
+  function onRaidWarning(w: unknown) {
+    if (!isRaidWarning(w)) return;
+    const first = !raidWarningsLive.has(w.id);
+    raidWarningsLive.set(w.id, w);
+    if (first) game.pushEventToast("raid", raidWarningText(w));
+    refreshRaidWarning();
+  }
+  function onRaidWarningCleared(c: unknown) {
+    if (!isRaidWarningCleared(c) || !raidWarningsLive.delete(c.id)) return;
+    raidWarningDismissed.delete(c.id);
+    game.pushEventToast("raid", raidClearedText(c));
+    refreshRaidWarning();
+  }
+  function clearRaidWarnings() { raidWarningsLive.clear(); raidWarningDismissed.clear(); refreshRaidWarning(); }
   let shownRaidForecast = "";
   function refreshRaidForecast(f: RaidForecast | undefined) {
     const text = f ? raidForecastText(f) : "";
@@ -155,5 +196,5 @@ export function createHudStatus(game: HudStatusContext) {
   app.ticker.add(() => {
     pausedBanner.position.set(app.screen.width / 2, app.screen.height / 2);
   });
-  return { weatherUi, WEATHER_OVERLAY_PREF, pausedBanner, refreshCalendar, refreshFood, refreshWinter, refreshAgri, refreshRaidForecast };
+  return { weatherUi, WEATHER_OVERLAY_PREF, pausedBanner, refreshCalendar, refreshFood, refreshWinter, refreshAgri, refreshRaidForecast, onRaidWarning, onRaidWarningCleared, clearRaidWarnings };
 }

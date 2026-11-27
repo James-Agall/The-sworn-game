@@ -2,6 +2,7 @@ import type { CombatLive, DuelLive } from './combatRules.js';
 import type { AnimalHouseInfo, LivestockSnapshot, Species } from "./animals.js";
 import type { CalendarSnapshot } from "./calendar.js";
 import type { RaidForecast } from "./raidForecast.js";
+import type { RaidWarning, RaidWarningCleared } from "./raidWarning.js";
 import type { WinterSnapshot } from "./winter.js";
 import type { FoodSnapshot } from "./food.js";
 import type { AgriSnapshot } from "./agri.js";
@@ -1745,6 +1746,10 @@ export type ServerMessage =
   | { type: "tileUpdate"; tileX: number; tileY: number; tile: TileType }
   // One-off notification for the event feed (not continuous state).
   | { type: "event"; category: GameEventCategory; text: string }
+  // Raid warning (shared/src/raidWarning.ts): to the raid's owning clan when it spawns and every few seconds while it
+  // marches (direction, distance, ETA); raidWarningCleared when it ends.
+  | { type: "raidWarning"; warning: RaidWarning }
+  | { type: "raidWarningCleared"; cleared: RaidWarningCleared }
   // World streaming phase 4: requested chunks, each its tiles / biomes (base64, row by row, the chunk's own
   // width: edge chunks are narrower).
   | { type: "chunks"; chunks: { c: number; tiles: string; biomes: string }[] }

@@ -20,7 +20,7 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const T = { Empty: 0, Pasture: 21, Water: 35, Moat: 75, Coop: 130 };
 const TILE = 32;
 const px = (t) => t * TILE + 16;
-const DAY = 375 * 20;
+const DAY = 11240;
 
 const c = { ws: new WebSocket(`ws://localhost:${PORT}`), welcome: null, snap: null, events: [], hook: new Map(), save: null, welcomes: 0, info: null, tiles: [] };
 c.ws.on("message", (raw) => {

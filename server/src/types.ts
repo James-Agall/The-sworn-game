@@ -823,6 +823,16 @@ export interface RaidGroup {
   // Raid cap (RAIDS-2026-11-26.md): the clan a nightly raid (spawnRaid) was sent against. Unset for camp raids,
   // Creative groups and old saves; while any group or mob carries a clan's id, no new nightly raid forms against it.
   raidClan?: number;
+  // One id for every group of one spawnRaid call (the raid warning is per raid, not per group).
+  raidId?: string;
+  // Owning clan (the clan the raid was spawned for; missing = 0). Who is warned.
+  clan?: number;
+  // Raid march: side buildings this group has broken off for (capped by RAID_SIDE_TARGET_MAX), the building
+  // it is on now, when that began, and the targets it finished or gave up on ("x,y"). See raids.ts sideRaids.
+  sideCount?: number;
+  sideTile?: TileCoord;
+  sideSince?: number;
+  sideDone?: string[];
 }
 // A mob target pick; `approach` (building / Town Center targets only) is the tile to attack from.
 export interface PickedTarget {
