@@ -3,7 +3,7 @@
 > **Interior fixes: status** (branch `interior-fixes`, 2026-11-27)
 > 1. Gear deposit to the armoury: done (commit 1).
 > 2. Drops inside hostile interiors: done (commit 2; drawn indoors + browser check in commit 3).
-> 3. Hotbar and spells inside hostile interiors: done (commit 3). Next: full verification + docs.
+> 3. Hotbar and spells inside hostile interiors: done (commit 3). Docs and full verification done (all green); not pushed.
 
 Branch `pack-inventory-ground-drop`. Manual check: MANUAL-TESTS.md "Inventory, drop and town centre chest".
 
