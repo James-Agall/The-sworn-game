@@ -4279,11 +4279,17 @@ async function main() {
     itemCount: (id) => itemTotal(progressionUi.latest(), id),
     gatesOpen: () => progressionUi.latest()?.open === true,
     // Weapons in the pack plus the wielded one, in id order so slots keep their place when one is swapped in.
-    weapons: () => (heroSheetApi.heroProfile ? [heroSheetApi.heroProfile.equipment.weapon, ...heroSheetApi.heroProfile.inventory].filter((i): i is GearItem => !!i && i.slot === "weapon").sort((a, b) => (a.id < b.id ? -1 : 1)) : []),
+    // Only the kinds the player may wield (server handleEquipItem: sword / axe / spear / bow).
+    weapons: () => (heroSheetApi.heroProfile ? [heroSheetApi.heroProfile.equipment.weapon, ...heroSheetApi.heroProfile.inventory].filter((i): i is GearItem => !!i && i.slot === "weapon" && (PLAYER_WEAPON_KINDS as readonly string[]).includes(i.kind ?? "")).sort((a, b) => (a.id < b.id ? -1 : 1)) : []),
     equippedWeaponId: () => heroSheetApi.heroProfile?.equipment.weapon?.id ?? null,
     equipWeapon: (id) => sendMessage({ type: "equipItem", itemId: id, slot: "weapon" }),
     weaponIcon: (item) => itemIcon(item),
+    offhandWorn: () => !!heroSheetApi.heroProfile?.equipment.offhand,
+    weaponTip: (e, item, hint) => heroSheetApi.showItemTip(e, item, null, hint, false),
+    hideTip: hideItemTip,
   });
+  // Unified hotbar: the spell bar (its buttons, cooldown overlays, tooltips and hotkeys untouched) becomes its SPELLS group.
+  heroTools.spellHost.appendChild(document.getElementById("spell-bar")!);
   worldLayer.addChild(heroTools.highlight);
   interiorRef.ui = setupInterior({
     app,

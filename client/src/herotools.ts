@@ -6,6 +6,10 @@
 // that tile uses it without talking (Space attacks with no tool in hand). Digits stay build hotkeys while the Build
 // panel is open. Weapons (the wielded one plus those in the pack) get slots after the tools: click one to wield it, 0 cycles them,
 // Shift+wheel runs through tools then weapons; with a weapon wielded and no tool armed Space attacks. Icons: spriteRegistry iconUrl (tool_*); the frame is CSS (the staged hotbar art has 5 slots).
+// Unified hotbar (2026-11-27): three groups, TOOLS (1-9), WEAPONS (Shift+5..9 wield the first five; 0 cycles) and
+// SPELLS (main moves the existing #spell-bar, buttons and all, into `spellHost`: Shift+1..4 / F1..F4 as before).
+// Shift+5..9 were free: bare / Ctrl / Alt digits, Shift+1..4, F1..F4 and every letter are taken (MANUAL-TESTS.md).
+// Outside adventure view (strategy / classic command view) only the spell group shows, where the old spell bar sat.
 import { Graphics } from "pixi.js";
 import { TileType, type GearItem } from "@colony/shared/protocol";
 import { CROPS, CropStage, type CropId } from "@colony/shared/zones";
@@ -38,6 +42,11 @@ export interface HeroToolsDeps {
   // Equip that weapon from the pack (swapping the old one back in).
   equipWeapon: (id: string) => void;
   weaponIcon: (item: GearItem) => HTMLElement;
+  // A shield is worn: a bow can't be wielded (the server refuses with its message; the slot is dimmed).
+  offhandWorn: () => boolean;
+  // The inventory's item tooltip (name, tier, stat lines) with a footer hint; hideTip hides it.
+  weaponTip: (e: MouseEvent, item: GearItem, hint: string) => void;
+  hideTip: () => void;
 }
 
 export interface HeroToolsUi {
@@ -61,6 +70,8 @@ export interface HeroToolsUi {
   disarm: () => boolean;
   // The weapon last seen wielded (this session), for Esc to wield it again when the weapon slot is empty.
   lastWeaponId: () => string | null;
+  // The SPELLS group's place in the hotbar (main appends #spell-bar here).
+  spellHost: HTMLElement;
 }
 
 const ICON: Record<HeroTool, string> = {
@@ -71,9 +82,21 @@ const ICON: Record<HeroTool, string> = {
 };
 
 const CSS = `
-#hero-hotbar { position: fixed; left: 50%; bottom: 162px; transform: translateX(-50%); z-index: 9; display: none; flex-direction: column;
+#hero-hotbar { position: fixed; left: 50%; bottom: 162px; transform: translateX(-50%); z-index: 9; display: flex; flex-direction: column;
   align-items: center; gap: 3px; pointer-events: none; }
-body.adventure-mode:not(.strategy-mode) #hero-hotbar { display: flex; }
+/* Strategy / classic view: only the spell group, where the old standalone spell bar sat (index.html styles #spell-bar). */
+body:not(.adventure-mode) #hero-hotbar { bottom: 96px; }
+body.strategy-mode #hero-hotbar { bottom: 216px; }
+body:not(.adventure-mode) #hero-hotbar .hh-slots { display: contents; }
+body:not(.adventure-mode) #hero-hotbar :is(.hh-hint, .hh-energy, .hh-tools, .hh-weapons) { display: none; }
+#hero-hotbar #spell-bar { position: static; transform: none; pointer-events: auto; }
+#hero-hotbar .spell-btn:disabled { display: none; }
+body.adventure-mode #hero-hotbar #spell-bar { gap: 3px; margin-left: 4px; padding: 0 0 0 6px; background: none; border: 0; border-left: 2px solid #2e1d0c;
+  border-radius: 0; box-shadow: none; }
+body.adventure-mode #hero-hotbar #spell-bar[hidden] { display: none; }
+body.adventure-mode #hero-hotbar .spell-btn { width: 40px; height: 40px; padding: 2px; background: #3a3a34; border: 2px solid #7a5530; }
+body.adventure-mode #hero-hotbar .spell-btn kbd { left: 2px; top: 0; right: auto; bottom: auto; }
+#hero-hotbar .hh-tools { display: flex; gap: 3px; }
 #hero-hotbar .hh-slots { display: flex; gap: 3px; padding: 4px; background: #5a3a1c; border: 2px solid #2e1d0c; border-radius: 4px;
   box-shadow: inset 0 0 0 1px #8a6236, 0 3px 10px rgba(0,0,0,.55); pointer-events: auto; }
 #hero-hotbar .hh-slot { position: relative; width: 36px; height: 36px; background: #3a3a34; border: 2px solid #7a5530; border-radius: 3px;
@@ -83,6 +106,13 @@ body.adventure-mode:not(.strategy-mode) #hero-hotbar { display: flex; }
 #hero-hotbar .hh-slot .hs-item { width: 26px; height: 26px; margin: 0; pointer-events: none; }
 #hero-hotbar .hh-slot.on { border-color: #f2b632; box-shadow: 0 0 6px rgba(242,182,50,.8); }
 #hero-hotbar .hh-slot.none { opacity: .4; }
+#hero-hotbar .hh-slot:focus-visible, #hero-hotbar .spell-btn:focus-visible { outline: 2px solid #fff; outline-offset: 1px; }
+/* Narrow windows: smaller slots so all three groups fit on one row above the hero bar / minimap. */
+@media (max-width: 1180px) {
+  #hero-hotbar .hh-slot { width: 30px; height: 30px; }
+  #hero-hotbar .hh-slot .hs-item { width: 22px; height: 22px; }
+  body.adventure-mode #hero-hotbar .spell-btn { width: 34px; height: 34px; }
+}
 #hero-hotbar .hh-slot kbd { position: absolute; left: 2px; top: 0; font-size: 9px; color: #fff; text-shadow: 0 0 2px #000; }
 #hero-hotbar .hh-slot small { position: absolute; right: 2px; bottom: 0; font-size: 9px; color: #fff; text-shadow: 0 0 2px #000; }
 #hero-hotbar .hh-hint { font-size: 11px; color: #fff; text-shadow: 0 0 3px #000; white-space: nowrap; min-height: 14px; }
@@ -111,6 +141,11 @@ export function setupHeroTools(deps: HeroToolsDeps): HeroToolsUi {
   hint.className = "hh-hint";
   const slotsEl = document.createElement("div");
   slotsEl.className = "hh-slots";
+  const toolsEl = document.createElement("div");
+  toolsEl.className = "hh-tools";
+  toolsEl.setAttribute("role", "group");
+  toolsEl.setAttribute("aria-label", "Tools (1-9)");
+  slotsEl.appendChild(toolsEl);
   root.append(hint, slotsEl, energyRow);
   document.body.appendChild(root);
 
@@ -128,13 +163,15 @@ export function setupHeroTools(deps: HeroToolsDeps): HeroToolsUi {
   HERO_TOOLS.forEach((t, k) => {
     const s = document.createElement("div");
     s.className = "hh-slot";
+    s.setAttribute("role", "button");
+    s.setAttribute("aria-label", `${HERO_TOOL_LABEL[t]} (${k + 1})`);
     const kbd = document.createElement("kbd");
     kbd.textContent = String(k + 1);
     const small = document.createElement("small");
     s.append(iconImg(ICON[t], 26, HERO_TOOL_LABEL[t]), kbd, small);
     s.addEventListener("pointerdown", (e) => e.stopPropagation());
     s.addEventListener("click", () => pick(k));
-    slotsEl.appendChild(s);
+    toolsEl.appendChild(s);
     slotEls.push(s);
     countEls.push(small);
   });
@@ -142,40 +179,74 @@ export function setupHeroTools(deps: HeroToolsDeps): HeroToolsUi {
   // Weapon slots follow the tool slots: picking one puts any tool away, equips that weapon and Space attacks with it.
   const weaponsEl = document.createElement("div");
   weaponsEl.className = "hh-weapons";
+  weaponsEl.setAttribute("role", "group");
+  weaponsEl.setAttribute("aria-label", "Weapons (Shift+5 to Shift+9, 0 cycles)");
   slotsEl.appendChild(weaponsEl);
+  const spellHost = slotsEl;
+  const WEAPON_KEYS = 5;
+  const blocked = (w: GearItem) => w.kind === "bow" && deps.offhandWorn();
   let weaponSig = "";
   let lastWeapon: string | null = null;
   function refreshWeapons() {
     const ws = deps.weapons();
     const eq = deps.equippedWeaponId();
     if (eq) lastWeapon = eq;
-    const sig = `${ws.map((w) => w.id).join(",")}|${eq}|${armed}`;
+    const sig = `${ws.map((w) => w.id).join(",")}|${eq}|${armed}|${deps.offhandWorn()}`;
     if (sig === weaponSig) return;
     weaponSig = sig;
     weaponsEl.replaceChildren();
-    for (const w of ws) {
+    ws.forEach((w, i) => {
       const s = document.createElement("div");
       s.className = "hh-slot";
       s.classList.toggle("on", armed < 0 && w.id === eq);
-      s.title = `${w.name} (click to wield it; 0 cycles weapons; Space attacks)`;
+      s.classList.toggle("none", blocked(w));
+      const key = i < WEAPON_KEYS ? `Shift+${i + 5}` : "";
+      const hint = `${blocked(w) ? "A bow needs both hands: take the shield off first · " : ""}Click${key ? ` or ${key}` : ""}: wield · 0 cycles weapons · Space attacks`;
+      s.tabIndex = 0;
+      s.setAttribute("role", "button");
+      s.setAttribute("aria-label", `${w.name}${w.id === eq ? " (wielded)" : ""}${key ? ` (${key})` : ""}`);
       s.appendChild(deps.weaponIcon(w));
+      if (key) {
+        const kbd = document.createElement("kbd");
+        kbd.textContent = `⇧${i + 5}`;
+        s.appendChild(kbd);
+      }
       s.addEventListener("pointerdown", (e) => e.stopPropagation());
-      s.addEventListener("click", () => pickWeapon(w.id));
+      s.addEventListener("click", () => {
+        s.blur();
+        pickWeapon(w.id);
+      });
+      s.addEventListener("keydown", (e) => {
+        if (e.key !== "Enter" && e.key !== " ") return;
+        e.preventDefault();
+        e.stopPropagation();
+        s.click();
+      });
+      s.addEventListener("mousemove", (e) => deps.weaponTip(e, w, hint));
+      s.addEventListener("mouseleave", deps.hideTip);
       weaponsEl.appendChild(s);
-    }
+    });
   }
   function pickWeapon(id: string) {
+    // A bow with a shield worn: the server refuses it with its message; keep the tool in hand.
+    const w = deps.weapons().find((x) => x.id === id);
+    if (w && blocked(w)) return deps.equipWeapon(id);
     armed = -1;
     if (deps.equippedWeaponId() !== id) deps.equipWeapon(id);
     refreshSlots();
   }
-  // Key 0: wield the next weapon (the first when none is wielded); with a tool in hand and one weapon, puts the tool away.
+  // Key 0: wield the next weapon (the first when none is wielded; a bow is skipped while a shield is worn); with a
+  // tool in hand, puts the tool away and keeps the wielded weapon.
   function cycleWeapon() {
     const ws = deps.weapons();
     if (!ws.length) return;
     const eq = deps.equippedWeaponId();
     const i = ws.findIndex((w) => w.id === eq);
-    pickWeapon(ws[armed >= 0 && i >= 0 ? i : (i + 1) % ws.length].id);
+    if (armed >= 0 && i >= 0) return pickWeapon(ws[i].id);
+    for (let k = 1; k <= ws.length; k++) {
+      const w = ws[(i + k + ws.length) % ws.length];
+      if (!blocked(w)) return pickWeapon(w.id);
+    }
   }
 
   const tool = (): HeroTool | null => (armed >= 0 ? HERO_TOOLS[armed] : null);
@@ -275,9 +346,19 @@ export function setupHeroTools(deps: HeroToolsDeps): HeroToolsUi {
   window.addEventListener(
     "keydown",
     (e) => {
-      if (e.ctrlKey || e.altKey || e.metaKey || e.shiftKey || e.repeat) return;
+      if (e.ctrlKey || e.altKey || e.metaKey || e.repeat) return;
       if (e.target instanceof HTMLElement && e.target.closest("input, textarea, select")) return;
       if (!deps.active() || deps.talking()) return;
+      if (e.shiftKey) {
+        // Shift+5..9: wield the first five weapon slots. Not stopImmediatePropagation: playerCombat must still see a
+        // Shift chord so it is not taken for a dodge double-tap.
+        const w = /^Digit([5-9])$/.exec(e.code);
+        if (!w) return;
+        e.preventDefault();
+        const item = deps.weapons()[Number(w[1]) - 5];
+        if (item) pickWeapon(item.id);
+        return;
+      }
       if (e.code === "Digit0" && !deps.buildOpen()) {
         e.preventDefault();
         e.stopImmediatePropagation();
@@ -346,6 +427,7 @@ export function setupHeroTools(deps: HeroToolsDeps): HeroToolsUi {
       return true;
     },
     lastWeaponId: () => lastWeapon,
+    spellHost,
     wheel(deltaY) {
       if (!deps.active() || deltaY === 0) return false;
       const n = HERO_TOOLS.length;

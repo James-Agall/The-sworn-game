@@ -72,6 +72,8 @@ export function createSpellBar(game: SpellBarContext) {
         b.replaceChildren();
         b.classList.toggle("aiming", spellAim?.slot === i);
         b.disabled = !id;
+        if (id) b.setAttribute("aria-label", `${SPELLS[id].name} (Shift+${i + 1} or F${i + 1})`);
+        else b.removeAttribute("aria-label");
         if (id) b.append(spellIcon(id));
         const k = document.createElement("kbd");
         k.textContent = SPELL_KEY_LABEL[i];
