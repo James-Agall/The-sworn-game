@@ -10,7 +10,7 @@ import { treeAt } from "@colony/shared/trees";
 import { animalsForSale, dismountHero, heroAnimalInteract, heroHandProduct, isMounted, sellAnimalTo } from "./animals.js";
 import { MOUNT_REST_DECAY_MULT, MOUNT_SPEED_MULT } from "@colony/shared/animals";
 import { heroInfirmaryHealMult, heroRestMultAt, roomAtIndex, warmRoomAt } from "./structures.js";
-import { TICK_RATE, TILE_SIZE, TileType, TRADE_GOODS, type TradeGood, type RelationTier } from "@colony/shared/protocol";
+import { GEAR_SLOTS, TICK_RATE, TILE_SIZE, TileType, TRADE_GOODS, armouryDepositOf, type GearItem, type TradeGood, type RelationTier } from "@colony/shared/protocol";
 import {
   ALLIANCE_ASK_MIN, AUTO_EAT_BELOW, BRIDE_GIFT_GOLD, CEREMONY_FEE, COURT_GIFT_GOLD, COURT_NEEDED, FOUND_CAMP_COST, DIALOGUE, GATHER, GIFT_GOLD, GIFT_RELATION, HERO_SKILLS, HERO_SKILL_LABEL,
   MASTER_FEE, MASTER_MAX_LEVEL, NEED_LOW, NEED_MAX, NPC_ROLE_LABEL, PACK_CAP, PACK_FOOD, PACK_GOODS, PACK_LABEL,
@@ -53,7 +53,7 @@ import {
   TRADER_FAVOUR_GOODS, nameFor as sharedNameFor, nameHash, namedRoleName, type NamedRole, type QuestRole,
 } from "@colony/shared/namedRoles";
 import { addItem, bronzeToolMult, produceItem, gatesOpen, itemCount, professionOf, recipeReady, stationIdleReason, takeItem, workerLevel } from "./progression.js";
-import { forgeCost, forgedTier, forgeItems, heroProfileOf, playerMaxHp } from "./heroes.js";
+import { equipEvent, forgeCost, forgedTier, forgeItems, heroProfileOf, playerMaxHp, recomputeHeroProfile, refuseGear } from "./heroes.js";
 import {
   bringKinHome, cachedFamilySnapshot, childrenOf, courtable, familyOf, familySnapshot, heroTaken, kinBond, kinRelation, marry, partWays, resetFamilyCache,
 } from "./family.js";
@@ -782,6 +782,7 @@ export function handleDialogueChoice(p: Player, idx: unknown) {
     case "chestPut":
     case "chestTake":
     case "hallDeposit":
+    case "hallGear":
     case "chestPrivate":
       return interiorFurnitureChoice(p, c.action, c.arg);
     case "kinLevy": {
@@ -1417,6 +1418,50 @@ export function handleHeroAction(p: Player, action: unknown, build: unknown, goo
   if (action === "foundCamp") return foundCamp(p);
 }
 
+// Interior fixes 2026-11-27: plain tiered pack gear into the colony armoury stock (state.equipment, per clan: the
+// message runs in the sender's clan). Same place rule as the goods deposit; equipped pieces, relics, adventure gear,
+// tomes and leg armour are refused (armouryDepositOf). `all`: every eligible pack item, one toast.
+const gearDepositTimes = new Map<string, number[]>();
+export function handleDepositGear(p: Player, itemId: unknown, all: unknown) {
+  if (p.dead) return;
+  if (all !== true && (typeof itemId !== "string" || itemId.length > 100)) return;
+  const now = Date.now();
+  const recent = (gearDepositTimes.get(p.id) ?? []).filter((t) => now - t < 1000);
+  if (recent.length >= 6) return toast(p, "Slow down: one thing at a time");
+  recent.push(now);
+  gearDepositTimes.set(p.id, recent);
+  const prof = heroProfileOf(p);
+  let picked: GearItem[];
+  if (all === true) {
+    picked = prof.inventory.filter((i) => !("refuse" in armouryDepositOf(i)));
+    if (!picked.length) return toast(p, "No plain weapons or armour in your pack to deposit (relics and special gear stay with you)");
+  } else {
+    const item = prof.inventory.find((i) => i.id === itemId);
+    if (!item) {
+      if (GEAR_SLOTS.some((s) => prof.equipment[s]?.id === itemId)) return refuseGear(p, "Unequip that first to deposit it in the armoury");
+      return refuseGear(p, "That item is not in your pack");
+    }
+    const to = armouryDepositOf(item);
+    if ("refuse" in to) return refuseGear(p, to.refuse);
+    picked = [item];
+  }
+  if (!nearOwnStore(p, 3)) return toast(p, "Stand next to your Town Center or a storage chest to deposit");
+  const ids = new Set(picked.map((i) => i.id));
+  for (let i = prof.inventory.length - 1; i >= 0; i--) if (ids.has(prof.inventory[i].id)) prof.inventory.splice(i, 1);
+  let last = { stock: "weapon" as "weapon" | "armour", tier: 1 as 1 | 2 | 3 };
+  for (const item of picked) {
+    const to = armouryDepositOf(item) as { stock: "weapon" | "armour"; tier: 1 | 2 | 3 };
+    state.equipment[to.stock][to.tier - 1]++;
+    equipEvent({ type: "deposit", slot: to.stock, tier: to.tier, detail: item.name });
+    last = to;
+  }
+  recomputeHeroProfile(prof);
+  const label = (s: "weapon" | "armour") => (s === "weapon" ? "weapons" : "armour");
+  toast(p, picked.length === 1
+    ? `Deposited ${picked[0].name} to the armoury (tier ${last.tier} ${label(last.stock)}: ${state.equipment[last.stock][last.tier - 1]})`
+    : `Deposited ${picked.length} pieces of gear to the armoury`);
+}
+
 // One unit of the best food: from the pack, else (near home / a chest) from the clan stock. True if eaten.
 function eatOnce(p: Player, manual: boolean): boolean {
   const life = lifeOf(p);
@@ -1805,6 +1850,7 @@ function lifeSnapshot(p: Player): HeroLifeSnapshot {
     ...(clanTownCentersOf(p).length === 0 ? { canFound: true } : {}),
     ...(family ? { family } : {}),
     ...(questMarks.length ? { questMarks } : {}),
+    ...(!p.dead && withClan(clanOf(p), () => nearOwnStore(p, 3)) ? { atStore: true } : {}),
   };
 }
 

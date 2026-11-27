@@ -53,6 +53,8 @@ import { SEASONS, SEASON_GROUND_TINT, SEASON_TREE_TINT } from "@colony/shared/ca
 // Solo hero (herolife.ts): set once the hero bar exists; the socket handler forwards dialogue / life to it.
 const heroLifeRef: { ui: HeroLifeUi | null } = { ui: null };
 const heroToolsRef: { ui: ReturnType<typeof setupHeroTools> | null } = { ui: null };
+// Interior fixes 2026-11-27: the last snapshot life.atStore (hero sheet "Deposit to armoury").
+let lifeAtStore = false;
 // Stardew phase 5c: the building interior view (interior.ts), set up after the world layer.
 const interiorRef: { ui: InteriorUi | null } = { ui: null };
 let combatControls: ReturnType<typeof setupPlayerCombat> | undefined;
@@ -3733,6 +3735,7 @@ async function main() {
     sendMessage, get renderSpellBar() { return renderSpellBar; }, heroToolsRef, get latestColonists() { return latestColonists; },
     get selectedIds() { return selectedIds; },
     get spellCdAt() { return spellCdAt; }, set spellCdAt(v) { spellCdAt = v; },
+    get atStore() { return lifeAtStore; },
   });
   const { spellIcon, showSpellTip, hideItemTip, syncHeroProfile, setHeroSheetOpen, heroModal, itemIcon } = heroSheetApi;
   const spellBarApi = createSpellBar({
@@ -3859,6 +3862,7 @@ async function main() {
       latestPlayersForSpells = message.players;
       if (message.life) {
         questMarkIds = new Set(message.life.questMarks ?? []);
+        lifeAtStore = !!message.life.atStore;
         heroLifeRef.ui?.onLife(message.life);
         heroToolsRef.ui?.onLife(message.life);
       }

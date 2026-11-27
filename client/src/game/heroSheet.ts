@@ -1,7 +1,7 @@
 // Hero sheet (inventory modal): paper doll, pack, armoury, stats, spell book, needs, skills, family tabs,
 // item tooltips and the item context menu. Split out of main.ts (2026-11-26).
 import { ADVENTURE_GEAR, adventureTrait } from "@colony/shared/expeditions";
-import { PLAYER_GEAR_SLOTS, PLAYER_WEAPON_KINDS } from "@colony/shared/protocol";
+import { PLAYER_GEAR_SLOTS, PLAYER_WEAPON_KINDS, armouryDepositOf } from "@colony/shared/protocol";
 import { gearIconUrl } from "../heroAppearance";
 import { HERO_WEAPON_KINDS } from "@colony/shared/protocol";
 import { setupHeroTools } from "../herotools";
@@ -20,6 +20,8 @@ export interface HeroSheetContext {
   readonly latestColonists: ColonistSnapshot[];
   readonly selectedIds: Set<string>;
   spellCdAt: number;
+  // Interior fixes 2026-11-27: snapshot life.atStore (deposits work here).
+  readonly atStore: boolean;
 }
 
 export function createHeroSheet(game: HeroSheetContext) {
@@ -193,7 +195,7 @@ export function createHeroSheet(game: HeroSheetContext) {
     if (refocus && invMenuFor?.isConnected) invMenuFor.focus();
     invMenuFor = null;
   }
-  function openInvMenu(anchor: HTMLElement, item: GearItem, actions: { label: string; run: () => void }[]) {
+  function openInvMenu(anchor: HTMLElement, item: GearItem, actions: { label: string; run: () => void; disabled?: string; title?: string }[]) {
     hideItemTip();
     invMenu.replaceChildren();
     const title = document.createElement("div");
@@ -204,6 +206,11 @@ export function createHeroSheet(game: HeroSheetContext) {
       const b = document.createElement("button");
       b.setAttribute("role", "menuitem");
       b.textContent = a.label;
+      if (a.disabled) {
+        b.disabled = true;
+        b.setAttribute("aria-disabled", "true");
+        b.title = a.disabled;
+      } else if (a.title) b.title = a.title;
       b.addEventListener("click", () => {
         closeInvMenu(a.label === "Cancel");
         a.run();
@@ -218,7 +225,7 @@ export function createHeroSheet(game: HeroSheetContext) {
     (invMenu.querySelector("button") as HTMLButtonElement | null)?.focus();
   }
   invMenu.addEventListener("keydown", (e) => {
-    const buttons = Array.from(invMenu.querySelectorAll("button"));
+    const buttons = Array.from(invMenu.querySelectorAll<HTMLButtonElement>("button:not(:disabled)"));
     const i = buttons.indexOf(document.activeElement as HTMLButtonElement);
     if (e.key === "Escape") {
       e.stopPropagation();
@@ -302,7 +309,7 @@ export function createHeroSheet(game: HeroSheetContext) {
     const hpText = hero
       ? unit ? `${Math.ceil(unit.hp)} / ${unit.maxHp}` : hero.status === "recruiting" ? `${prof.stats.maxHp} (arriving)` : `fallen: back at dawn / dusk for ${hero.respawnFee} gold`
       : me ? `${Math.ceil(me.hp)} / ${me.maxHp}` : `${prof.stats.maxHp}`;
-    const key = JSON.stringify([{ ...prof, spells: prof.spells ? { ...prof.spells, cooldowns: {} } : undefined }, heroStock, sheetTab, !!heroMe?.mounted, pickedSpell, heroSheets.map((h) => [h.id, h.name, h.status, h.profile.level])]);
+    const key = JSON.stringify([{ ...prof, spells: prof.spells ? { ...prof.spells, cooldowns: {} } : undefined }, heroStock, sheetTab, !!heroMe?.mounted, pickedSpell, heroSheets.map((h) => [h.id, h.name, h.status, h.profile.level]), game.atStore]);
     if (!force && key === heroRenderKey) {
       if (hpText !== heroHpText) {
         heroHpText = hpText;
@@ -463,6 +470,16 @@ export function createHeroSheet(game: HeroSheetContext) {
     hsInv.replaceChildren();
     hsInv.setAttribute("aria-label", `Pack: ${prof.inventory.length} of ${prof.inventoryCap} slots used`);
     const dropItem = (item: GearItem) => sendMessage({ type: "dropGear", itemId: item.id });
+    // Interior fixes 2026-11-27: "Deposit to armoury" (plain tiered gear only; disabled with the reason otherwise).
+    const STORE_WHY = "Stand next to your Town Center or a storage chest to deposit";
+    const depositTip = (to: { stock: "weapon" | "armour"; tier: number }) => to.stock === "weapon"
+      ? `Goes into the armoury as a tier-${to.tier} weapon; you pick the kind when you take one`
+      : `Goes into the armoury as a tier-${to.tier} armour piece (taken back as a helmet, body armour or shield)`;
+    const depositAction = (item: GearItem) => {
+      const to = armouryDepositOf(item);
+      return { label: "Deposit to armoury", run: () => sendMessage({ type: "depositGear", itemId: item.id }),
+        disabled: "refuse" in to ? to.refuse : game.atStore ? undefined : STORE_WHY, title: "refuse" in to ? undefined : depositTip(to) };
+    };
     const withMenu = (sock: HTMLElement, item: GearItem, actions: { label: string; run: () => void }[]) => {
       if (sock.tabIndex < 0) {
         sock.tabIndex = 0;
@@ -470,7 +487,7 @@ export function createHeroSheet(game: HeroSheetContext) {
         sock.setAttribute("aria-label", `${item.name}: open the item menu`);
       }
       sock.setAttribute("aria-haspopup", "menu");
-      const all = [...actions, { label: hero ? "Drop (from your pack)" : "Drop on the ground", run: () => dropItem(item) }];
+      const all = [...actions, depositAction(item), { label: hero ? "Drop (from your pack)" : "Drop on the ground", run: () => dropItem(item) }];
       sock.addEventListener("contextmenu", (e) => {
         e.preventDefault();
         openInvMenu(sock, item, all);
@@ -548,6 +565,16 @@ export function createHeroSheet(game: HeroSheetContext) {
         hsArmoury.append(btn);
       }
     }
+    // Interior fixes 2026-11-27: every plain tiered pack piece back into the stock (relics / special gear stay).
+    const plain = prof.inventory.filter((i) => !("refuse" in armouryDepositOf(i)));
+    const dep = document.createElement("button");
+    dep.className = "hs-deposit-gear";
+    dep.textContent = `Deposit gear to armoury (${plain.length})`;
+    dep.disabled = !plain.length || !game.atStore;
+    dep.title = !plain.length ? "No plain weapons or armour in your pack (relics and special gear can't go in)" : !game.atStore ? STORE_WHY
+      : "Every plain weapon and armour piece in your pack goes into the armoury by tier; weapons lose their kind (you pick it when you take one)";
+    dep.addEventListener("click", () => sendMessage({ type: "depositGear", all: true }));
+    hsArmoury.append(dep);
   }
   function setHeroSheetOpen(open: boolean) {
     // Hero phase 3: opening with exactly one hero selected shows that hero's tab.

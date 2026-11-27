@@ -27,7 +27,7 @@ import { promises as fsp } from "node:fs";
 import { randomUUID } from "node:crypto";
 import {
   TileType, type WildlifeKind, WILDLIFE_KINDS, type MobKind, HungerMark, TILE_SIZE, SIEGE_KINDS, COLONIST_ROLE,
-  MOB_ROLE, type ColonistKind, type Stance, type EquipSlot, HERO_CLASSES, type HeroClass,
+  MOB_ROLE, type ColonistKind, type Stance, type EquipSlot, HERO_CLASSES, type HeroClass, type GearItem,
 } from "@colony/shared/protocol";
 import type { Player, RaidGroup, ResourceKey, SiteTemplateId, TileCoord } from "./types.js";
 import { adjustRelation, applySiteTier, catchUpCampGrowth, relationOf, siteFitProblem, stampSiteTemplate, templateSize } from "./sites.js";
@@ -86,7 +86,7 @@ import { createRaidMob, raidSizeForDay, raidTargetExists, spawnRaid } from "./ra
 import { damageHearth } from "./hearths.js";
 import { activeGoals, nightsSurvived, refreshGoalSnapshot } from "./goals.js";
 import {
-  grantRelic, heroKey, heroProfileOf, heroProfileSnapshot, heroSheetsSnapshot, isEquippedKind, pickHeroName,
+  grantRelic, recomputeHeroProfile, heroKey, heroProfileOf, heroProfileSnapshot, heroSheetsSnapshot, isEquippedKind, pickHeroName,
   playerAttackCooldownTicks, playerMaxHp, spawnHeroColonist, weaponDamageMult, armourDamageTakenMult,
 } from "./heroes.js";
 import { grantTome, isSpellId, learnSpell, spellBookSnapshot } from "./spells.js";
@@ -845,6 +845,15 @@ export function handleTestHook(player: Player, msg: Record<string, unknown>) {
       key: prof.key, profile: heroProfileSnapshot(prof), hp: player.hp, dead: player.dead,
       cooldownTicks: playerAttackCooldownTicks(player), keys: Array.from(heroProfiles.keys()), events: heroEvents.slice(),
     });
+  } else if (msg.op === "packGear") {
+    // Interior fixes 2026-11-27: put one gear item (as given: any slot / tier / trait) into this player's pack; replies the pack.
+    const it = msg.item as Record<string, unknown> | undefined;
+    const prof = heroProfileOf(player);
+    if (it && typeof it === "object" && typeof it.id === "string" && typeof it.name === "string" && typeof it.slot === "string" && it.stats && typeof it.stats === "object") {
+      prof.inventory.push(structuredClone(it) as unknown as GearItem);
+      recomputeHeroProfile(prof);
+    }
+    reply({ inventory: prof.inventory, equipment: prof.equipment });
   } else if (msg.op === "grantRelic") {
     const item = grantRelic(heroProfileOf(player), "hook", typeof msg.relicId === "string" ? msg.relicId : undefined);
     reply({ item });
