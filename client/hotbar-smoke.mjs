@@ -6,7 +6,8 @@
 //
 // It builds the client (vite, --outDir <out>/dist, VITE_SERVER_URL baked to the private port), boots a private server
 // (scratch COLONY_SAVE_DIR, COLONY_TEST_HOOKS=1, world 160, seed 42), serves the build on port+1 and checks in a
-// Creative game: the starter Iron Sword slot is lit; a weapon taken from the armoury gets a slot live and its Shift+5..9
+// Creative game: two rows (top: weapons | spells, always shown, dashed placeholders for missing weapons / unlearnt
+// spells; bottom: the nine tools, Energy under it); the starter Iron Sword slot is lit; a weapon taken from the armoury gets a slot live and its Shift+5..9
 // hotkey / a click wields it (equipItem, profile) with no other handler firing; 0 cycles; tool 1 unlights the weapon and
 // picking a weapon puts the tool away; a bow with a shield worn is refused (server message, shield kept, tool kept);
 // learnt spells appear in the hotbar (no standalone spell bar), a click / Shift+N / FN aims, Esc cancels only the aim and
@@ -126,30 +127,47 @@ const waitUi = async (pred, ms = 4000) => { const t = Date.now(); let s; while (
 const toasts = () => page.evaluate(() => [...document.querySelectorAll(".event-toast")].map((t) => t.textContent).join(" | "));
 // The hotbar as drawn: weapon slots (aria labels, lit, dimmed, hotkey label), tool slots lit, spell buttons shown.
 const ui = () => page.evaluate(() => {
-  const vis = (e) => { if (!e) return false; for (let x = e; x; x = x.parentElement) { if (x.hidden || getComputedStyle(x).display === "none") return false; } return true; };
-  const ws = [...document.querySelectorAll("#hero-hotbar .hh-weapons .hh-slot")];
+  const vis = (e) => !!e && e.checkVisibility();
+  const ws = [...document.querySelectorAll("#hero-hotbar .hh-weapons .hh-slot:not(.hh-ph)")];
+  const ph = [...document.querySelectorAll("#hero-hotbar .hh-weapons .hh-slot.hh-ph")];
+  const top = document.querySelector("#hero-hotbar > .hh-top"), bottom = document.querySelector("#hero-hotbar > .hh-bottom");
   const sb = document.getElementById("spell-bar");
   return {
     weapons: ws.map((s) => ({ label: s.getAttribute("aria-label"), on: s.classList.contains("on"), none: s.classList.contains("none"), kbd: s.querySelector("kbd")?.textContent ?? "", focusable: s.tabIndex === 0 })),
     toolOn: [...document.querySelectorAll("#hero-hotbar .hh-tools .hh-slot.on")].length,
+    weaponPh: ph.map((s) => ({ kbd: s.querySelector("kbd")?.textContent ?? "", title: s.title, focusable: s.tabIndex >= 0, shown: vis(s) })),
+    // Structure: root children order, what each row holds.
+    order: [...document.getElementById("hero-hotbar").children].map((c) => c.className),
+    topShown: vis(top), bottomShown: vis(bottom),
+    topHasWeapons: !!top?.querySelector(".hh-weapons"), topHasSpells: !!top?.querySelector("#spell-bar"),
+    bottomTools: bottom ? bottom.querySelectorAll(".hh-tools .hh-slot").length : 0,
+    bottomHasOther: !!bottom?.querySelector(".hh-weapons, #spell-bar"),
     buildTool: document.querySelector("#toolbar .tool-btn.selected")?.textContent?.trim() ?? null,
     spellBarInHotbar: !!sb?.closest("#hero-hotbar .hh-slots"),
     spellBarVisible: vis(sb),
-    spellBtns: [...document.querySelectorAll(".spell-btn")].map((b) => ({ inHotbar: !!b.closest("#hero-hotbar"), shown: vis(b), label: b.getAttribute("aria-label"), kbd: b.querySelector("kbd")?.textContent ?? "", aiming: b.classList.contains("aiming"), cd: b.querySelector(".spell-cd")?.style.height ?? "" })),
+    spellBtns: [...document.querySelectorAll(".spell-btn")].map((b) => ({ inHotbar: !!b.closest("#hero-hotbar"), shown: vis(b), label: b.getAttribute("aria-label"), disabled: b.disabled, title: b.title, kbd: b.querySelector("kbd")?.textContent ?? "", aiming: b.classList.contains("aiming"), cd: b.querySelector(".spell-cd")?.style.height ?? "" })),
     cursor: document.querySelector("canvas")?.style.cursor ?? "",
   };
 });
-const shownSpells = (s) => s.spellBtns.filter((b) => b.shown);
-const rect = (sel) => page.evaluate((s) => { const e = document.querySelector(s); if (!e) return null; const cs = getComputedStyle(e); if (e.hidden || cs.display === "none") return null; const r = e.getBoundingClientRect(); return { l: r.left, t: r.top, r: r.right, b: r.bottom }; }, sel);
+// Learnt spells shown (unlearnt slots are disabled placeholders).
+const shownSpells = (s) => s.spellBtns.filter((b) => b.shown && !b.disabled);
+const spellPh = (s) => s.spellBtns.filter((b) => b.shown && b.disabled);
+const twoRows = (s) => s.topShown && s.bottomShown && s.topHasWeapons && s.topHasSpells && s.bottomTools === 9 && !s.bottomHasOther &&
+  JSON.stringify(s.order) === JSON.stringify(["hh-hint", "hh-slots hh-top", "hh-slots hh-bottom", "hh-energy"]);
+const rect = (sel) => page.evaluate((s) => { const e = document.querySelector(s); if (!e || !e.checkVisibility()) return null; const r = e.getBoundingClientRect(); return { l: r.left, t: r.top, r: r.right, b: r.bottom }; }, sel);
 const overlap = (a, b) => !!a && !!b && a.l < b.r && b.l < a.r && a.t < b.b && b.t < a.b;
 async function layout(tag) {
   const vp = page.viewportSize();
-  const slots = await rect("#hero-hotbar .hh-slots"), energy = await rect("#hero-hotbar .hh-energy");
-  const others = { "hero bar": await rect("#hero-bar"), minimap: await rect("#minimap-frame"), "command bar": await rect("#command-bar"), stockpile: await rect("#economy-panel:not(.collapsed)"), "stockpile tab": await rect("#economy-panel-toggle"), "build tab": await rect("#build-panel-toggle") };
-  const hits = Object.entries(others).filter(([, r]) => overlap(slots, r)).map(([k]) => k);
+  const topR = await rect("#hero-hotbar .hh-top"), botR = await rect("#hero-hotbar .hh-bottom"), energy = await rect("#hero-hotbar .hh-energy");
+  const slots = topR && botR ? { l: Math.min(topR.l, botR.l), t: topR.t, r: Math.max(topR.r, botR.r), b: botR.b } : null;
+  check(topR && botR && topR.b <= botR.t + 0.5 && Math.abs((topR.l + topR.r) / 2 - (botR.l + botR.r) / 2) < 2,
+    `${tag} ${vp.width}x${vp.height}: two rows, the top one above the tools row, both centred (${JSON.stringify({ topR, botR })})`);
+  const others = { "hero bar": await rect("#hero-bar"), minimap: await rect("#minimap-frame"), "command bar": await rect("#command-bar"), stockpile: await rect("#economy-panel:not(.collapsed)"), "stockpile tab": await rect("#economy-panel-toggle"), "build tab": await rect("#build-panel-toggle"), header: await rect("#colony-header"), controls: await rect("#control-buttons"), goal: await rect("#goal-tracker"), "combat guide": await rect("#combat-guide") };
+  const whole = slots && energy ? { ...slots, t: Math.min(slots.t, (await rect("#hero-hotbar .hh-hint"))?.t ?? slots.t), b: energy.b } : slots;
+  const hits = Object.entries(others).filter(([, r]) => overlap(whole, r)).map(([k]) => k);
   check(slots && slots.l >= 0 && slots.r <= vp.width && slots.t >= 0, `${tag} ${vp.width}x${vp.height}: the hotbar is on screen (${JSON.stringify(slots)})`);
   check(hits.length === 0, `${tag} ${vp.width}x${vp.height}: the hotbar covers nothing (${hits.join(", ") || "no overlap"}; ${JSON.stringify(others)})`);
-  check(!energy || energy.t >= slots.b - 0.5, `${tag} ${vp.width}x${vp.height}: the Energy row sits under the slots (${JSON.stringify(energy)})`);
+  check(energy && slots && energy.t >= slots.b - 0.5, `${tag} ${vp.width}x${vp.height}: the Energy row sits under the tools row (${JSON.stringify(energy)})`);
   await page.screenshot({ path: path.join(OUT, `${tag}-${vp.width}x${vp.height}.png`) });
 }
 async function bothSizes(tag) {
@@ -174,12 +192,21 @@ let s = await waitUi((x) => x.weapons.length === 1 && x.weapons[0].on);
 check(p.equipment.weapon?.kind === "sword" && s.weapons.length === 1 && s.weapons[0].on && s.weapons[0].label.startsWith(p.equipment.weapon.name),
   `fresh hero: one weapon slot, lit, for the wielded ${p.equipment.weapon?.name} (${JSON.stringify(s.weapons)})`);
 check(s.weapons[0]?.kbd === "⇧5" && /Shift\+5/.test(s.weapons[0]?.label ?? "") && s.weapons[0]?.focusable, `the weapon slot shows its hotkey ⇧5 and is focusable (${JSON.stringify(s.weapons[0])})`);
-check(s.spellBarInHotbar && !s.spellBarVisible && shownSpells(s).length === 0, `no spells learnt: the spell group is hidden and lives in the hotbar (${JSON.stringify({ in: s.spellBarInHotbar, vis: s.spellBarVisible })})`);
+check(twoRows(s), `two rows: top = weapons + spells, bottom = the nine tools, Energy under it (${JSON.stringify({ order: s.order, top: s.topShown, bottom: s.bottomShown, tools: s.bottomTools })})`);
+check(s.weaponPh.length === 2 && s.weaponPh.map((x) => x.kbd).join() === "⇧6,⇧7" && s.weaponPh.every((x) => x.shown && !x.focusable && /^No weapon/.test(x.title)),
+  `starter sword only: two dashed weapon placeholders ⇧6 ⇧7, not focusable, "No weapon" tooltip (${JSON.stringify(s.weaponPh)})`);
+check(s.spellBarInHotbar && s.spellBarVisible && shownSpells(s).length === 0 && spellPh(s).length === 4 && spellPh(s).map((b) => b.kbd).join(" ") === "⇧1 ⇧2 ⇧3 ⇧4" && spellPh(s).every((b) => /^No spell learned/.test(b.title)),
+  `no spells learnt: the top row shows 4 spell placeholders ⇧1..⇧4 ("No spell learned", disabled) (${JSON.stringify(s.spellBtns.map((b) => [b.kbd, b.shown, b.disabled, b.title]))})`);
+const nPh = await mark();
+await page.locator("#hero-hotbar .hh-weapons .hh-ph").first().click({ force: true }); await sleep(200);
+await page.locator(".spell-btn").first().click({ force: true }); await sleep(200);
+s = await ui();
+check((await sentSince(nPh)).length === 0 && !s.spellBtns.some((b) => b.aiming) && s.weapons[0].on, "clicking placeholders does nothing");
 await page.locator("#hero-hotbar .hh-weapons .hh-slot").first().hover(); await sleep(250);
 const tip = await page.evaluate(() => { const t = document.getElementById("hs-tip"); return t && !t.hidden ? t.textContent : ""; });
 check(/Tier 1/.test(tip) && /Shift\+5/.test(tip) && tip.includes(p.equipment.weapon.name), `the weapon slot tooltip has name, tier and hotkey (${tip})`);
 await page.mouse.move(640, 300); await sleep(150);
-await bothSizes("1-no-weapons-no-spells");
+await bothSizes("1-starter-sword-no-spells");
 
 // ---- 2. a second weapon appears live; its hotkey and a click wield it -----------------------------------------
 const sword = p.equipment.weapon;
@@ -190,7 +217,7 @@ const spear = p.inventory.find((i) => i.kind === "spear");
 s = await waitUi((x) => x.weapons.length === 2);
 let ord = order(p);
 let si = ord.findIndex((w) => w.id === spear.id);
-check(s.weapons.length === 2 && s.weapons[si]?.label.startsWith(spear.name) && !s.weapons[si].on && s.weapons[1 - si].on, `taking a spear adds a second slot live, unlit (${JSON.stringify(s.weapons)})`);
+check(s.weapons.length === 2 && s.weaponPh.length === 1 && s.weaponPh[0].kbd === "⇧7" && s.weapons[si]?.label.startsWith(spear.name) && !s.weapons[si].on && s.weapons[1 - si].on, `taking a spear adds a second slot live, unlit; one placeholder (⇧7) left (${JSON.stringify(s.weapons)})`);
 const tool0 = (await ui()).buildTool;
 let n = await mark();
 await page.keyboard.press(`Shift+Digit${5 + si}`); await sleep(400);
@@ -227,6 +254,7 @@ await page.keyboard.press("Digit1"); await sleep(250);
 s = await ui();
 p = await hero();
 check(s.toolOn === 1 && !s.weapons.some((w) => w.on) && p.equipment.weapon?.id === sword.id, `1 arms the first tool: no weapon slot lit, the sword stays wielded (${JSON.stringify(s.weapons)})`);
+check(twoRows(s), "tool armed: still two rows");
 await bothSizes("2-tool-armed");
 await clickWeapon(si);
 p = await until((q) => q.equipment.weapon?.id === spear.id);
@@ -249,7 +277,7 @@ s = await waitUi((x) => x.weapons.length === 3 && x.weapons.some((w) => w.none))
 ord = order(p);
 const bi = ord.findIndex((w) => w.id === bow.id);
 si = ord.findIndex((w) => w.id === spear.id);
-check(s.weapons.length === 3 && s.weapons[bi]?.none && s.weapons[bi].label.startsWith(bow.name), `the bow gets a slot, dimmed while the shield is worn (${JSON.stringify(s.weapons)})`);
+check(s.weapons.length === 3 && s.weaponPh.length === 0 && s.weapons[bi]?.none && s.weapons[bi].label.startsWith(bow.name), `the bow gets a slot, dimmed while the shield is worn; no placeholders left (${JSON.stringify(s.weapons)})`);
 await page.keyboard.press("Digit1"); await sleep(200);
 n = await mark();
 await clickWeapon(bi);
@@ -270,13 +298,16 @@ p = await until((q) => q.equipment.weapon?.id === nextAfterSpear.id);
 check(p.equipment.weapon?.id === nextAfterSpear.id, `0 skips the bow while a shield is worn (wielded ${p.equipment.weapon?.name})`);
 
 // ---- 6. spells in the hotbar -----------------------------------------------------------------------------------
-for (const spellId of ["heal", "fireBolt", "thunder", "frost"]) await hook("grantSpell", { spellId });
+await hook("grantSpell", { spellId: "heal" });
+s = await waitUi((x) => shownSpells(x).length === 1);
+check(shownSpells(s).length === 1 && spellPh(s).length === 3 && s.spellBtns[0].label === "Heal (Shift+1 or F1)", `one spell learnt: Heal fills slot 1, three placeholders left (${JSON.stringify(s.spellBtns.map((b) => [b.kbd, b.disabled]))})`);
+for (const spellId of ["fireBolt", "thunder", "frost"]) await hook("grantSpell", { spellId });
 s = await waitUi((x) => shownSpells(x).length === 4);
-check(s.spellBarInHotbar && s.spellBarVisible && shownSpells(s).length === 4 && s.spellBtns.every((b) => b.inHotbar), `4 learnt spells show in the hotbar (${JSON.stringify(s.spellBtns.map((b) => [b.label, b.shown, b.inHotbar]))})`);
+check(twoRows(s) && s.spellBarInHotbar && s.spellBarVisible && shownSpells(s).length === 4 && spellPh(s).length === 0 && s.spellBtns.every((b) => b.inHotbar), `4 learnt spells show in the hotbar (${JSON.stringify(s.spellBtns.map((b) => [b.label, b.shown, b.inHotbar]))})`);
 check(s.spellBtns.length === 4 && s.spellBtns.every((b) => b.inHotbar) && (await page.evaluate(() => document.querySelectorAll("#spell-bar").length)) === 1, "one set of spell buttons only, all in the hotbar (no standalone spell bar)");
 check(shownSpells(s).map((b) => b.kbd).join(" ") === "⇧1 ⇧2 ⇧3 ⇧4" && /Heal \(Shift\+1 or F1\)/.test(s.spellBtns[0].label ?? ""), `spell hotkey labels and aria labels (${JSON.stringify(s.spellBtns.map((b) => [b.kbd, b.label]))})`);
-const sbRect = await rect("#spell-bar"), slotsRect = await rect("#hero-hotbar .hh-slots");
-check(sbRect && slotsRect && sbRect.t >= slotsRect.t - 1 && sbRect.b <= slotsRect.b + 1, `the spell group sits inside the hotbar row (${JSON.stringify({ sbRect, slotsRect })})`);
+const sbRect = await rect("#spell-bar"), slotsRect = await rect("#hero-hotbar .hh-top");
+check(sbRect && slotsRect && sbRect.t >= slotsRect.t - 1 && sbRect.b <= slotsRect.b + 1, `the spell group sits inside the top row (${JSON.stringify({ sbRect, slotsRect })})`);
 await bothSizes("3-three-weapons-four-spells-weapon-active");
 // The same with the Stockpile panel closed (the hero bar moves left; the hotbar fits between it and the minimap).
 await page.click("#economy-panel-toggle"); await sleep(500);
@@ -336,7 +367,7 @@ check((await ui()).spellBtns[1].aiming, "strategy view: Shift+2 still aims Fire 
 await esc();
 await page.screenshot({ path: path.join(OUT, "6-strategy-1280x800.png") });
 await page.click("#strategy-btn"); await sleep(1200);
-check(!(await page.evaluate(() => document.body.classList.contains("strategy-mode"))) && !!(await rect("#hero-hotbar .hh-tools")), "back in adventure view the tools show again");
+check(!(await page.evaluate(() => document.body.classList.contains("strategy-mode"))) && twoRows(await ui()), "back in adventure view both rows show again");
 
 // ---- 8. -------------------------------------------------------------------------------------------------------------
 check(pageErrors.length === 0, `no page errors (${JSON.stringify(pageErrors)})`);
