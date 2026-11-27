@@ -588,5 +588,5 @@ export function createHeroSheet(game: HeroSheetContext) {
     renderHeroSheet();
     game.renderSpellBar();
   }
-  return { spellIcon, showSpellTip, hideItemTip, syncHeroProfile, setHeroSheetOpen, heroModal, itemIcon, get heroProfile() { return heroProfile; } };
+  return { spellIcon, showSpellTip, showItemTip, hideItemTip, syncHeroProfile, setHeroSheetOpen, heroModal, itemIcon, get heroProfile() { return heroProfile; } };
 }

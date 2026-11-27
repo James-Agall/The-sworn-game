@@ -62,7 +62,8 @@ export function createSpellBar(game: SpellBarContext) {
   }
   function renderSpellBar() {
     const book = heroSheetApi.heroProfile?.spells;
-    spellBarEl.hidden = !book || book.learned.length === 0;
+    // Adventure view: always shown as the hotbar's spell group (empty slots are placeholders); elsewhere only with spells.
+    spellBarEl.hidden = (!book || book.learned.length === 0) && !document.body.classList.contains("adventure-mode");
     if (!book) return;
     const key = JSON.stringify([book.slots, spellAim, heroSheetApi.heroProfile?.stats.spellPowerMult, book.castLevel]);
     if (key !== spellBarKey) {
@@ -72,6 +73,10 @@ export function createSpellBar(game: SpellBarContext) {
         b.replaceChildren();
         b.classList.toggle("aiming", spellAim?.slot === i);
         b.disabled = !id;
+        if (id) b.setAttribute("aria-label", `${SPELLS[id].name} (Shift+${i + 1} or F${i + 1})`);
+        else b.removeAttribute("aria-label");
+        // An empty slot is a placeholder in the hotbar (disabled: not focusable, clicks do nothing).
+        b.title = id ? "" : `No spell learned (Shift+${i + 1} / F${i + 1} once one is in this slot)`;
         if (id) b.append(spellIcon(id));
         const k = document.createElement("kbd");
         k.textContent = SPELL_KEY_LABEL[i];
