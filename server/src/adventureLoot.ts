@@ -61,10 +61,17 @@ function reach(p:Player,r:Room,o:ExplorationObject,max=EXPLORATION_REACH){
 function rollLoot(r:Room,o:ExplorationObject):Loot{
  const n=adventureHash(`${state.worldNoiseSalt}:${r.key}:${o.id}`),goods:Loot['goods']={},items:Loot['items']={};const treasure=o.kind==='chest',cache=o.kind==='cache';
  if(r.kind==='camp'){goods[n%2?'grain':'wood']=2+n%4;if(treasure)goods.iron=3+n%3;items.hide=cache?1:0;}
- else if(r.kind==='cave'||r.kind==='mine'){const depth=r.plan.map.underground?.depth??1,quarry=!!r.plan.map.underground?.rockOnly;goods[quarry?'rock':depth>=2?'iron':'rock']=2+n%4;
-  // Mining rework (2026-11-26): the Quarry is stone only (its chests hold more rock, no ore).
-  if((treasure||cache)&&quarry)goods.rock=(goods.rock??0)+2+n%3;else if(treasure||cache)items[depth>=3?(n%2?'goldOre':'leadOre'):depth===2?'coal':'copperOre']=2+n%3;}
- else{goods.rock=1+n%3;if(treasure||cache)items[n%2?'bones':'gems']=1+n%2;}
+ else if(r.kind==='cave'||r.kind==='mine'){const depth=r.plan.map.underground?.depth??1,quarry=!!r.plan.map.underground?.rockOnly;
+  // Loot rework 2026-11-27: stone is easy to get and only clogs the pack, so it is now confined to the Quarry (stone-only
+  // by design). Caves and mines give food, iron and the rarer ores by depth; chests and caches add a second, rarer find.
+  if(quarry){goods.rock=2+n%4;if(treasure||cache)goods.rock+=2+n%3;}
+  else{
+   if(n%3===0)goods[depth>=2?'iron':(n%2?'meat':'fruit')]=2+n%3;else goods[(['meat','fruit','grain','fish'] as const)[n%4]]=1+n%3;
+   const common=depth>=3?'tinOre':depth===2?'coal':'copperOre',rare=depth>=3?(n%2?'goldOre':'gems'):depth===2?(n%2?'tinOre':'limestone'):(n%2?'tinOre':'coal');
+   if(n%4===0)items[common]=1+n%2;
+   if(treasure||cache){items[rare]=1+n%2;if(treasure&&n%5===0)items.gems=1;}
+  }}
+ else{goods[(['grain','meat','fruit','fish'] as const)[n%4]]=1+n%3;if(treasure||cache)items[n%2?'bones':'gems']=1+n%2;}
  return{goods,items,gold:treasure?12+n%14:cache?5+n%7:n%4,relic:treasure&&!!o.locked};
 }
 function collect(p:Player,r:Room,o:ExplorationObject,s:ObjectState){
