@@ -9,7 +9,7 @@ cd "$(dirname "$0")/.."
 export NVM_DIR="${NVM_DIR:-$HOME/.nvm}"
 [ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh" >/dev/null 2>&1
 
-URL="http://localhost:5173"
+URL="http://localhost:5173${COLONY_URL_QUERY-?rig=1}"   # ?rig=1 = painted-part hero rig (review switch); set COLONY_URL_QUERY= (empty) to turn it off
 listening() { ss -ltn 2>/dev/null | grep -q ":$1 "; }
 
 open_browser() {

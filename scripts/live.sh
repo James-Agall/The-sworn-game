@@ -17,7 +17,7 @@ LIVE="${COLONY_LIVE_DIR:-$HOME/colony2d-live}"
 SAVES="${COLONY_SAVE_DIR:-$REPO/server/saves}"
 SP="${COLONY_LIVE_SERVER_PORT:-8080}"   # the client is built to talk to :8080; only change these to test the script
 CP="${COLONY_LIVE_CLIENT_PORT:-5173}"
-URL="http://localhost:$CP"
+URL="http://localhost:$CP${COLONY_URL_QUERY-?rig=1}"   # ?rig=1 = painted-part hero rig (review switch); set COLONY_URL_QUERY= (empty) to turn it off
 PIDS="$LIVE/pids"
 
 export NVM_DIR="${NVM_DIR:-$HOME/.nvm}"
