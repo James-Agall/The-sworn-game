@@ -6,6 +6,18 @@ import type {RuinPlan} from './ruins.js';
 // Player-built modular rooms (phases 1-2) are never entered (they keep the roof cutaway).
 import { TICK_RATE, TileType } from "./protocol.js";
 import type { PackGood } from "./herolife.js";
+// Stage B (2026-11-26): the building interiors' legend and layouts are data (shared/src/data/interiors/*.json),
+// imported statically so the server (tsx / Node) and the client bundle (Vite) always hold the same layouts.
+import legendJson from "./data/interiors/legend.json" with { type: "json" };
+import houseJson from "./data/interiors/house.json" with { type: "json" };
+import tavernJson from "./data/interiors/tavern.json" with { type: "json" };
+import churchJson from "./data/interiors/church.json" with { type: "json" };
+import smithyJson from "./data/interiors/smithy.json" with { type: "json" };
+import bakeryJson from "./data/interiors/bakery.json" with { type: "json" };
+import shopJson from "./data/interiors/shop.json" with { type: "json" };
+import barracksJson from "./data/interiors/barracks.json" with { type: "json" };
+import hallJson from "./data/interiors/hall.json" with { type: "json" };
+import barnJson from "./data/interiors/barn.json" with { type: "json" };
 
 // ---- constants ----
 // Interior tiles are world-sized (32 px), so hero / NPC art keeps its scale.
@@ -101,53 +113,8 @@ export interface InteriorSymbol {
   minLevel?: number;
 }
 // "#" wall, "." floor, "E" exit mat (exactly one, in the bottom wall), " " nothing. Solid: walls and every prop
-// except INTERIOR_WALKABLE_PROPS.
-export const INTERIOR_LEGEND: Record<string, InteriorSymbol> = {
-  "#": { label: "Wall" },
-  ".": { label: "Floor" },
-  E: { label: "Exit mat" },
-  b: { label: "Bed", prop: "bed" },
-  q: { label: "Bed (level 2+)", prop: "bed", minLevel: 2 },
-  Q: { label: "Fine bed (level 3)", prop: "bedFine", minLevel: 3 },
-  c: { label: "Chest", prop: "chest" },
-  t: { label: "Table", prop: "table" },
-  h: { label: "Chair", prop: "chair" },
-  H: { label: "Hearth", prop: "hearth" },
-  l: { label: "Lamp (level 2+)", prop: "lamp", minLevel: 2 },
-  r: { label: "Rug (level 2+)", prop: "rug", minLevel: 2 },
-  s: { label: "Shelf", prop: "shelf" },
-  w: { label: "Wardrobe (level 2+)", prop: "wardrobe", minLevel: 2 },
-  K: { label: "Counter", prop: "counter" },
-  A: { label: "Altar", prop: "altar" },
-  p: { label: "Pew", prop: "pew" },
-  n: { label: "Anvil", prop: "anvil" },
-  o: { label: "Oven", prop: "oven" },
-  x: { label: "Barrel", prop: "barrel" },
-  X: { label: "Crates", prop: "crates" },
-  k: { label: "Sacks", prop: "sacks" },
-  y: { label: "Hay", prop: "hay" },
-  R: { label: "Weapon rack", prop: "weaponRack" },
-  a: { label: "Armour stand", prop: "armourStand" },
-  B: { label: "Banner", prop: "banner" },
-  S: { label: "Statue (level 3)", prop: "statue", minLevel: 3 },
-  T: { label: "High seat", prop: "throne" },
-  f: { label: "Forge", prop: "forge" },
-  m: { label: "Market stall", prop: "stall" },
-  W: { label: "Workbench", prop: "workbench" },
-  C: { label: "Candelabra (level 2+)", prop: "candelabra", minLevel: 2 },
-  "1": { label: "Keeper", npc: "1" },
-  "2": { label: "Second keeper", npc: "2" },
-  v: { label: "Resident / patron", npc: "v" },
-  U: { label: "Stairs up", prop: "stairsUp" },
-  D: { label: "Stairs down", prop: "stairsDown" },
-  // Deep mines: ore face, timber prop, and a lair (floor where an infested mine's monsters sleep: InteriorMap.lairs).
-  O: { label: "Ore face", prop: "oreFace" },
-  P: { label: "Timber prop", prop: "timberProp" },
-  Z: { label: "Monster lair (floor)" },
-  // Layered mines: the way down to layer 2 (in the layer-1 layout, once the Mine is level 2) and to layer 3.
-  N: { label: "Way down to level 2", prop: "mineShaft", minLevel: 2 },
-  M: { label: "Way down to level 3", prop: "mineShaft", minLevel: 3 },
-};
+// except INTERIOR_WALKABLE_PROPS. Data: shared/src/data/interiors/legend.json (also the mine-only symbols O P Z N M).
+export const INTERIOR_LEGEND: Record<string, InteriorSymbol> = legendJson as Record<string, InteriorSymbol>;
 export const INTERIOR_WALKABLE_PROPS: ReadonlySet<InteriorProp> = new Set(["adventureNote", "adventureKey", "adventureCache", "skullBones", "fallenSkeleton", "cobweb", "overgrowth", "rug", "chair", "stairsUp", "stairsDown", "mineShaft"]);
 
 export interface InteriorTemplate {
@@ -164,379 +131,125 @@ export interface InteriorTemplate {
 // (INTERIOR_UPPER_TEMPLATES, "D" stairs down, no exit mat).
 export const INTERIOR_VARIANTS = 3;
 const T = (id: InteriorTemplateId, label: string, floor: InteriorFloor, wall: "wood" | "stone", rows: string[]): InteriorTemplate => ({ id, label, floor, wall, rows });
+
+// The building types whose interiors are data (one file each: shared/src/data/interiors/<id>.json). The mine's
+// layouts are the Deep mines' (its variant is its depth) and stay in code below.
+export const BUILDING_INTERIOR_IDS = ["house", "tavern", "church", "smithy", "bakery", "shop", "barracks", "hall", "barn"] as const;
+export type BuildingInteriorId = (typeof BUILDING_INTERIOR_IDS)[number];
+export interface InteriorLayoutFile {
+  label: string;
+  floor: InteriorFloor;
+  wall: "wood" | "stone";
+  rows: string[];
+}
+// One building type's interiors: its room role's stations (`required`), whether your own one is a bed you sleep in
+// (`sleep`: INTERIOR_SLEEP_TEMPLATES), INTERIOR_VARIANTS ground-floor layouts in order (the index is the variant
+// interiorVariantFor picks: order and count are part of the game) and the optional upper floor (reached by "U").
+export interface InteriorFile {
+  id: BuildingInteriorId;
+  required: InteriorProp[];
+  sleep: boolean;
+  variants: InteriorLayoutFile[];
+  upper?: InteriorLayoutFile;
+}
+// The Town Center hall (and every hall) must keep these stations: the hall chest is the Town Center's storage.
+export const HALL_REQUIRED_PROPS: readonly InteriorProp[] = ["throne", "table", "chest"];
+const FLOORS: readonly string[] = ["wood", "stone", "dirt"];
+const WALLS: readonly string[] = ["wood", "stone"];
+
+// The file's shape (not the layouts' walkability: validateInteriorFile checks those too).
+function interiorFileShape(raw: unknown): string[] {
+  const o = raw as Partial<InteriorFile> | null;
+  if (!o || typeof o !== "object" || Array.isArray(o)) return ["not an object"];
+  const errs: string[] = [];
+  const id = String(o.id);
+  if (!BUILDING_INTERIOR_IDS.includes(o.id as BuildingInteriorId)) errs.push(`id: one of ${BUILDING_INTERIOR_IDS.join(", ")}`);
+  if (!Array.isArray(o.required) || o.required.length === 0 || o.required.some((p) => typeof p !== "string")) errs.push(`${id}: required: a list of props`);
+  else if (o.id === "hall") for (const p of HALL_REQUIRED_PROPS) if (!o.required.includes(p)) errs.push(`hall: required must keep "${p}" (the Town Center hall)`);
+  if (typeof o.sleep !== "boolean") errs.push(`${id}: sleep: true or false`);
+  const layout = (l: Partial<InteriorLayoutFile> | undefined, what: string) => {
+    if (!l || typeof l !== "object") return void errs.push(`${id} ${what}: not an object`);
+    if (typeof l.label !== "string" || l.label.trim().length === 0 || l.label.length > 40) errs.push(`${id} ${what}: label 1-40 characters`);
+    if (!FLOORS.includes(l.floor as string)) errs.push(`${id} ${what}: floor one of ${FLOORS.join(", ")}`);
+    if (!WALLS.includes(l.wall as string)) errs.push(`${id} ${what}: wall one of ${WALLS.join(", ")}`);
+    if (!Array.isArray(l.rows) || l.rows.length === 0 || l.rows.some((r) => typeof r !== "string")) errs.push(`${id} ${what}: rows: a list of strings`);
+  };
+  if (!Array.isArray(o.variants) || o.variants.length !== INTERIOR_VARIANTS) errs.push(`${id}: ${Array.isArray(o.variants) ? o.variants.length : 0} variants, wants ${INTERIOR_VARIANTS}`);
+  else o.variants.forEach((l, i) => layout(l, `variant ${i}`));
+  if (o.upper !== undefined) layout(o.upper, "upstairs");
+  return errs;
+}
+// Only the known fields, in the file's order (what an editor writes).
+export function normaliseInteriorFile(o: InteriorFile): InteriorFile {
+  const lay = (l: InteriorLayoutFile): InteriorLayoutFile => ({ label: l.label, floor: l.floor, wall: l.wall, rows: l.rows.slice() });
+  return { id: o.id, required: o.required.slice(), sleep: o.sleep, variants: o.variants.map(lay), ...(o.upper ? { upper: lay(o.upper) } : {}) };
+}
+const layoutOf = (id: InteriorTemplateId, l: InteriorLayoutFile): InteriorTemplate => T(id, l.label, l.floor, l.wall, l.rows.slice());
+const FILES: InteriorFile[] = [houseJson, tavernJson, churchJson, smithyJson, bakeryJson, shopJson, barracksJson, hallJson, barnJson].map((raw, k) => {
+  const errs = interiorFileShape(raw);
+  if (errs.length || (raw as { id?: string }).id !== BUILDING_INTERIOR_IDS[k]) throw new Error(`interior data ${BUILDING_INTERIOR_IDS[k]}.json: ${errs.join("; ") || "wrong id"}`);
+  return raw as InteriorFile;
+});
+const FILE_BY_ID = Object.fromEntries(FILES.map((f) => [f.id, f])) as Record<BuildingInteriorId, InteriorFile>;
+const layoutsOf = (id: BuildingInteriorId) => FILE_BY_ID[id].variants.map((l) => layoutOf(id, l));
+
+// Deep mines (shared/src/mines.ts): variant = depth (interiorTemplateAt), not a hash: 0 the level-1 adit, 1 the
+// level-2 shaft, 2 the deep level-3 workings. "1" the foreman at the face, "v" miners, "Z" lairs.
+const MINE_TEMPLATES: InteriorTemplate[] = [
+  T("mine", "Mine", "dirt", "stone", [
+    "###########",
+    "#OO..1..OO#",
+    "#.v.....v.#",
+    "#P...Z...P#",
+    "#..X...lN.#",
+    "#P.......P#",
+    "#####E#####",
+  ]),
+  T("mine", "Mine", "dirt", "stone", [
+    "###############",
+    "#OO1.#####.OOO#",
+    "#.v..#.Z.#..v.#",
+    "#PZ..#...#...P#",
+    "#....P...P....#",
+    "#.....M......x#",
+    "#P...#####...P#",
+    "#X.l.......lZ.#",
+    "#######E#######",
+  ]),
+  T("mine", "Mine", "dirt", "stone", [
+    "#################",
+    "#OOO.1.###.OOOO.#",
+    "#..v...#Z#..v...#",
+    "#P.....#.#.....P#",
+    "#...Z..P.P..Z...#",
+    "#.......Z.......#",
+    "#P..###...###..P#",
+    "#...#OO...OO#...#",
+    "#.Z.#..v.v..#.Z.#",
+    "#P..##.....##..P#",
+    "#x....l...l....X#",
+    "########E########",
+  ]),
+];
+
+// Gap closure G5: INTERIOR_VARIANTS layouts per building type (index 0 is the phase 5c layout), picked by
+// interiorVariantFor (building anchor + level). Every one passes validateInteriorTemplate (ROOM role: the type's
+// real stations are INTERIOR_REQUIRED_PROPS). "U" stairs up: the tavern / barracks / hall have an upper floor
+// (INTERIOR_UPPER_TEMPLATES, "D" stairs down, no exit mat). Key order as before the move (mine before barn).
 export const INTERIOR_TEMPLATES: Record<InteriorTemplateId, InteriorTemplate[]> = {
-  house: [
-    T("house", "House", "wood", "wood", [
-      "###########",
-      "#b.qH..s.c#",
-      "#v.v.....w#",
-      "#...rr....#",
-      "#..hth..x.#",
-      "#l.......l#",
-      "#####E#####",
-    ]),
-    T("house", "House", "wood", "wood", [
-      "#########",
-      "#b.H..sc#",
-      "#v......#",
-      "#q.v.ht.#",
-      "#....hr.#",
-      "#Q.....w#",
-      "#l.x...l#",
-      "####E####",
-    ]),
-    T("house", "House", "wood", "wood", [
-      "############",
-      "#bq..#.H..c#",
-      "#v.v.#.....#",
-      "#Q.........#",
-      "#w...#..hth#",
-      "#l...#.x..l#",
-      "######E#####",
-    ]),
-  ],
-  tavern: [
-    T("tavern", "Tavern", "wood", "wood", [
-      "#############",
-      "#xX.1.H.s.xc#",
-      "#..K.K......#",
-      "#....v..v...#",
-      "#.hth..hth..#",
-      "#......v....#",
-      "#.hth..hth.l#",
-      "#U.........C#",
-      "######E######",
-    ]),
-    T("tavern", "Tavern", "wood", "wood", [
-      "###########",
-      "#H..s.xx.c#",
-      "#.........#",
-      "#hth.hth.U#",
-      "#.........#",
-      "#hth.hth..#",
-      "#.........#",
-      "#KK1K....l#",
-      "#####E#####",
-    ]),
-    T("tavern", "Tavern", "wood", "wood", [
-      "#############",
-      "#c.x.H...U..#",
-      "#K..........#",
-      "#K1.hth..hth#",
-      "#K..........#",
-      "#K..hth..hth#",
-      "#x..........#",
-      "#s...l...x.C#",
-      "######E######",
-    ]),
-  ],
-  church: [
-    T("church", "Church", "stone", "stone", [
-      "###########",
-      "#C..BAB..C#",
-      "#....1....#",
-      "#.........#",
-      "#pp.....pp#",
-      "#.........#",
-      "#pp..v..pp#",
-      "#.........#",
-      "#pp..r..pp#",
-      "#S.......S#",
-      "#####E#####",
-    ]),
-    T("church", "Church", "stone", "stone", [
-      "#########",
-      "#C.BAB.C#",
-      "#...1...#",
-      "#.......#",
-      "#pp...pp#",
-      "#.......#",
-      "#pp.v.pp#",
-      "#..r.r..#",
-      "#S.....S#",
-      "####E####",
-    ]),
-    T("church", "Church", "stone", "stone", [
-      "#############",
-      "#S..C.A.C..S#",
-      "#.....1.....#",
-      "#.ppp...ppp.#",
-      "#...........#",
-      "#.ppp.v.ppp.#",
-      "#...........#",
-      "#B....r....B#",
-      "######E######",
-    ]),
-  ],
-  smithy: [
-    T("smithy", "Smithy", "stone", "stone", [
-      "###########",
-      "#fn1R.a.xc#",
-      "#.....W.l.#",
-      "#.........#",
-      "#..x...X..#",
-      "#.........#",
-      "#####E#####",
-    ]),
-    T("smithy", "Smithy", "stone", "stone", [
-      "#########",
-      "#ff.R.a.#",
-      "#.n1....#",
-      "#.......#",
-      "#KKK.W.c#",
-      "#x.....X#",
-      "####E####",
-    ]),
-    T("smithy", "Smithy", "stone", "stone", [
-      "###########",
-      "#c.x#.ff..#",
-      "#...#..n..#",
-      "#.R.#..1..#",
-      "#.a.......#",
-      "#.....KKK.#",
-      "#X.......x#",
-      "#####E#####",
-    ]),
-  ],
-  bakery: [
-    T("bakery", "Bakery", "stone", "wood", [
-      "#########",
-      "#oo1.k.c#",
-      "#..K.x..#",
-      "#.......#",
-      "#.hth..l#",
-      "#.......#",
-      "####E####",
-    ]),
-    T("bakery", "Bakery", "stone", "wood", [
-      "#########",
-      "#c.k.oo.#",
-      "#x...1..#",
-      "#..KKKK.#",
-      "#.......#",
-      "#hth...l#",
-      "####E####",
-    ]),
-    T("bakery", "Bakery", "stone", "wood", [
-      "###########",
-      "#o.1.o#k.c#",
-      "#.....#x..#",
-      "#KK.KK#...#",
-      "#.........#",
-      "#.hth..k..#",
-      "#####E#####",
-    ]),
-  ],
-  shop: [
-    T("shop", "Shop", "wood", "wood", [
-      "###########",
-      "#sXs.1.sxc#",
-      "#..K.K.K..#",
-      "#.........#",
-      "#m.......m#",
-      "#..k...X..#",
-      "#l.......l#",
-      "#####E#####",
-    ]),
-    T("shop", "Shop", "wood", "wood", [
-      "#########",
-      "#s.s1s.c#",
-      "#..K.K..#",
-      "#.......#",
-      "#m.....m#",
-      "#X.k.x.X#",
-      "####E####",
-    ]),
-    T("shop", "Shop", "wood", "wood", [
-      "###########",
-      "#sss.1.Xc.#",
-      "#...K.KKK.#",
-      "#.........#",
-      "#..m...m..#",
-      "#.........#",
-      "#k.x...X.l#",
-      "#####E#####",
-    ]),
-  ],
-  barracks: [
-    T("barracks", "Barracks", "wood", "wood", [
-      "#############",
-      "#bvb.bvb.RaR#",
-      "#...........#",
-      "#qvq.QvQ....#",
-      "#...........#",
-      "#.hth..B..xc#",
-      "#l..1.....Ul#",
-      "######E######",
-    ]),
-    T("barracks", "Barracks", "wood", "wood", [
-      "###########",
-      "#b.b.b.b.U#",
-      "#v.v.v.v..#",
-      "#.........#",
-      "#q.q.Q.Q..#",
-      "#.........#",
-      "#RaR..hth.#",
-      "#c..1...x.#",
-      "#####E#####",
-    ]),
-    T("barracks", "Barracks", "wood", "wood", [
-      "#############",
-      "#bvb.#.RRa.U#",
-      "#....#......#",
-      "#qvq.......B#",
-      "#....#..hth.#",
-      "#QvQ.#.1..xc#",
-      "#....#......#",
-      "######E######",
-    ]),
-  ],
-  hall: [
-    T("hall", "Great hall", "stone", "stone", [
-      "###############",
-      "#B.S..BTB..S.B#",
-      "#......1......#",
-      "#.....rrr.....#",
-      "#C....rrr....C#",
-      "#..ttttttt....#",
-      "#..hhhhhhh..2.#",
-      "#.............#",
-      "#H...........H#",
-      "#x.bq....s.U.c#",
-      "#######E#######",
-    ]),
-    T("hall", "Great hall", "stone", "stone", [
-      "#############",
-      "#B..S.T.S..B#",
-      "#.....1.....#",
-      "#.....r.....#",
-      "#.ttttt...2.#",
-      "#.hhhhh.....#",
-      "#C.........C#",
-      "#H.........H#",
-      "#c.x....bqU.#",
-      "######E######",
-    ]),
-    T("hall", "Great hall", "stone", "stone", [
-      "###############",
-      "#B.S.BTB.S.B#U#",
-      "#.....r1r...#.#",
-      "#C..........#.#",
-      "#..tttttt.....#",
-      "#..hhhhhh...2.#",
-      "#H...........H#",
-      "#c.x.bq..s.x..#",
-      "#######E#######",
-    ]),
-  ],
-  // Deep mines: variant = depth (interiorTemplateAt), not a hash: 0 the level-1 adit, 1 the level-2 shaft, 2 the deep
-  // level-3 workings. "1" the foreman at the face, "v" miners, "Z" lairs.
-  mine: [
-    T("mine", "Mine", "dirt", "stone", [
-      "###########",
-      "#OO..1..OO#",
-      "#.v.....v.#",
-      "#P...Z...P#",
-      "#..X...lN.#",
-      "#P.......P#",
-      "#####E#####",
-    ]),
-    T("mine", "Mine", "dirt", "stone", [
-      "###############",
-      "#OO1.#####.OOO#",
-      "#.v..#.Z.#..v.#",
-      "#PZ..#...#...P#",
-      "#....P...P....#",
-      "#.....M......x#",
-      "#P...#####...P#",
-      "#X.l.......lZ.#",
-      "#######E#######",
-    ]),
-    T("mine", "Mine", "dirt", "stone", [
-      "#################",
-      "#OOO.1.###.OOOO.#",
-      "#..v...#Z#..v...#",
-      "#P.....#.#.....P#",
-      "#...Z..P.P..Z...#",
-      "#.......Z.......#",
-      "#P..###...###..P#",
-      "#...#OO...OO#...#",
-      "#.Z.#..v.v..#.Z.#",
-      "#P..##.....##..P#",
-      "#x....l...l....X#",
-      "########E########",
-    ]),
-  ],
-  barn: [
-    T("barn", "Barn", "dirt", "wood", [
-      "###########",
-      "#yyy.k.XXc#",
-      "#.........#",
-      "#yy..1..kk#",
-      "#.........#",
-      "#xx.....xx#",
-      "#####E#####",
-    ]),
-    T("barn", "Barn", "dirt", "wood", [
-      "#########",
-      "#yy.c.yy#",
-      "#.......#",
-      "#k..1..k#",
-      "#.......#",
-      "#xXy..Xx#",
-      "####E####",
-    ]),
-    T("barn", "Barn", "dirt", "wood", [
-      "###########",
-      "#yyy#.kkXc#",
-      "#...#.....#",
-      "#...#..1..#",
-      "#.........#",
-      "#yy.....XX#",
-      "#x.......x#",
-      "#####E#####",
-    ]),
-  ],
+  house: layoutsOf("house"), tavern: layoutsOf("tavern"), church: layoutsOf("church"), smithy: layoutsOf("smithy"),
+  bakery: layoutsOf("bakery"), shop: layoutsOf("shop"), barracks: layoutsOf("barracks"), hall: layoutsOf("hall"),
+  mine: MINE_TEMPLATES, barn: layoutsOf("barn"),
 };
 // Gap closure G5 (d): the upper floor reached by the "U" stairs (guest rooms / the keepers' bedrooms).
-export const INTERIOR_UPPER_TEMPLATES: Partial<Record<InteriorTemplateId, InteriorTemplate>> = {
-  tavern: T("tavern", "Tavern, upstairs", "wood", "wood", [
-    "###########",
-    "#b.#b.#b.c#",
-    "#v.#v.#v..#",
-    "#.........#",
-    "#.x....D.l#",
-    "###########",
-  ]),
-  barracks: T("barracks", "Barracks, officers' rooms", "wood", "wood", [
-    "###########",
-    "#b.c.#.b.b#",
-    "#v...#.v.v#",
-    "#.R..#....#",
-    "#..D......#",
-    "###########",
-  ]),
-  hall: T("hall", "Great hall, the chambers", "stone", "stone", [
-    "#############",
-    "#bw.c.#.b.b.#",
-    "#v....#.v.v.#",
-    "#..r..#.....#",
-    "#.H.......D.#",
-    "#l.........l#",
-    "#############",
-  ]),
-};
+export const INTERIOR_UPPER_TEMPLATES: Partial<Record<InteriorTemplateId, InteriorTemplate>> = Object.fromEntries(
+  FILES.filter((f) => f.upper).map((f) => [f.id, layoutOf(f.id, f.upper!)]),
+);
 // The stations / furniture a layout must have for its room role (validateInteriorTemplate; upper floors: a bed).
 export const INTERIOR_REQUIRED_PROPS: Record<InteriorTemplateId, InteriorProp[]> = {
-  house: ["bed", "chest", "hearth"],
-  tavern: ["counter", "table", "chair", "hearth", "chest"],
-  church: ["altar", "pew"],
-  smithy: ["forge", "anvil", "chest"],
-  bakery: ["oven", "counter", "chest"],
-  shop: ["counter", "chest"],
-  barracks: ["bed", "weaponRack", "chest"],
-  hall: ["throne", "table", "chest"],
-  barn: ["hay", "chest"],
+  house: FILE_BY_ID.house.required, tavern: FILE_BY_ID.tavern.required, church: FILE_BY_ID.church.required,
+  smithy: FILE_BY_ID.smithy.required, bakery: FILE_BY_ID.bakery.required, shop: FILE_BY_ID.shop.required,
+  barracks: FILE_BY_ID.barracks.required, hall: FILE_BY_ID.hall.required, barn: FILE_BY_ID.barn.required,
   mine: ["oreFace", "timberProp"],
 };
 // A tavern layout seats at least this many patrons (chairs beside a table).
@@ -552,8 +265,12 @@ export function interiorVariantFor(tx: number, ty: number, level: number): numbe
 // Every problem with a layout ([] = valid): rectangular, known symbols, a closed outline, exactly one exit mat in the
 // bottom row (upper floors: one "D" and no mat), every walkable tile reachable from the spawn at level 3 (the most
 // furniture), beds / chests / NPC slots next to a reachable tile, the type's stations, a keeper slot (not houses),
-// tavern seats.
-export function validateInteriorTemplate(t: InteriorTemplate, upper = false): string[] {
+// tavern seats. `role`: the type's stations and whether it has an upper floor (default: the loaded tables; an editor
+// checking a file passes the file's own).
+export function validateInteriorTemplate(
+  t: InteriorTemplate, upper = false,
+  role: { required: readonly InteriorProp[]; hasUpper: boolean } = { required: INTERIOR_REQUIRED_PROPS[t.id], hasUpper: !!INTERIOR_UPPER_TEMPLATES[t.id] },
+): string[] {
   const errs: string[] = [];
   const h = t.rows.length;
   const w = t.rows[0]?.length ?? 0;
@@ -629,13 +346,26 @@ export function validateInteriorTemplate(t: InteriorTemplate, upper = false): st
     if (!has("bed")) errs.push(`${t.id} upstairs: no bed`);
     return errs;
   }
-  for (const p of INTERIOR_REQUIRED_PROPS[t.id]) if (!has(p)) errs.push(`${t.id}: no ${p} (its room role needs one)`);
+  for (const p of role.required) if (!has(p)) errs.push(`${t.id}: no ${p} (its room role needs one)`);
   if (t.id !== "house" && !m.slots.some((s) => s.slot === "1")) errs.push(`${t.id}: no keeper slot "1"`);
   if (t.id === "house" && !m.slots.some((s) => s.slot === "v")) errs.push(`house: no resident slot "v"`);
   if (t.id === "mine" && !(m.lairs ?? []).length) errs.push(`mine: no monster lair "Z"`);
   for (const q of m.lairs ?? []) if (!seen[q.y * w + q.x]) errs.push(`${t.id}: lair at ${q.x},${q.y} cannot be reached`);
   if (t.id === "tavern" && interiorSeats(m).length < INTERIOR_TAVERN_MIN_SEATS) errs.push(`tavern: fewer than ${INTERIOR_TAVERN_MIN_SEATS} seats`);
-  if (INTERIOR_UPPER_TEMPLATES[t.id] && !m.stairs) errs.push(`${t.id}: no stairs up to its upper floor`);
+  if (role.hasUpper && !m.stairs) errs.push(`${t.id}: no stairs up to its upper floor`);
+  return errs;
+}
+
+// Every problem with a building's interior file (shared/src/data/interiors/<id>.json; [] = valid): its shape (known
+// id, INTERIOR_VARIANTS layouts, floors / walls, the hall keeps throne / table / chest) and every layout by
+// validateInteriorTemplate with the file's own stations and upper floor.
+export function validateInteriorFile(raw: unknown): string[] {
+  const errs = interiorFileShape(raw);
+  if (errs.length) return errs;
+  const f = raw as InteriorFile;
+  const role = { required: f.required, hasUpper: !!f.upper };
+  f.variants.forEach((l, i) => errs.push(...validateInteriorTemplate(layoutOf(f.id, l), false, role).map((e) => `${e} (variant ${i})`)));
+  if (f.upper) errs.push(...validateInteriorTemplate(layoutOf(f.id, f.upper), true, role));
   return errs;
 }
 
@@ -692,7 +422,7 @@ export const INTERIOR_FIXED_LEVEL: Partial<Record<TileType, number>> = {
   [TileType.AbbeyHall]: 3,
 };
 // Your own bed: a house or your hall (Town Center / Keep). Chests open only in your own buildings.
-export const INTERIOR_SLEEP_TEMPLATES: ReadonlySet<InteriorTemplateId> = new Set(["house", "hall"]);
+export const INTERIOR_SLEEP_TEMPLATES: ReadonlySet<InteriorTemplateId> = new Set(FILES.filter((f) => f.sleep).map((f) => f.id));
 
 // ---- the built map ----
 // cells: one char per tile, row-major ("#" wall, "." floor, "E" exit, " " nothing).

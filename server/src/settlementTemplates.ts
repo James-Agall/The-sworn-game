@@ -20,8 +20,9 @@ import {
 import type { SiteState, TileCoord } from "./types.js";
 import {
   SETTLEMENT_INNER_RING_FRACTION, SETTLEMENT_PLACE_ATTEMPTS, SETTLEMENT_SPACING_TILES, SETTLEMENT_START_CLEARANCE_TILES,
-  SITE_APRON_TILES, SITE_FORT_SPACING_TILES, SITE_KEEP_HP_BY_TIER, SITE_TEMPLATES,
+  SITE_APRON_TILES, SITE_FORT_SPACING_TILES, SITE_KEEP_HP_BY_TIER,
 } from "./constants.js";
+import { SITE_TEMPLATES } from "./siteTemplates.js";
 import { gates, hearths, sites, state } from "./state.js";
 import { inBounds, setOwner, siteNumber, tileIndex, tileToPixelCenter } from "./tiles.js";
 import { pickSiteName, rebuildSiteGrounds, setSiteTile, settlementCounts, siteFitProblem } from "./sites.js";

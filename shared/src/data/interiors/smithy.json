@@ -1,0 +1,54 @@
+{
+  "id": "smithy",
+  "required": [
+    "forge",
+    "anvil",
+    "chest"
+  ],
+  "sleep": false,
+  "variants": [
+    {
+      "label": "Smithy",
+      "floor": "stone",
+      "wall": "stone",
+      "rows": [
+        "###########",
+        "#fn1R.a.xc#",
+        "#.....W.l.#",
+        "#.........#",
+        "#..x...X..#",
+        "#.........#",
+        "#####E#####"
+      ]
+    },
+    {
+      "label": "Smithy",
+      "floor": "stone",
+      "wall": "stone",
+      "rows": [
+        "#########",
+        "#ff.R.a.#",
+        "#.n1....#",
+        "#.......#",
+        "#KKK.W.c#",
+        "#x.....X#",
+        "####E####"
+      ]
+    },
+    {
+      "label": "Smithy",
+      "floor": "stone",
+      "wall": "stone",
+      "rows": [
+        "###########",
+        "#c.x#.ff..#",
+        "#...#..n..#",
+        "#.R.#..1..#",
+        "#.a.......#",
+        "#.....KKK.#",
+        "#X.......x#",
+        "#####E#####"
+      ]
+    }
+  ]
+}

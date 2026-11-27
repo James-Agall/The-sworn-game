@@ -1,0 +1,53 @@
+{
+  "id": "bakery",
+  "required": [
+    "oven",
+    "counter",
+    "chest"
+  ],
+  "sleep": false,
+  "variants": [
+    {
+      "label": "Bakery",
+      "floor": "stone",
+      "wall": "wood",
+      "rows": [
+        "#########",
+        "#oo1.k.c#",
+        "#..K.x..#",
+        "#.......#",
+        "#.hth..l#",
+        "#.......#",
+        "####E####"
+      ]
+    },
+    {
+      "label": "Bakery",
+      "floor": "stone",
+      "wall": "wood",
+      "rows": [
+        "#########",
+        "#c.k.oo.#",
+        "#x...1..#",
+        "#..KKKK.#",
+        "#.......#",
+        "#hth...l#",
+        "####E####"
+      ]
+    },
+    {
+      "label": "Bakery",
+      "floor": "stone",
+      "wall": "wood",
+      "rows": [
+        "###########",
+        "#o.1.o#k.c#",
+        "#.....#x..#",
+        "#KK.KK#...#",
+        "#.........#",
+        "#.hth..k..#",
+        "#####E#####"
+      ]
+    }
+  ]
+}
