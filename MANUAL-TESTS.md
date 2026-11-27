@@ -4,6 +4,16 @@ Start the game with `scripts/live.sh` (frozen copy that keeps running while code
 code) or `npm run dev`. Open http://localhost:5173. Detailed step-by-step checklists live at the end of each
 "landed" section in `ROADMAP.md`; this is the short version, in the order I would try them.
 
+## Esc readies your weapon (2026-11-27)
+1. Open Build, pick Wood Wall, hover the map (white box), press Esc: no tool is highlighted, the box is gone, the
+   requirements line is empty. Right-click and right-drag on open ground: nothing is built or demolished. Space attacks.
+2. Pick Wood Wall again: right-click builds again. Same with a Cottage, a Bed, a zone (Stockpile) and Demolish.
+3. Close Build, press 1 (hoe in hand), press Esc: the hoe slot goes dark, your weapon slot lights up, Space swings.
+4. With a tool picked, open the inventory (`), press Esc: only the sheet closes, the tool stays picked; Esc again drops
+   the tool. Same with the Menu list, a building's info panel and the demolish confirm.
+5. Unequip your weapon in the inventory, close it, press Esc: the weapon goes back in your hand ("Weapon ready: ...").
+   With a shield worn and only a bow in the pack, Esc does not equip the bow.
+
 ## One raid per night, raiders leave a fallen colony (2026-11-26)
 Details: `RAIDS-2026-11-26.md`.
 1. New game, build nothing defensive. Watch the first night's raid arrive ("Raiders gather at the ... edge").

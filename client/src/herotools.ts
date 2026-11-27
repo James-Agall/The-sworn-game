@@ -57,6 +57,10 @@ export interface HeroToolsUi {
   wheel: (deltaY: number) => boolean;
   // The hero's weapons changed (profile snapshot): redraw the weapon slots.
   refreshWeapons: () => void;
+  // Esc (weapon ready, main.ts): put the hotbar tool away so Space attacks; true if one was in hand.
+  disarm: () => boolean;
+  // The weapon last seen wielded (this session), for Esc to wield it again when the weapon slot is empty.
+  lastWeaponId: () => string | null;
 }
 
 const ICON: Record<HeroTool, string> = {
@@ -140,9 +144,11 @@ export function setupHeroTools(deps: HeroToolsDeps): HeroToolsUi {
   weaponsEl.className = "hh-weapons";
   slotsEl.appendChild(weaponsEl);
   let weaponSig = "";
+  let lastWeapon: string | null = null;
   function refreshWeapons() {
     const ws = deps.weapons();
     const eq = deps.equippedWeaponId();
+    if (eq) lastWeapon = eq;
     const sig = `${ws.map((w) => w.id).join(",")}|${eq}|${armed}`;
     if (sig === weaponSig) return;
     weaponSig = sig;
@@ -272,11 +278,6 @@ export function setupHeroTools(deps: HeroToolsDeps): HeroToolsUi {
       if (e.ctrlKey || e.altKey || e.metaKey || e.shiftKey || e.repeat) return;
       if (e.target instanceof HTMLElement && e.target.closest("input, textarea, select")) return;
       if (!deps.active() || deps.talking()) return;
-      if (e.key === "Escape" && armed >= 0) {
-        armed = -1;
-        refreshSlots();
-        return;
-      }
       if (e.code === "Digit0" && !deps.buildOpen()) {
         e.preventDefault();
         e.stopImmediatePropagation();
@@ -338,6 +339,13 @@ export function setupHeroTools(deps: HeroToolsDeps): HeroToolsUi {
       mouseAt = { x: wx, y: wy, t: performance.now() };
     },
     refreshWeapons,
+    disarm() {
+      if (armed < 0) return false;
+      armed = -1;
+      refreshSlots();
+      return true;
+    },
+    lastWeaponId: () => lastWeapon,
     wheel(deltaY) {
       if (!deps.active() || deltaY === 0) return false;
       const n = HERO_TOOLS.length;
