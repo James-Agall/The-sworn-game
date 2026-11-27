@@ -27,6 +27,7 @@
     "./work": "./src/work.ts",
     "./calendar": "./src/calendar.ts",
     "./raidForecast": "./src/raidForecast.ts",
+    "./raidWarning": "./src/raidWarning.ts",
     "./interiors": "./src/interiors.ts",
     "./animals": "./src/animals.ts",
     "./buildingTemplates": "./src/buildingTemplates.ts",

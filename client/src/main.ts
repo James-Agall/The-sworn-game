@@ -68,6 +68,7 @@ import {setupAdventureJournal,adventureMapMarker} from "./adventureJournal";
 import { opaqueBox, type InteriorUi, setupInterior } from "./interior";
 import { SEASONS, SEASON_GROUND_TINT, SEASON_TREE_TINT, WEATHER_LABEL, calendarLabel, type CalendarSnapshot } from "@colony/shared/calendar";
 import { raidForecastText, type RaidForecast } from "@colony/shared/raidForecast";
+import { isRaidWarning, isRaidWarningCleared, raidClearedText, raidWarningText, type RaidWarning } from "@colony/shared/raidWarning";
 import { FUEL_LOW_DAYS, type WinterSnapshot } from "@colony/shared/winter";
 import { foodLevel, type FoodSnapshot } from "@colony/shared/food";
 import type { AgriSnapshot } from "@colony/shared/agri";
@@ -4011,6 +4012,24 @@ async function main() {
       ctx.fillRect(cx - 1.5 * u, cy - 1.5 * u, 3 * u, 3 * u);
     }
 
+    // Raid warning: a pulsing red marker on each live raid's raiders (see onRaidWarning).
+    for (const w of raidWarningsLive.values()) {
+      const rx = (w.tx + 0.5) * s;
+      const ry = (w.ty + 0.5) * s;
+      const pulse = 4.5 * u + (Math.sin(performance.now() / 220) + 1) * 1.5 * u;
+      ctx.beginPath();
+      ctx.arc(rx, ry, pulse, 0, Math.PI * 2);
+      ctx.fillStyle = "rgba(200,40,30,0.35)";
+      ctx.fill();
+      ctx.beginPath();
+      ctx.arc(rx, ry, 3 * u, 0, Math.PI * 2);
+      ctx.fillStyle = "#e0392b";
+      ctx.fill();
+      ctx.lineWidth = u;
+      ctx.strokeStyle = "#1a0f06";
+      ctx.stroke();
+    }
+
     // Forts phase D2: a quest marker (gold diamond; green once accepted) on each open quest's target tile.
     for (const q of latestQuests) {
       const qx = (q.x + 0.5) * s;
@@ -4440,6 +4459,44 @@ async function main() {
   raidForecastEl.style.cssText = "position:fixed;top:44px;left:50%;transform:translateX(-50%);padding:2px 10px;background:rgba(40,12,12,.8);color:#f3c9a8;border:1px solid #7a2a22;border-radius:4px;font:12px sans-serif;z-index:20;pointer-events:none";
   raidForecastEl.hidden = true;
   document.body.appendChild(raidForecastEl);
+  // Raid warning (shared/src/raidWarning.ts): a small dismissible banner under the forecast line with direction,
+  // distance and ETA (refreshed by the server every few seconds), a toast when the raid is over, and a pulsing red
+  // marker on the minimap at the raiders' position. Dismissing hides the banner for that raid only.
+  const raidWarningsLive = new Map<string, RaidWarning>();
+  const raidWarningDismissed = new Set<string>();
+  const raidWarnEl = document.createElement("div");
+  raidWarnEl.id = "raid-warning";
+  raidWarnEl.style.cssText = "position:fixed;top:66px;left:50%;transform:translateX(-50%);padding:3px 6px 3px 10px;background:rgba(60,14,10,.88);color:#ffd9c2;border:1px solid #b33a2a;border-radius:4px;font:12px sans-serif;z-index:20;display:flex;gap:8px;align-items:center";
+  raidWarnEl.hidden = true;
+  const raidWarnText = document.createElement("span");
+  const raidWarnClose = document.createElement("button");
+  raidWarnClose.textContent = "x";
+  raidWarnClose.title = "Dismiss";
+  raidWarnClose.style.cssText = "background:none;border:0;color:#ffd9c2;cursor:pointer;font:12px sans-serif;padding:0 2px";
+  raidWarnClose.addEventListener("click", () => {
+    for (const id of raidWarningsLive.keys()) raidWarningDismissed.add(id);
+    refreshRaidWarning();
+  });
+  raidWarnEl.append(raidWarnText, raidWarnClose);
+  document.body.appendChild(raidWarnEl);
+  function refreshRaidWarning() {
+    let shown: RaidWarning | null = null;
+    for (const w of raidWarningsLive.values()) if (!raidWarningDismissed.has(w.id) && (!shown || w.etaTicks < shown.etaTicks)) shown = w;
+    raidWarnEl.hidden = !shown;
+    if (shown) raidWarnText.textContent = raidWarningText(shown) + (shown.count > 0 ? ` (${shown.count})` : "");
+  }
+  function onRaidWarning(w: RaidWarning) {
+    const first = !raidWarningsLive.has(w.id);
+    raidWarningsLive.set(w.id, w);
+    if (first) pushEventToast("raid", raidWarningText(w));
+    refreshRaidWarning();
+  }
+  function onRaidWarningCleared(id: string, text: string) {
+    if (!raidWarningsLive.delete(id)) return;
+    raidWarningDismissed.delete(id);
+    pushEventToast("raid", text);
+    refreshRaidWarning();
+  }
   let shownRaidForecast = "";
   function refreshRaidForecast(f: RaidForecast | undefined) {
     const text = f ? raidForecastText(f) : "";
@@ -6915,6 +6972,9 @@ async function main() {
       perf.setScene(colonistSprites.size+mobSprites.size+playerSprites.size,tileSpriteLayer.children.length+decorSpriteLayer.children.length+floorChunks.size);
     }
     if (message.type === "welcome") {
+      raidWarningsLive.clear();
+      raidWarningDismissed.clear();
+      refreshRaidWarning();
       scenery.clear();hiddenHero.clear();chunkInbox.clear();
       myId = message.id;
       adventureUi.onWelcome();
@@ -7164,6 +7224,10 @@ async function main() {
       pushEventToast(message.category, message.text);
       if (message.category === "upgrade") fxOnUpgradeEvent();
       soundOnEvent(message.category, message.text);
+    } else if (message.type === "raidWarning") {
+      if (isRaidWarning(message.warning)) onRaidWarning(message.warning);
+    } else if (message.type === "raidWarningCleared") {
+      if (isRaidWarningCleared(message.cleared)) onRaidWarningCleared(message.cleared.id, raidClearedText(message.cleared));
     } else if (message.type === "explored") {
       markExplored(message.tiles);
     } else if (message.type === "loadProgress") {

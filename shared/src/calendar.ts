@@ -157,7 +157,7 @@ export const WINTER_FORAGE_REGROW_MULT = 0.25;
 // The length changes only at dawn (a calendar day starts at cycle tick 0).
 export const SEASON_DAYLIGHT_MULT: Record<Season, number> = { spring: 1, summer: 1.15, autumn: 1, winter: 0.85 };
 // Daylight ticks of absolute calendar day `absDay`, from the base daylight and the whole cycle (night >= 1/20 cycle;
-// with the server numbers 300 s + 75 s: summer 345 s day / 30 s night, winter 255 s / 120 s).
+// with the server numbers 450 s + 112 s: summer 517.5 s day / 44.5 s night, winter 382.5 s / 179.5 s).
 export function seasonDayTicks(baseDayTicks: number, gameDayTicks: number, absDay: number): number {
   const mult = SEASON_DAYLIGHT_MULT[SEASONS[calendarOf(absDay).season]];
   return Math.max(1, Math.min(Math.round(gameDayTicks * 0.95), Math.round(baseDayTicks * mult)));

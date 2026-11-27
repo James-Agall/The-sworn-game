@@ -112,14 +112,19 @@ export const PATH_NODE_BUDGET = 60000;
 // advanceAlongPath: how near (px) an intermediate waypoint's tile centre counts as reached.
 export const PATH_WAYPOINT_TOLERANCE_PX = 10;
 // ---- Long days (2026-10-23): a 5-minute day and a 75 s night (was 60 s + 40 s). ----
+// 2026-11-27: another 50% (7.5 min day + 112 s night = a 562 s cycle; 112 not 112.5 so the cycle, 11240 ticks, divides by 4 and 8 like the old 7500 did), proportion 4.02:1.
 // The night stays short so raids stay tense; the day is long so there's more to DO between raids.
 // LEGACY_* is the old cycle: rates that must not slow down in real time are written as
-// legacy-rate x DAY_LENGTH_SCALE / DAYLIGHT_SCALE (see ROADMAP "Long days & dawn/dusk respawns").
-export const DAY_TICKS = TICK_RATE * 300;
-export const NIGHT_TICKS = TICK_RATE * 75;
+// legacy-rate x DAY_LENGTH_SCALE / DAYLIGHT_SCALE (see ROADMAP "Long days & dawn/dusk respawns"). Anything
+// written in GAME DAYS (GAME_DAY_TICKS: crop / animal / calendar / quest / levy / raid-spawn timers) is
+// deliberately per-day and so is 1.5x longer in real time; anything in LEGACY_* ticks, TICK_RATE seconds or
+// scaled by DAY_LENGTH_SCALE (FOOD_PER_COLONIST_PER_DAY) is real time and did not change. Saves keep their
+// real position in the cycle across a change of length (saves.ts migrateSaveDayLength).
+export const DAY_TICKS = TICK_RATE * 450;
+export const NIGHT_TICKS = TICK_RATE * 112;
 export const LEGACY_DAY_TICKS = TICK_RATE * 60;
 export const LEGACY_NIGHT_TICKS = TICK_RATE * 40;
-// Real-time length of a whole cycle vs the old one (375 s / 100 s = 3.75) and of the daylight (5).
+// Real-time length of a whole cycle vs the old one (562 s / 100 s = 5.62) and of the daylight (7.5).
 export const DAY_LENGTH_SCALE = (DAY_TICKS + NIGHT_TICKS) / (LEGACY_DAY_TICKS + LEGACY_NIGHT_TICKS);
 export const DAYLIGHT_SCALE = DAY_TICKS / LEGACY_DAY_TICKS;
 export const GUARD_ALERT_RANGE_TILES = 7;
@@ -174,9 +179,25 @@ export const SQUAD_BROKEN_TILES = 6;
 export const MOB_AGGRO_RANGE_GUARD_TILES = 9;
 export const MOB_AGGRO_RANGE_PLAYER_TILES = 7;
 export const MOB_AGGRO_DROP_FACTOR = 1.5;
-// A mob (or marching raid group) heading for the Town Center turns on any non-wall building it passes
-// within this many tiles ("if they find houses first they destroy the houses").
+// A LONE mob heading for the Town Center turns on any non-wall building it passes within this many tiles
+// ("if they find houses first they destroy the houses"). Marching raid GROUPS no longer use it
+// (2026-11-27, raid-march fix): they use RAID_SIDE_ENGAGE_TILES below, so a raid reaches the Town Center
+// instead of dissolving at the first outlying farm.
 export const MOB_BUILDING_AGGRO_TILES = 6;
+// Raid march (2026-11-27): a marching group only breaks off for a building this close (tiles) to its leader
+// (i.e. right on its route, or in the way). Farther buildings are walked past.
+export const RAID_SIDE_ENGAGE_TILES = 2;
+// At most this many side buildings per raid; after that the group ignores buildings and marches on.
+export const RAID_SIDE_TARGET_MAX = 2;
+// A group stuck on one side building (it will not fall, e.g. out-ranged or hard to reach) gives that target up
+// after this long and resumes marching. 45 s is several building-kill times for a raid, far under a night
+// (NIGHT_TICKS) so a stranded group can never sit out the whole night and pin the raid.
+export const RAID_SIDE_TARGET_TIMEOUT_TICKS = TICK_RATE * 45;
+// Raid warning (2026-11-27): the owning clan's players hear of a raid when it spawns, are re-told its
+// distance / ETA every this many ticks while it marches, and are told it is over (cleared) at the end.
+export const RAID_WARNING_REFRESH_TICKS = TICK_RATE * 5;
+// A warning that was never cleared by contact / defeat expires after this long (a lost raid cannot nag forever).
+export const RAID_WARNING_MAX_TICKS = DAY_TICKS + NIGHT_TICKS;
 // ---- Bodies (separation) ----
 // Body radii in px: colonists, and mobs by kind (about 0.9 x the client's MOB_VISUALS radius). Players
 // have no body. separateBodies pushes overlapping bodies apart after everyone has moved.
@@ -579,9 +600,9 @@ export const CHOP_TICKS = TICK_RATE * 2;
 export const CRAFT_TICKS = TICK_RATE * 4;
 export const IDLE_RETRY_TICKS = TICK_RATE;
 export const LUMBERJACK_WOOD_PER_TRIP = 3;
-// ---- Slow farming: every farm number lives here. One game day = DAY_TICKS + NIGHT_TICKS (375 s). ----
+// ---- Slow farming: every farm number lives here. One game day = DAY_TICKS + NIGHT_TICKS (562 s). ----
 // Long days: the farm timers below stay in REAL time, i.e. in "legacy days" of the old 100 s cycle
-// (LEGACY_GAME_DAY_TICKS; a field grows 5 min, ~0.8 of a long day), so grain / meat / fruit / wool /
+// (LEGACY_GAME_DAY_TICKS; a field grows 5 min, ~0.5 of a long day), so grain / meat / fruit / wool /
 // cotton per real second, the opening food bridge (STARTING_GRAIN) and the farm tests are unchanged.
 export const GAME_DAY_TICKS = DAY_TICKS + NIGHT_TICKS;
 export const LEGACY_GAME_DAY_TICKS = LEGACY_DAY_TICKS + LEGACY_NIGHT_TICKS;
@@ -631,7 +652,7 @@ export const FARMHAND_YIELD_PER_CYCLE: Record<"meat" | "fruit" | "wool" | "cotto
   wool: 90,
   cotton: 90,
 };
-// Long days: upkeep stays 1 per colonist per 100 s of real time, so a long day costs 3.75 (rounded up
+// Long days: upkeep stays 1 per colonist per 100 s of real time, so a long day costs 5.62 (rounded up
 // for the whole colony at dawn; see applyDailyFoodConsumption).
 export const FOOD_PER_COLONIST_PER_DAY = 1 * DAY_LENGTH_SCALE;
 // Village life tuning 2026-11-03: 10 -> 5 (with no respawn, two hungry dawns wiped out a whole 20 hp village).
@@ -2097,6 +2118,9 @@ export const SAVE_DIR = process.env.COLONY_SAVE_DIR
 // A scripted test server (test hooks on) must never clobber the real world's autosave, so with test
 // hooks it only autosaves into a COLONY_SAVE_DIR of its own.
 export const AUTOSAVE_ENABLED = !TEST_HOOKS || !!process.env.COLONY_SAVE_DIR;
+// Autosave also runs on a real-time timer (a save at every dawn alone would stretch from 375 s to 562 s apart
+// when the day got longer on 2026-11-27, widening the window a crash can lose).
+export const AUTOSAVE_INTERVAL_TICKS = TICK_RATE * 375;
 export const REACH = TILE_SIZE * 2.5;
 // Layered mines (2026-11-19): the old Coal / Copper / Tin / Lime / Gold / Lead mines are no longer placeable (inert
 // legacy tiles; the Mine digs every ore by level).
