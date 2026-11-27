@@ -1657,7 +1657,7 @@ Automated: `npm test -- road-water` (6 seeds at 160 / 512 / 1024, version 22 vs 
 4. Under the grid, "Carried goods" lists each good with its icon, ×count and weight, plus a load bar `x / 40` (green, amber over half "you walk slower", red when full). Press Drop 1, Shift+Drop 1 (10) and All on different goods; the counts and bar update and a toast confirms each drop.
 5. Close the sheet. The dropped stacks lie at the hero's feet (several on one tile fan out). Stand next to them: "E: pick up …" appears; press E (with nobody to talk to nearby) to pick up the nearest. Hover a stack: "Click: pick up …"; click it. Walk 3+ tiles away and click: "Walk closer".
 6. Fill the pack close to 40 weight and pick up a big wood stack: only what fits is taken, the rest stays on the ground (toast says how many). With 40 gear items, picking up dropped gear is refused ("Your pack is full (40 items)").
-7. Try to drop inside a building: refused ("step outside first"). Drop something, then save, load: the stacks are still there. Start a new game: none.
+7. Try to drop inside a peaceful building (house, hall, tavern...): refused ("step outside first"); caves, ruins, camps and mines allow it (see "Drop things inside caves ..." below). Drop something, then save, load: the stacks are still there. Start a new game: none.
 8. Walk north into your Town Center's door (the Elder by the door answers E there). In the Great hall walk to the chest and press E: "Hall chest — Deposit carried goods" lists what you carry with "Deposit all", one "Deposit N <good>" per good, "Open shared Stockpile" and "Use the hall chest (private storage)". Deposit one good, then all; the Stockpile counts go up (fish counts as meat).
 9. Outside, far from the Town Center and any chest, press "Deposit into stockpile": "Stand next to your Town Center or a storage chest to deposit".
 10. Mobile width (~400 px): the sheet is one column, the pack grid has 8 columns, the goods rows and buttons fit without overflow.
@@ -1696,3 +1696,56 @@ tier-1 **Iron Sword**, equipped, once. Saved games count too (the first time you
 3. Load an **old save** whose hero had no weapon: the Iron Sword is equipped on the first use. A hero who already has a
    weapon (equipped or in the pack) is left alone.
 4. Recruited heroes (companions/heroes with a class) never get one; they equip from your gear as before.
+
+## Deposit gear to the armoury (27 November 2026)
+
+1. Take a weapon and a helmet from the armoury (Inventory, Armoury section), then put them on and take them off again so
+   they sit in the pack. Stand next to your Town Center (or a storage chest). Right-click the weapon in the pack: the menu
+   has **Deposit to armoury** (hover: "Goes into the armoury as a tier-N weapon; you pick the kind when you take one").
+   Click it: toast "Deposited <name> to the armoury (tier N weapons: count)", the item leaves the pack and the
+   Armoury's "Weapon TN (count)" button goes up by one.
+2. Right-click the helmet: deposit it; the armour count of that tier goes up. Take a "Helmet" or "Shield" back: a plain
+   piece of that tier returns (the round trip).
+3. Walk 20 tiles away and right-click an item: **Deposit to armoury** is greyed out, its tooltip says "Stand next to your
+   Town Center or a storage chest to deposit". The Armoury's **Deposit gear to armoury (N)** button is disabled too.
+4. Right-click a relic, a Spell Tome, an adventure piece or leg armour: the entry is greyed out ("Relics and special
+   gear can't go into the armoury: keep or drop them" / "Leg armour can't go into the armoury ..."). An equipped piece is
+   not in the pack: unequip it first.
+5. Back by the Town Center press **Deposit gear to armoury (N)**: every plain weapon / helm / breastplate / shield goes in
+   at once; relics and special pieces stay.
+6. In the Great hall, E at the chest: "Deposit all plain gear (N) into the armoury" and one row per piece (up to 8),
+   each saying what it goes in as. Use one: the panel refreshes.
+
+Automated: `npm test -- gear-deposit`.
+
+## Drop things inside caves, ruins, camps and mines (27 November 2026)
+
+1. Enter a cave (or a ruin, a bandit camp, your own mine / quarry). Open Inventory and press **Drop 1** on a good, and
+   right-click a pack item > **Drop on the ground**: toasts confirm; the stack lies at your feet inside, drawn like
+   outside (icon on a burlap / tier tile, a count), never in a wall, on the exit tunnel / mat, stairs or a container.
+2. Stand on it: "E: pick up ..." shows over it; press E (no container highlighted): picked up. Drop again, hover the
+   stack: "Click: pick up ..."; click it after a second and a half: picked up.
+3. Drop something, leave the cave: nothing of it shows outside. Enter another cave / ruin: not there either. Go back
+   into the first cave: it is still there. Save and load: still there. After 3 game days it rots away.
+4. Clearing the cave (or the mine level re-infesting) does not remove your dropped stacks: they stay until the 3 days
+   are up.
+5. Inside your house, the hall, a tavern, church or shop: dropping is still refused ("step outside first").
+
+Automated: `npm test -- interior-drops`.
+
+## Hotbar and spells inside caves, ruins, camps and mines (27 November 2026)
+
+1. Enter a cave (or ruin, bandit camp, own mine). The two-row hotbar shows at the bottom (it is still hidden in houses,
+   the hall, taverns and other peaceful buildings).
+2. Top row: click a weapon slot, Shift+5 / Shift+6 and 0 wield your weapons; Space swings the wielded weapon.
+3. Bottom row: the nine tool slots are greyed out; hover one: "<tool>: Not usable in here". Pressing 1-9 or clicking
+   them arms nothing, so Space keeps attacking.
+4. Spells: Shift+2 (or F2, or click the slot) aims a ground spell: a yellow range ring around the hero and the hint
+   "<Spell> · Click a target; right click or Esc cancels". Click a spot in the cave: the spell lands there (the effect
+   shows inside) and the slot shows its cooldown. Enemy spells: click a monster. Heal: press its key twice for yourself.
+5. While aiming press Esc: only the aim closes (you stay inside, nothing else changes). Esc again with nothing open
+   readies your weapon as outside; Esc right by the exit still leaves.
+6. At 1280x800 and 1024x720 the hotbar sits beside the hero bar; the hint above it never covers it; the title, enemy
+   count and exit hint at the top stay clear.
+
+Automated browser check: `node client/interior-smoke.mjs --out <scratch>`.

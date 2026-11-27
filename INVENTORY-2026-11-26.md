@@ -39,11 +39,12 @@ Branch `pack-inventory-ground-drop`. Manual check: MANUAL-TESTS.md "Inventory, d
 
 ## Protocol additions (all additive)
 
-- Client: `{type:"dropGood", good, qty}`, `{type:"dropGear", itemId}`, `{type:"pickupGround", id}`;
+- Client: `{type:"dropGood", good, qty}`, `{type:"dropGear", itemId}`, `{type:"pickupGround", id}` (and, 2026-11-27,
+  `{type:"depositGear", itemId | all}`);
   `heroAction` gains optional `good` (deposit only that good).
 - Snapshot: `ground?: GroundItemSnapshot[]` (`{id, x, y, k:"g"|"e", good?, qty?, name?, tier?, slot?, kind?, icon?}`),
   per player, appended like `livestock` (outside the delta encoding), sent only when that player's list changed, `[]`
-  when emptied / indoors; reset (resent) on every welcome. Gear on the ground shows name / tier / slot / kind / icon only.
+  when emptied / in a peaceful building (hostile interiors: that instance's stacks, marked `in`); reset (resent) on every welcome. Gear on the ground shows name / tier / slot / kind / icon only.
 - Dialogue actions `hallDeposit` (arg `all` or a good) and `chestPrivate`.
 - Save: `groundItems: {items: GroundItem[]}` (optional; current format only), cleared by `resetWorld`.
 - Test hook `groundItems` (`clear`, `spawn {n, good, x, y}`, `drop`, `dropGear`, `pickup`; replies the list, `max`,
@@ -62,9 +63,26 @@ Branch `pack-inventory-ground-drop`. Manual check: MANUAL-TESTS.md "Inventory, d
 
 Validation: unknown goods / non-string ids are ignored; quantity must be a positive integer (else "Choose how many to
 drop") and is capped to what is carried; gear must be in the sender's own pack (equipped: "Unequip that first";
-otherwise "That item is not in your pack"); dead heroes do nothing; inside any interior: refused; no walkable tile in
+otherwise "That item is not in your pack"); dead heroes do nothing; inside a peaceful building (house, hall, tavern, church, smithy, bakery, shop, barracks, barn): refused; inside a HOSTILE interior (cave, ruin, bandit camp, own mine / quarry) allowed since 2026-11-27 (below); no walkable tile in
 reach (water / solid all round): "No clear ground here to drop that". Per-tick cost: nothing per tick except a modulo
 check; the despawn sweep (≤300) once a second; snapshot filtering only when the key changes.
+
+## Interior fixes (27 November 2026, branch `interior-fixes`)
+
+- **Gear deposit**: `{type:"depositGear", itemId}` or `{type:"depositGear", all:true}` (herolife.ts handleDepositGear;
+  rule `armouryDepositOf` in shared/src/protocol.ts). Plain tier 1-3 pack items only: weapons -> `equipment.weapon[t-1]`
+  (the kind is lost; picked again on Take), head / chest / offhand -> `equipment.armour[t-1]` (Take hands back a helm /
+  breastplate / shield). Refused: equipped ("Unequip that first ..."), relics, adventure gear, tomes ("Relics and special
+  gear can't go into the armoury: keep or drop them"), leg armour (the armoury makes none, so it could not round-trip).
+  Same place rule as the goods deposit; 6 per real second. Life snapshot `atStore` drives the hero sheet's enabled state;
+  hall chest action `hallGear`; test hook `packGear`.
+- **Drops in hostile interiors**: a `GroundItem` may carry `scope` = `"<anchor x,y>:<storey>:v<variant>"`
+  (interiors.ts hostileInteriorScope: encounters and mines; one cave, one mine layer) with interior px. Same map, cap
+  (300 shared), merge (same scope + tile), dropper delay, rate limit and despawn. The free spot uses the interior's own
+  grid (no wall, exit mat / "E" cell, stairs or prop tile). Snapshot `ground` entries get `in:1`; a hero inside sees only
+  that instance's stacks, outside only unscoped ones. E inside offers the nearest stack by distance with the room's other
+  uses. Saved with the scope; clearing / re-infesting a layer does not touch them.
+- **Hotbar indoors**: client only (herotools.ts toolsOff, interior.ts `interior-hostile` body class).
 
 ## Tests
 

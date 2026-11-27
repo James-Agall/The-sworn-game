@@ -45,6 +45,12 @@ priorities, hero tools, seasons/weather, interiors, animals in buildings, bluepr
   placeholders to 3) | spells (the old `#spell-bar` reparented in, Shift+1..4 / F1..F4, empty slots dashed), bottom =
   tools 1-9 + Energy; `placeBar()` picks free space around the hero bar / minimap / panels. Outside adventure view only
   the spell group shows. Browser check: `node client/hotbar-smoke.mjs --out <scratch>`.
+- Gear deposit (2026-11-27): `depositGear` (`herolife.ts handleDepositGear`, rule `armouryDepositOf` in protocol.ts)
+  puts plain tier 1-3 pack weapons / helms / breastplates / shields into `state.equipment`; test `gear-deposit`.
+- Interior drops (2026-11-27): ground stacks inside hostile interiors carry `scope` (`interiors.ts hostileInteriorScope`:
+  anchor + storey + layout/layer) and interior px; client draws them in `interior.ts`; test `interior-drops`.
+- Hotbar indoors (2026-11-27): `body.interior-hostile` (caves, ruins, camps, mines) shows the hotbar; tools are
+  `toolsOff` (dimmed, never armed); browser check `node client/interior-smoke.mjs --out <scratch>`.
 - `scripts/run-tests.mjs` (test runner, sets per-test env), `scripts/live.sh` (the user's always-on frozen copy: DO NOT RUN).
 - Install/run: `npm install`, `npm run dev` (server :8080 + client :5173; do not use these ports for tests, see rules).
 - Type check: `npx tsc --noEmit -p server`, `-p client`, `-p shared` (check each package's tsconfig). Build client:
