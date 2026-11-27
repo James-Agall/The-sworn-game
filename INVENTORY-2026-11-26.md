@@ -76,6 +76,18 @@ check; the despawn sweep (≤300) once a second; snapshot filtering only when th
   gear can't go into the armoury: keep or drop them"), leg armour (the armoury makes none, so it could not round-trip).
   Same place rule as the goods deposit; 6 per real second. Life snapshot `atStore` drives the hero sheet's enabled state;
   hall chest action `hallGear`; test hook `packGear`.
+- **Gear deposit tiers + select** (branch `gear-deposit-tiers`, 2026-11-27): supersedes the "relics / adventure gear
+  refused" rule FOR WEAPONS. `armouryDepositOf` returns `{stock, tier, boosted, baseTier, why}`: plain weapons keep their
+  tier; special weapons (relic, `adventureTrait`, no valid 1-3 tier, or power score above the plain weapon of their tier)
+  go in at min(3, base + 1); base = own tier, else `plainWeaponTierFor(gearPowerScore(stats))` (weights
+  `GEAR_POWER_WEIGHTS`: damage / attack speed / move speed % x1, spell power % x0.5, max HP x0.1, damage taken % x-1;
+  plain weapons 20 / 40 / 70). All 4 relic weapons -> tier 3, the 4 adventure weapons (tier 1) -> tier 2. Armour stays
+  plain-only (special armour refused; extending the boost to it is a one-line change). Message gains
+  `itemIds: string[]` (<= 40 unique; > 200 raw or malformed entries ignored; partial success, one toast with the touched
+  counters + "Skipped K: <first reason>"; one rate-limit slot per message). `all` deposits only plain pieces. A
+  deposited relic leaves the profile, so `ownsRelic` no longer sees it and it can drop again. Hero sheet: Select mode
+  (heroSheet.ts), deposit tier in tooltips / menu, inline confirms for special weapons; hall chest lists special
+  weapons and asks first (`hallGear` arg `confirm:<id>` / `back`). Browser check `client/gear-deposit-smoke.mjs`.
 - **Drops in hostile interiors**: a `GroundItem` may carry `scope` = `"<anchor x,y>:<storey>:v<variant>"`
   (interiors.ts hostileInteriorScope: encounters and mines; one cave, one mine layer) with interior px. Same map, cap
   (300 shared), merge (same scope + tile), dropper delay, rate limit and despawn. The free spot uses the interior's own
