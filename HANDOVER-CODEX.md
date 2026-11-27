@@ -37,6 +37,10 @@ priorities, hero tools, seasons/weather, interiors, animals in buildings, bluepr
 - `client/src/main.ts` (large; splitting it is an open cleanup), plus `adventure.ts`, `interior.ts`, `herotools.ts`,
   `zones.ts`, `work.ts`, `weather.ts`, `blueprints.ts`, `campEditor.ts`, `templateEditor.ts`, `structureArt.ts`,
   `spriteRegistry.ts`, `unitVisuals.ts`, `worldVisuals.ts`, `tools.ts`, ...
+- Esc = weapon ready (2026-11-27): `currentTool` can be `TOOL_NONE` (`client/src/tools.ts`, -1, client-only): no toolbar
+  highlight, no ghost / hover box, right- and left-clicks place / demolish nothing. Esc enters it (plus hotbar tool away,
+  a pack weapon wielded into an empty slot) only when `isAnyEscapeLayerOpen()` in main.ts finds nothing else open; any
+  tool pick leaves it. Browser check: `node client/esc-smoke.mjs --out <scratch>`.
 - `scripts/run-tests.mjs` (test runner, sets per-test env), `scripts/live.sh` (the user's always-on frozen copy: DO NOT RUN).
 - Install/run: `npm install`, `npm run dev` (server :8080 + client :5173; do not use these ports for tests, see rules).
 - Type check: `npx tsc --noEmit -p server`, `-p client`, `-p shared` (check each package's tsconfig). Build client:
