@@ -759,6 +759,20 @@ export interface GearItem {
   // Hero phase 4: Spell Tomes only - the spell it teaches.
   spellId?: SpellId;
 }
+// Interior fixes 2026-11-27 (`depositGear`): the colony armoury stock (`EquipmentStock`) counts only tiers, so a pack
+// item may go in only if the armoury "Take" can hand back the same kind of piece: tier 1-3 plain weapons (-> weapon
+// stock; the kind is not kept) and helms / breastplates / shields (head / chest / offhand -> armour stock). Relics,
+// adventure gear, tomes and leg armour (the armoury makes none) cannot. Returns the stock it goes into, or the refusal.
+export function armouryDepositOf(item: GearItem): { stock: "weapon" | "armour"; tier: 1 | 2 | 3 } | { refuse: string } {
+  if (item.tier === "relic" || item.relicId || item.adventureTrait || item.spellId || item.slot === "tome" || ![1, 2, 3].includes(item.tier as number)) {
+    return { refuse: "Relics and special gear can't go into the armoury: keep or drop them" };
+  }
+  const tier = item.tier as 1 | 2 | 3;
+  if (item.slot === "weapon") return { stock: "weapon", tier };
+  if (item.slot === "head" || item.slot === "chest" || item.slot === "offhand") return { stock: "armour", tier };
+  if (item.slot === "legs") return { refuse: "Leg armour can't go into the armoury (it stocks only helms, breastplates and shields): keep or drop it" };
+  return { refuse: "Relics and special gear can't go into the armoury: keep or drop them" };
+}
 export type Equipment = Record<GearSlot, GearItem | null>;
 // Derived (server-computed) modifiers of the player's gear + level.
 export interface HeroStats {
@@ -1478,6 +1492,9 @@ export type ClientMessage =
   | { type: "dropGood"; good: PackGood; qty: number }
   | { type: "dropGear"; itemId: string }
   | { type: "pickupGround"; id: string }
+  // Interior fixes 2026-11-27: one plain tiered pack item (or `all` eligible ones) into the colony armoury stock
+  // (armouryDepositOf), where the goods deposit works (next to the Town Center / a storage chest, or in an own building).
+  | { type: "depositGear"; itemId?: string; all?: boolean }
   // Stardew phase 5c: leave the interior (Esc near the exit mat; walking onto the mat leaves by itself).
   | { type: "interiorEdit"; op: "base"|"floor"|"wall"|"place"|"remove"; base?:string; floor?:string; wall?:string; prop?:string; x?:number; y?:number; facing?:string }
   | { type:"adventureJournal"; op:"get"|"track"|"act"; id?:string }
@@ -1493,8 +1510,10 @@ export interface InteriorSpellEffect {key:string;variant:number;fromX:number;fro
 // name / tier / slot / kind / icon only). x / y are world px.
 export interface GroundItemSnapshot {
   id: string;
+  // Interior px when `in` (Interior fixes 2026-11-27: a stack inside the hostile interior the hero is in), else world px.
   x: number;
   y: number;
+  in?: 1;
   k: "g" | "e";
   good?: PackGood;
   qty?: number;

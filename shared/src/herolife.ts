@@ -195,7 +195,7 @@ export type DialogueAction =
   // Stardew phase 5c (interiors): open the building's panel, the bed (sleep to dawn / nap), the chest (store / take).
   | "interiorObject" | "craftRecipe" | "openStockpile" | "openBuilding" | "sleep" | "nap" | "chestPut" | "chestTake"
   // Inventory 2026-11-26: the Great hall chest's deposit (all / one good) into the stockpile, and its private storage.
-  | "hallDeposit" | "chestPrivate"
+  | "hallDeposit" | "hallGear" | "chestPrivate"
   // Gap closure G6: a trader lists the clan's animals for sale.
   | "sellAnimals"
   // Gap closure G5: a tavern patron's rumour (camps / settlements / ore nearby) and a drink at the tavern.
@@ -524,6 +524,8 @@ export interface HeroLifeSnapshot {
   // Gap closure G7: the quest givers (mob ids) with a quest for this player's clan: one waiting to be accepted, or
   // the board has new work to ask for (the client draws a "!" over them).
   questMarks?: string[];
+  // Interior fixes 2026-11-27: the hero may deposit here (goods into the stockpile, gear into the armoury).
+  atStore?: boolean;
 }
 export interface DialogueSnapshot {
   npc: { name: string; role: NpcRole; roleLabel: string; site?: string; tier?: RelationTier; color: number };

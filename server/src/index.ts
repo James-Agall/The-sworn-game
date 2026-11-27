@@ -84,7 +84,7 @@ import { clanOf, clanTilesForSnapshot, clanTownCenters, forEachClan, foundClan, 
 import { handleCallVillagers, handleChooseHeir, handleTrainUnit, heirChoicesFor } from "./people.js";
 import { handleCraftItem, handleProspect, progressionSnapshot } from "./progression.js";
 import { handleMineAssault, mineHeroAttack } from "./mines.js";
-import { handleDialogueChoice, handleGatherStop, handleHeroAction, handleHeroTool, handleInteract, withPlayerLife } from "./herolife.js";
+import { handleDepositGear, handleDialogueChoice, handleGatherStop, handleHeroAction, handleHeroTool, handleInteract, withPlayerLife } from "./herolife.js";
 import { handleInteriorEdit,handleInteriorUse,handleInteriorExit, playerInside } from "./interiors.js";
 import { groundPayloadFor, handleDropGear, handleDropGood, handlePickupGround } from "./groundItems.js";
 
@@ -457,6 +457,8 @@ function handleMessage(player: Player, message: ClientMessage) {
     handleDropGear(player, message.itemId);
   } else if (message.type === "pickupGround") {
     handlePickupGround(player, message.id);
+  } else if (message.type === "depositGear") {
+    handleDepositGear(player, message.itemId, message.all);
   } else if(message.type==="interiorEdit"){
     handleInteriorEdit(player,message);
   } else if(message.type==="adventureJournal"){

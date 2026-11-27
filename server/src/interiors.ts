@@ -1,6 +1,7 @@
 import { combatMotion } from "./playerCombat.js";
 import {explorationView} from './adventureLoot.js';
 import {storyRoomMap} from './story.js';
+import {nearestGround,tryPickupNearest} from './groundItems.js';
 import {furnitureView,useFurniture,furnitureRoomMap,resetFurniture} from './furniture.js';
 import {bossMoveSpeed} from './bossCombat.js';
 import {companionSnapshots,companionLive} from "./companions.js";
@@ -32,7 +33,7 @@ import {
   type InteriorNpcPose, type InteriorNpcSnapshot, type InteriorTemplateId, type InteriorView,
 } from "@colony/shared/interiors";
 import { STATION_SKILL, NPC_ROLE_LABEL, PACK_CAP, PACK_GOODS, PACK_LABEL, PACK_WEIGHT, TALK_RANGE_TILES, type NpcRole, type PackGood } from "@colony/shared/herolife";
-import { PLAYER_HALF_SIZE, PLAYER_SPEED, TILE_SIZE, TileType, isSolidTile } from "@colony/shared/protocol";
+import { PLAYER_HALF_SIZE, PLAYER_SPEED, TILE_SIZE, TileType, armouryDepositOf, isSolidTile } from "@colony/shared/protocol";
 import type { Mob, Player, SiteState } from "./types.js";
 import { GAME_DAY_TICKS, dt } from "./constants.js";
 import { colonists, mobs, players, state } from "./state.js";
@@ -50,7 +51,7 @@ import { MINE_LABEL, isLayeredMine, isMineTile, mineLayerResourcesText } from "@
 import { mineHidesMiners, mineView } from "./mines.js";
 import {
   type ChoiceRt, type TalkInside, closeTalk, furnitureTalk, heroSpeedMult, lifeOf, nameFor, namedRoleMark, packWeight, restHeroFully,
-  handlePersonalCraft, packToStock, setHeroResting, startTalk, stopHeroBusy, talkColorFor, toast,
+  handleDepositGear, handlePersonalCraft, packToStock, setHeroResting, startTalk, stopHeroBusy, talkColorFor, toast,
 } from "./herolife.js";
 import { namedRoleName, type QuestRole } from "@colony/shared/namedRoles";
 
@@ -546,6 +547,13 @@ function sendView(p: Player, force = false) {
 }
 
 export function companionRoomGrid(p:Player){return p.interior?mapOf(p.interior):undefined;}
+// Interior fixes 2026-11-27 (groundItems.ts): the instance a hero stands in, if it is a HOSTILE interior (an encounter:
+// bandit camp, cave, ruin; or a mine / quarry): the building anchor + storey + layout / layer (the same identity as
+// roomKeyOf and adventureLoot's room: one cave, one mine layer). Peaceful buildings: null (no drops there).
+export function hostileInteriorScope(p:Player):string|null{
+ const I=p.interior;if(!I||!(encounterKind(I.tile)||I.templateId==='mine'))return null;
+ return `${I.key}:${I.storey}:v${I.variant}`;
+}
 export function refreshInteriorView(key?:string){for(const p of players.values())if(p.interior&&(!key||p.interior.key===key))sendView(p,true);}
 export function handleInteriorTalk(p:Player,id:unknown){
  if(typeof id!=='string'||id.length>200||p.dead||!p.interior)return;const v=viewFor(p);if(!v)return;
@@ -858,6 +866,9 @@ export function interiorInteract(p: Player) {
     else if(v.view.furniture?.some(f=>f.x===q.x&&f.y===q.y))offer(d+(v.view.furniture.find(f=>f.x===q.x&&f.y===q.y)?.action==='travel'?0.5:0),()=>handleInteriorUse(p,q.x,q.y));
     else if (q.prop === "chest") offer(d, () => (v.view.chest ? chestTalk(p, "", inside(q.x, q.y)) : toast(p, "This chest is not yours")));
   }
+  // Interior fixes 2026-11-27: a stack dropped in this hostile interior, within reach (talking to someone wins a tie).
+  const drop = nearestGround(p);
+  if (drop) offer(drop.d + 0.05, () => tryPickupNearest(p));
   const de = dist(map.exit.x, map.exit.y);
   if (de <= INTERIOR_USE_RANGE_TILES) offer(de + 0.25, () => exitInterior(p));
   const pick = best as Pick | null;
@@ -908,9 +919,17 @@ function hallChestTalk(p: Player, head: string, at: TalkInside) {
   const choices: ChoiceRt[] = [
     { label: "Deposit all carried goods into the stockpile.", action: "hallDeposit", arg: "all", disabled: goods.length ? undefined : "You carry nothing" },
     ...goods.map((g): ChoiceRt => ({ label: `Deposit ${life.pack[g]} ${PACK_LABEL[g].toLowerCase()}.`, action: "hallDeposit", arg: g })),
-    { label: "Open shared Stockpile.", action: "openStockpile" },
-    { label: "Use the hall chest (private storage).", action: "chestPrivate" },
   ];
+  // Interior fixes 2026-11-27: plain pack weapons / armour into the armoury stock (tier only; the kind is picked on Take).
+  const gear = heroProfileOf(p).inventory.filter((i) => !("refuse" in armouryDepositOf(i)));
+  if (gear.length) {
+    choices.push({ label: `Deposit all plain gear (${gear.length}) into the armoury.`, action: "hallGear", arg: "all" });
+    for (const i of gear.slice(0, 8)) {
+      const to = armouryDepositOf(i) as { stock: string; tier: number };
+      choices.push({ label: `Deposit ${i.name} (goes in as a tier-${to.tier} ${to.stock === "weapon" ? "weapon; you pick the kind when you take one" : "armour piece"}).`, action: "hallGear", arg: i.id });
+    }
+  }
+  choices.push({ label: "Open shared Stockpile.", action: "openStockpile" }, { label: "Use the hall chest (private storage).", action: "chestPrivate" });
   const text = `${head ? head + "\n\n" : ""}Deposit carried goods into your shared stockpile.\nCarried (${packWeight(life)} / ${PACK_CAP}): ${goodsText(life.pack)}.`;
   furnitureTalk(p, "Hall chest", text, choices, at);
 }
@@ -976,6 +995,11 @@ export function interiorFurnitureChoice(p: Player, action: string, arg: unknown)
   const chestProp = near("chest");
   if (!chestProp || !v.view.chest) return closeTalk(p);
   if (action === "chestPrivate") return chestTalk(p, "", at(chestProp), true);
+  if (action === "hallGear") {
+    if (!sharedStockAccess(p) || typeof arg !== "string") return closeTalk(p);
+    handleDepositGear(p, arg === "all" ? undefined : arg, arg === "all");
+    return hallChestTalk(p, "", at(chestProp));
+  }
   if (action === "hallDeposit") {
     if (!sharedStockAccess(p)) return closeTalk(p);
     const only = (PACK_GOODS as unknown[]).includes(arg) ? (arg as PackGood) : undefined;

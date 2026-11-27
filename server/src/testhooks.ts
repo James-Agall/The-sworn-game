@@ -27,7 +27,7 @@ import { promises as fsp } from "node:fs";
 import { randomUUID } from "node:crypto";
 import {
   TileType, type WildlifeKind, WILDLIFE_KINDS, type MobKind, HungerMark, TILE_SIZE, SIEGE_KINDS, COLONIST_ROLE,
-  MOB_ROLE, type ColonistKind, type Stance, type EquipSlot, HERO_CLASSES, type HeroClass,
+  MOB_ROLE, type ColonistKind, type Stance, type EquipSlot, HERO_CLASSES, type HeroClass, type GearItem,
 } from "@colony/shared/protocol";
 import type { Player, RaidGroup, ResourceKey, SiteTemplateId, TileCoord } from "./types.js";
 import { adjustRelation, applySiteTier, catchUpCampGrowth, relationOf, siteFitProblem, stampSiteTemplate, templateSize } from "./sites.js";
@@ -86,7 +86,7 @@ import { createRaidMob, raidSizeForDay, raidTargetExists, spawnRaid } from "./ra
 import { damageHearth } from "./hearths.js";
 import { activeGoals, nightsSurvived, refreshGoalSnapshot } from "./goals.js";
 import {
-  grantRelic, heroKey, heroProfileOf, heroProfileSnapshot, heroSheetsSnapshot, isEquippedKind, pickHeroName,
+  grantRelic, recomputeHeroProfile, heroKey, heroProfileOf, heroProfileSnapshot, heroSheetsSnapshot, isEquippedKind, pickHeroName,
   playerAttackCooldownTicks, playerMaxHp, spawnHeroColonist, weaponDamageMult, armourDamageTakenMult,
 } from "./heroes.js";
 import { grantTome, isSpellId, learnSpell, spellBookSnapshot } from "./spells.js";
@@ -101,7 +101,7 @@ import { BARN_FARMERS_BY_LEVEL, BARN_FIELD_RADIUS_TILES, FIELDS_PER_FARMER, FOOD
 import { assignHomes, handleCallVillagers, heirSnapshot, peopleDawnForClan, rescuePrisoners, trainInfo, villageLevyInfo } from "./people.js";
 import { calendarDayNow, calendarNow, calendarSnapshot, rainingNow, setCalendar, setWeatherOverride, updateCalendar, winterNow, snowSlowNow, forageRegrowTicksBetween } from "./calendar.js";
 import { weatherForDay } from "@colony/shared/calendar";
-import { enterInterior, exitInterior, handleInteriorExit, interiorDebug, setForcedInteriorVariant } from "./interiors.js";
+import { enterInterior, exitInterior, handleInteriorExit, hostileInteriorScope, interiorDebug, setForcedInteriorVariant } from "./interiors.js";
 import { mineDebug } from "./mines.js";
 
 export function handleTestHook(player: Player, msg: Record<string, unknown>) {
@@ -845,6 +845,15 @@ export function handleTestHook(player: Player, msg: Record<string, unknown>) {
       key: prof.key, profile: heroProfileSnapshot(prof), hp: player.hp, dead: player.dead,
       cooldownTicks: playerAttackCooldownTicks(player), keys: Array.from(heroProfiles.keys()), events: heroEvents.slice(),
     });
+  } else if (msg.op === "packGear") {
+    // Interior fixes 2026-11-27: put one gear item (as given: any slot / tier / trait) into this player's pack; replies the pack.
+    const it = msg.item as Record<string, unknown> | undefined;
+    const prof = heroProfileOf(player);
+    if (it && typeof it === "object" && typeof it.id === "string" && typeof it.name === "string" && typeof it.slot === "string" && it.stats && typeof it.stats === "object") {
+      prof.inventory.push(structuredClone(it) as unknown as GearItem);
+      recomputeHeroProfile(prof);
+    }
+    reply({ inventory: prof.inventory, equipment: prof.equipment });
   } else if (msg.op === "grantRelic") {
     const item = grantRelic(heroProfileOf(player), "hook", typeof msg.relicId === "string" ? msg.relicId : undefined);
     reply({ item });
@@ -1281,15 +1290,15 @@ export function handleTestHook(player: Player, msg: Record<string, unknown>) {
     // of 1 without the drop rules (the per-world cap), `drop` {good, qty} / `dropGear` / `pickup` act as the messages
     // (in the player's clan context).
     if (msg.clear === true) resetGroundItems();
-    const sp = msg.spawn as { n?: unknown; good?: unknown; x?: unknown; y?: unknown } | undefined;
+    const sp = msg.spawn as { n?: unknown; good?: unknown; x?: unknown; y?: unknown; scope?: unknown } | undefined;
     const spawn = sp && typeof sp.n === "number" && (PACK_GOODS as unknown[]).includes(sp.good) && typeof sp.x === "number" && typeof sp.y === "number"
-      ? { n: Math.max(0, Math.min(1000, Math.floor(sp.n))), good: sp.good as PackGood, x: sp.x, y: sp.y } : undefined;
+      ? { n: Math.max(0, Math.min(1000, Math.floor(sp.n))), good: sp.good as PackGood, x: sp.x, y: sp.y, ...(typeof sp.scope === "string" ? { scope: sp.scope } : {}) } : undefined;
     withClan(clanOf(player), () => {
       if ("drop" in msg) { const d = msg.drop as { good?: unknown; qty?: unknown }; handleDropGood(player, d?.good, d?.qty); }
       if ("dropGear" in msg) handleDropGear(player, msg.dropGear);
       if ("pickup" in msg) handlePickupGround(player, msg.pickup);
     });
-    reply({ ...groundDebug(spawn), cycleTick: state.cycleTick });
+    reply({ ...groundDebug(spawn), cycleTick: state.cycleTick, scope: hostileInteriorScope(player) });
   } else if (msg.op === "mine") {
     // Deep mines (mines.ts mineDebug): pick a mine {tx, ty}; infest / clear / roll / dawn / sync / set / wakeAll /
     // place; replies its record, live monsters, work multiplier, panel info and every mine's status.

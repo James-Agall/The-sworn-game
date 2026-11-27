@@ -53,6 +53,8 @@ import { SEASONS, SEASON_GROUND_TINT, SEASON_TREE_TINT } from "@colony/shared/ca
 // Solo hero (herolife.ts): set once the hero bar exists; the socket handler forwards dialogue / life to it.
 const heroLifeRef: { ui: HeroLifeUi | null } = { ui: null };
 const heroToolsRef: { ui: ReturnType<typeof setupHeroTools> | null } = { ui: null };
+// Interior fixes 2026-11-27: the last snapshot life.atStore (hero sheet "Deposit to armoury").
+let lifeAtStore = false;
 // Stardew phase 5c: the building interior view (interior.ts), set up after the world layer.
 const interiorRef: { ui: InteriorUi | null } = { ui: null };
 let combatControls: ReturnType<typeof setupPlayerCombat> | undefined;
@@ -3733,6 +3735,7 @@ async function main() {
     sendMessage, get renderSpellBar() { return renderSpellBar; }, heroToolsRef, get latestColonists() { return latestColonists; },
     get selectedIds() { return selectedIds; },
     get spellCdAt() { return spellCdAt; }, set spellCdAt(v) { spellCdAt = v; },
+    get atStore() { return lifeAtStore; },
   });
   const { spellIcon, showSpellTip, hideItemTip, syncHeroProfile, setHeroSheetOpen, heroModal, itemIcon } = heroSheetApi;
   const spellBarApi = createSpellBar({
@@ -3859,6 +3862,7 @@ async function main() {
       latestPlayersForSpells = message.players;
       if (message.life) {
         questMarkIds = new Set(message.life.questMarks ?? []);
+        lifeAtStore = !!message.life.atStore;
         heroLifeRef.ui?.onLife(message.life);
         heroToolsRef.ui?.onLife(message.life);
       }
@@ -3873,7 +3877,11 @@ async function main() {
       syncDamagedBuildings(message.damagedBuildings);
       syncGates(message.gates);
       zonesUi.apply(message.zones);
-      groundUi.sync(message.ground);
+      // Interior fixes 2026-11-27: stacks inside a hostile interior (`in`) are drawn by the interior view.
+      if (message.ground) {
+        groundUi.sync(message.ground.filter((s) => !s.in));
+        interiorRef.ui?.onGround(message.ground.filter((s) => s.in));
+      }
       const meNow = message.players.find((pl) => pl.id === myId);
       if (meNow && !meNow.inside) groundUi.near(meNow.x, meNow.y);
       if (message.sites) syncFortMarkers(message.sites);
@@ -4287,6 +4295,7 @@ async function main() {
     offhandWorn: () => !!heroSheetApi.heroProfile?.equipment.offhand,
     weaponTip: (e, item, hint) => heroSheetApi.showItemTip(e, item, null, hint, false),
     hideTip: hideItemTip,
+    toolsOff: () => !!interiorRef.ui?.hostile(),
   });
   // Unified hotbar: the spell bar (its buttons, cooldown overlays, tooltips and hotkeys untouched) becomes its SPELLS group.
   heroTools.spellHost.appendChild(document.getElementById("spell-bar")!);
