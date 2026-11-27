@@ -1,7 +1,7 @@
 // Hero sheet (inventory modal): paper doll, pack, armoury, stats, spell book, needs, skills, family tabs,
 // item tooltips and the item context menu. Split out of main.ts (2026-11-26).
 import { ADVENTURE_GEAR, adventureTrait } from "@colony/shared/expeditions";
-import { PLAYER_GEAR_SLOTS, PLAYER_WEAPON_KINDS, armouryDepositOf } from "@colony/shared/protocol";
+import { PLAYER_GEAR_SLOTS, PLAYER_WEAPON_KINDS, armouryDepositLabel, armouryDepositOf, type ArmouryDeposit } from "@colony/shared/protocol";
 import { gearIconUrl } from "../heroAppearance";
 import { HERO_WEAPON_KINDS } from "@colony/shared/protocol";
 import { setupHeroTools } from "../herotools";
@@ -100,7 +100,8 @@ export function createHeroSheet(game: HeroSheetContext) {
     }
     return el;
   }
-  function showItemTip(e: MouseEvent, item: GearItem, compare: GearItem | null, hint: string, showDelta: boolean) {
+  // Gear deposit tiers 2026-11-27: `notes` = extra lines under the stats (the armoury deposit tier, the special warning).
+  function showItemTip(e: MouseEvent, item: GearItem, compare: GearItem | null, hint: string, showDelta: boolean, notes: { text: string; cls?: string }[] = []) {
     hsTip.replaceChildren();
     const name = document.createElement("b");
     name.textContent = item.name;
@@ -131,6 +132,12 @@ export function createHeroSheet(game: HeroSheetContext) {
     if (!STAT_LINES.some((line) => (item.stats[line.key] ?? 0) !== 0)) {
       const row = document.createElement("div");
       row.textContent = "No stat bonuses";
+      hsTip.append(row);
+    }
+    for (const n of notes) {
+      const row = document.createElement("div");
+      row.className = `hs-tip-note${n.cls ? ` ${n.cls}` : ""}`;
+      row.textContent = n.text;
       hsTip.append(row);
     }
     const foot = document.createElement("div");
@@ -195,13 +202,19 @@ export function createHeroSheet(game: HeroSheetContext) {
     if (refocus && invMenuFor?.isConnected) invMenuFor.focus();
     invMenuFor = null;
   }
-  function openInvMenu(anchor: HTMLElement, item: GearItem, actions: { label: string; run: () => void; disabled?: string; title?: string }[]) {
+  function openInvMenu(anchor: HTMLElement, item: GearItem, actions: { label: string; run: () => void; disabled?: string; title?: string }[], note?: string) {
     hideItemTip();
     invMenu.replaceChildren();
     const title = document.createElement("div");
     title.className = "hs-menu-title";
     title.textContent = item.name;
     invMenu.append(title);
+    if (note) {
+      const warn = document.createElement("div");
+      warn.className = "hs-menu-note";
+      warn.textContent = note;
+      invMenu.append(warn);
+    }
     for (const a of [...actions, { label: "Cancel", run: () => {} }]) {
       const b = document.createElement("button");
       b.setAttribute("role", "menuitem");
@@ -239,6 +252,176 @@ export function createHeroSheet(game: HeroSheetContext) {
   document.addEventListener("pointerdown", (e) => {
     if (!invMenu.hidden && !invMenu.contains(e.target as Node)) closeInvMenu(false);
   });
+  // ---- Gear deposit tiers 2026-11-27: select pack items and deposit them to the armoury in one message ----
+  // Select mode (the "Select" button): a click / Space / Enter toggles an item, Shift+click (Shift+Space) selects the
+  // range from the last toggled slot. Ctrl / Cmd+click toggles even outside select mode (without equipping). Items the
+  // armoury refuses (armouryDepositOf) are dimmed and can't be selected. The selection survives re-renders (ids) and
+  // clears after a deposit or when the sheet closes. Esc: confirm open -> cancel it; select mode -> leave it; else the
+  // sheet closes (one press closes one thing; the sheet stays an Escape layer throughout).
+  const STORE_WHY = "Stand next to your Town Center or a storage chest to deposit";
+  let selectMode = false;
+  let selConfirm = false;
+  let selAnchor = -1;
+  const selectedGear = new Set<string>();
+  let packCells: { el: HTMLElement; item: GearItem; to: ArmouryDeposit | { refuse: string } }[] = [];
+  const selBar = document.createElement("div");
+  selBar.id = "hs-select-bar";
+  selBar.className = "hs-select-bar";
+  hsInv.before(selBar);
+  const isOk = (to: ArmouryDeposit | { refuse: string }): to is ArmouryDeposit => !("refuse" in to);
+  const pickedCells = () => packCells.filter((c) => selectedGear.has(c.item.id) && isOk(c.to));
+  function selSummary(cells: typeof packCells): string {
+    const w = [0, 0, 0], a = [0, 0, 0];
+    for (const c of cells) if (isOk(c.to)) (c.to.stock === "weapon" ? w : a)[c.to.tier - 1]++;
+    const part = (n: number[], label: string) => {
+      const total = n[0] + n[1] + n[2];
+      return total ? `${total} ${label} (${n.map((k, i) => (k ? `T${i + 1} x${k}` : "")).filter(Boolean).join(", ")})` : "";
+    };
+    return `${cells.length} item${cells.length === 1 ? "" : "s"}: ${[part(w, w[0] + w[1] + w[2] === 1 ? "weapon" : "weapons"), part(a, "armour")].filter(Boolean).join(", ")}`;
+  }
+  function setSelectMode(on: boolean) {
+    selectMode = on;
+    selConfirm = false;
+    if (!on) {
+      selectedGear.clear();
+      selAnchor = -1;
+    }
+    refreshSelection();
+  }
+  function toggleCell(idx: number, range: boolean) {
+    const cell = packCells[idx];
+    if (!cell || !isOk(cell.to)) return;
+    selConfirm = false;
+    if (range && selAnchor >= 0 && selAnchor !== idx) {
+      const [lo, hi] = selAnchor < idx ? [selAnchor, idx] : [idx, selAnchor];
+      for (let i = lo; i <= hi; i++) if (isOk(packCells[i].to)) selectedGear.add(packCells[i].item.id);
+    } else if (selectedGear.has(cell.item.id)) selectedGear.delete(cell.item.id);
+    else selectedGear.add(cell.item.id);
+    selAnchor = idx;
+    refreshSelection();
+  }
+  function depositSelected() {
+    const cells = pickedCells();
+    if (!cells.length || !game.atStore) return;
+    if (!selConfirm && cells.some((c) => isOk(c.to) && c.to.boosted)) {
+      selConfirm = true;
+      refreshSelection();
+      (selBar.querySelector(".hs-sel-yes") as HTMLButtonElement | null)?.focus();
+      return;
+    }
+    sendMessage({ type: "depositGear", itemIds: cells.map((c) => c.item.id) });
+    selectedGear.clear();
+    selAnchor = -1;
+    selConfirm = false;
+    refreshSelection();
+  }
+  function selButton(label: string, cls: string, run: () => void, disabled?: string) {
+    const b = document.createElement("button");
+    b.type = "button";
+    b.className = cls;
+    b.textContent = label;
+    if (disabled) {
+      b.disabled = true;
+      b.title = disabled;
+    }
+    b.addEventListener("click", run);
+    return b;
+  }
+  function refreshSelection() {
+    for (const id of [...selectedGear]) if (!packCells.some((c) => c.item.id === id && isOk(c.to))) selectedGear.delete(id);
+    hsInv.classList.toggle("select-mode", selectMode);
+    hsDoll.classList.toggle("select-mode", selectMode);
+    for (const c of packCells) {
+      const on = selectedGear.has(c.item.id);
+      c.el.classList.toggle("hs-sel-on", on);
+      c.el.classList.toggle("hs-sel-dim", selectMode && !isOk(c.to));
+      if (selectMode || on) c.el.setAttribute("aria-pressed", String(on));
+      else c.el.removeAttribute("aria-pressed");
+      if (selectMode && !isOk(c.to)) c.el.setAttribute("aria-disabled", "true");
+      else c.el.removeAttribute("aria-disabled");
+      // Select mode: the label says what Space / a click does now (or why it can't be picked).
+      c.el.dataset.label ??= c.el.getAttribute("aria-label") ?? c.item.name;
+      c.el.setAttribute("aria-label", !selectMode ? c.el.dataset.label
+        : isOk(c.to) ? `${c.item.name}: ${on ? "selected" : "select"} for the armoury (${armouryDepositLabel(c.to)})` : `${c.item.name}: can't be selected (${c.to.refuse})`);
+      c.el.querySelector(".hs-check")?.remove();
+      if (on) {
+        const mark = document.createElement("span");
+        mark.className = "hs-check";
+        mark.setAttribute("aria-hidden", "true");
+        mark.textContent = "✓";
+        c.el.append(mark);
+      }
+    }
+    selBar.replaceChildren();
+    const toggle = selButton(selectMode ? "Done selecting" : "Select", "hs-sel-toggle", () => setSelectMode(!selectMode));
+    toggle.setAttribute("aria-pressed", String(selectMode));
+    toggle.title = selectMode ? "Leave select mode (Esc)" : "Pick several items to deposit to the armoury (Ctrl+click also selects)";
+    selBar.append(toggle);
+    if (!selectMode && !selectedGear.size) return;
+    const eligible = packCells.filter((c) => isOk(c.to));
+    selBar.append(
+      selButton("Select all eligible", "hs-sel-all", () => {
+        for (const c of eligible) selectedGear.add(c.item.id);
+        selConfirm = false;
+        refreshSelection();
+      }, eligible.length ? undefined : "Nothing in your pack can go into the armoury"),
+      selButton("Clear", "hs-sel-clear", () => {
+        selectedGear.clear();
+        selAnchor = -1;
+        selConfirm = false;
+        refreshSelection();
+      }, selectedGear.size ? undefined : "Nothing selected"),
+    );
+    const cells = pickedCells();
+    const count = document.createElement("span");
+    count.className = "hs-sel-count";
+    count.setAttribute("aria-live", "polite");
+    count.textContent = `${cells.length} selected`;
+    selBar.append(count);
+    const dep = selButton(`Deposit selected (${cells.length}) to armoury`, "hs-sel-deposit", depositSelected,
+      !cells.length ? "Select items first (click them in select mode, or Ctrl+click)" : !game.atStore ? STORE_WHY : undefined);
+    selBar.append(dep);
+    const info = document.createElement("div");
+    info.className = "hs-sel-info";
+    info.textContent = cells.length ? selSummary(cells) + (game.atStore ? "" : ` · ${STORE_WHY}`)
+      : "Click items to select them · Shift+click selects a range · Ctrl+click works any time";
+    selBar.append(info);
+    if (selConfirm) {
+      const specials = cells.filter((c) => isOk(c.to) && c.to.boosted);
+      const box = document.createElement("div");
+      box.className = "hs-sel-confirm";
+      box.setAttribute("role", "alertdialog");
+      box.setAttribute("aria-label", "Confirm the deposit of special weapons");
+      const txt = document.createElement("div");
+      txt.textContent = `${specials.length === 1 ? specials[0].item.name + " is a special weapon" : `${specials.length} special weapons`} (+1 tier): ${specials.length === 1 ? "it comes" : "they come"} back as plain weapons and lose ${specials.length === 1 ? "its" : "their"} unique stats${specials.some((c) => c.item.relicId) ? " and relic status" : ""}.`;
+      box.append(txt,
+        selButton(`Deposit all ${cells.length}`, "hs-sel-yes", depositSelected),
+        selButton("Cancel", "hs-sel-no", () => {
+          selConfirm = false;
+          refreshSelection();
+        }));
+      selBar.append(box);
+    }
+  }
+  // Capture phase on the grid, so a selecting click never reaches the socket's equip / menu handlers.
+  hsInv.addEventListener("click", (e) => {
+    const el = (e.target as HTMLElement).closest<HTMLElement>("[data-pack-idx]");
+    if (!el) return;
+    const ctrl = e.ctrlKey || e.metaKey;
+    if (!selectMode && !ctrl && !(e.shiftKey && selectedGear.size)) return;
+    e.stopPropagation();
+    e.preventDefault();
+    hideItemTip();
+    toggleCell(Number(el.dataset.packIdx), e.shiftKey);
+  }, true);
+  hsInv.addEventListener("keydown", (e) => {
+    if (!selectMode || (e.key !== "Enter" && e.key !== " ")) return;
+    const el = (e.target as HTMLElement).closest<HTMLElement>("[data-pack-idx]");
+    if (!el) return;
+    e.stopPropagation();
+    e.preventDefault();
+    toggleCell(Number(el.dataset.packIdx), e.shiftKey);
+  }, true);
   // ---- Hero phase 4: spells on the sheet (icons, tooltips) ----
   const hsSpellbook = document.getElementById("hs-spellbook")!;
   const hsSpellAuto = document.getElementById("hs-spell-auto") as HTMLButtonElement;
@@ -352,7 +535,7 @@ export function createHeroSheet(game: HeroSheetContext) {
       const gearSocket = makeSocket(slot, item, {
           empty: SLOT_LABEL[slot],
           onClick: item ? () => sendMessage({ type: "unequipItem", slot, ...heroArg }) : undefined,
-          tip: item ? (e) => showItemTip(e, item, null, "Click to unequip", false) : undefined,
+          tip: item ? (e) => showItemTip(e, item, null, selectMode ? "Equipped: unequip it first to deposit it (click to unequip)" : "Click to unequip", false) : undefined,
         });
       gearSocket.dataset.slot=slot;
       gearSocket.setAttribute('role','button');gearSocket.tabIndex=0;
@@ -470,15 +653,28 @@ export function createHeroSheet(game: HeroSheetContext) {
     hsInv.replaceChildren();
     hsInv.setAttribute("aria-label", `Pack: ${prof.inventory.length} of ${prof.inventoryCap} slots used`);
     const dropItem = (item: GearItem) => sendMessage({ type: "dropGear", itemId: item.id });
-    // Interior fixes 2026-11-27: "Deposit to armoury" (plain tiered gear only; disabled with the reason otherwise).
-    const STORE_WHY = "Stand next to your Town Center or a storage chest to deposit";
-    const depositTip = (to: { stock: "weapon" | "armour"; tier: number }) => to.stock === "weapon"
-      ? `Goes into the armoury as a tier-${to.tier} weapon; you pick the kind when you take one`
-      : `Goes into the armoury as a tier-${to.tier} armour piece (taken back as a helmet, body armour or shield)`;
-    const depositAction = (item: GearItem) => {
+    // Interior fixes 2026-11-27: "Deposit to armoury" (disabled with the reason when refused / away from a store).
+    // Gear deposit tiers 2026-11-27: the entry names the tier it goes in as; a special weapon asks first (inline confirm).
+    const depositTip = (to: ArmouryDeposit) => to.stock === "weapon"
+      ? `Goes into the armoury as ${armouryDepositLabel(to)}; you pick the kind when you take one${to.boosted ? ` (it comes back as a plain tier-${to.tier} weapon)` : ""}`
+      : `Goes into the armoury as ${armouryDepositLabel(to)} (taken back as a helmet, body armour or shield)`;
+    const specialWarn = (item: GearItem, to: ArmouryDeposit) =>
+      `Special weapon: once deposited it comes back as a plain tier-${to.tier} weapon (its unique stats${item.relicId ? " and relic status are" : " are"} lost)`;
+    const depositNotes = (item: GearItem): { text: string; cls?: string }[] => {
       const to = armouryDepositOf(item);
-      return { label: "Deposit to armoury", run: () => sendMessage({ type: "depositGear", itemId: item.id }),
-        disabled: "refuse" in to ? to.refuse : game.atStore ? undefined : STORE_WHY, title: "refuse" in to ? undefined : depositTip(to) };
+      if ("refuse" in to) return [{ text: `Armoury: ${to.refuse}`, cls: "muted" }];
+      return [{ text: `Deposit to armoury: goes in as ${armouryDepositLabel(to)}` }, ...(to.boosted ? [{ text: specialWarn(item, to), cls: "warn" }] : [])];
+    };
+    const depositAction = (item: GearItem, sock: HTMLElement) => {
+      const to = armouryDepositOf(item);
+      const send = () => sendMessage({ type: "depositGear", itemId: item.id });
+      return {
+        label: "refuse" in to ? "Deposit to armoury" : `Deposit to armoury: goes in as ${armouryDepositLabel(to)}`,
+        run: "refuse" in to || !to.boosted ? send : () => openInvMenu(sock, item, [
+          { label: `Yes, deposit as a plain tier-${to.tier} weapon`, run: send },
+        ], `${specialWarn(item, to)}. Deposit it?`),
+        disabled: "refuse" in to ? to.refuse : game.atStore ? undefined : STORE_WHY, title: "refuse" in to ? undefined : depositTip(to),
+      };
     };
     const withMenu = (sock: HTMLElement, item: GearItem, actions: { label: string; run: () => void }[]) => {
       if (sock.tabIndex < 0) {
@@ -487,7 +683,7 @@ export function createHeroSheet(game: HeroSheetContext) {
         sock.setAttribute("aria-label", `${item.name}: open the item menu`);
       }
       sock.setAttribute("aria-haspopup", "menu");
-      const all = [...actions, depositAction(item), { label: hero ? "Drop (from your pack)" : "Drop on the ground", run: () => dropItem(item) }];
+      const all = [...actions, depositAction(item, sock), { label: hero ? "Drop (from your pack)" : "Drop on the ground", run: () => dropItem(item) }];
       sock.addEventListener("contextmenu", (e) => {
         e.preventDefault();
         openInvMenu(sock, item, all);
@@ -507,31 +703,42 @@ export function createHeroSheet(game: HeroSheetContext) {
       if (!actions.length) sock.addEventListener("click", () => openInvMenu(sock, item, all));
       return sock;
     };
+    packCells = [];
     for (const item of prof.inventory) {
       // Hero phase 4: a Spell Tome is read ("Learn") by whoever's tab is open, and consumed.
+      const idx = packCells.length;
       if (item.slot === "tome" && item.spellId) {
         const spellId = item.spellId;
         const known = book.learned.includes(spellId);
         const learn = () => sendMessage({ type: "useTome", itemId: item.id, ...heroArg });
-        hsInv.append(withMenu(
+        const tomeSock = withMenu(
           makeSocket(null, item, {
             onClick: known ? undefined : learn,
             tip: (e) => showSpellTip(e, spellId, prof.stats.spellPowerMult, known ? `${item.name}: already known${hero ? ` by ${hero.name}` : ""} · right click: drop` : `${item.name}: click to Learn${hero ? ` (${hero.name})` : ""} · right click: drop`, prof.spells?.castLevel),
           }),
           item, known ? [] : [{ label: "Learn", run: learn }],
-        ));
+        );
+        tomeSock.dataset.packIdx = String(idx);
+        packCells.push({ el: tomeSock, item, to: armouryDepositOf(item) });
+        hsInv.append(tomeSock);
         continue;
       }
       const target = gearSlotFor(item, prof);
       const current = target ? prof.equipment[target] : null;
       const equip = target ? () => sendMessage({ type: "equipItem", itemId: item.id, slot: target, ...heroArg }) : undefined;
-      hsInv.append(withMenu(
+      const to = armouryDepositOf(item);
+      const sock = withMenu(
         makeSocket(null, item, {
           onClick: equip,
-          tip: (e) => showItemTip(e, item, current, `${target ? `Click / Enter: equip (${SLOT_LABEL[target]})` : "Can't be worn here"} · right click: drop`, !!target),
+          tip: (e) => showItemTip(e, item, current, selectMode
+            ? "refuse" in to ? "Can't be selected for the armoury" : `Click / Space: ${selectedGear.has(item.id) ? "unselect" : "select"} · Shift+click: range`
+            : `${target ? `Click / Enter: equip (${SLOT_LABEL[target]})` : "Can't be worn here"} · Ctrl+click: select · right click: menu`, !!target && !selectMode, depositNotes(item)),
         }),
         item, equip ? [{ label: `Equip (${SLOT_LABEL[target!]})`, run: equip }] : [],
-      ));
+      );
+      sock.dataset.packIdx = String(idx);
+      packCells.push({ el: sock, item, to });
+      hsInv.append(sock);
     }
     for (let i = prof.inventory.length; i < prof.inventoryCap; i++) {
       const empty = document.createElement("div");
@@ -540,6 +747,7 @@ export function createHeroSheet(game: HeroSheetContext) {
       hsInv.append(empty);
     }
     invNote.hidden = prof.inventory.length > 0;
+    refreshSelection();
 
     // Take from the armoury: one plain piece of a tier out of the colony stock (armour -> chest, weapon -> weapon).
     hsArmoury.replaceChildren();
@@ -565,14 +773,15 @@ export function createHeroSheet(game: HeroSheetContext) {
         hsArmoury.append(btn);
       }
     }
-    // Interior fixes 2026-11-27: every plain tiered pack piece back into the stock (relics / special gear stay).
-    const plain = prof.inventory.filter((i) => !("refuse" in armouryDepositOf(i)));
+    // Interior fixes 2026-11-27: every plain tiered pack piece back into the stock (special weapons go in only when
+    // picked one by one: the item menu or Select, both with a confirm).
+    const plain = prof.inventory.filter((i) => { const to = armouryDepositOf(i); return isOk(to) && !to.boosted; });
     const dep = document.createElement("button");
     dep.className = "hs-deposit-gear";
     dep.textContent = `Deposit gear to armoury (${plain.length})`;
     dep.disabled = !plain.length || !game.atStore;
-    dep.title = !plain.length ? "No plain weapons or armour in your pack (relics and special gear can't go in)" : !game.atStore ? STORE_WHY
-      : "Every plain weapon and armour piece in your pack goes into the armoury by tier; weapons lose their kind (you pick it when you take one)";
+    dep.title = !plain.length ? "No plain weapons or armour in your pack (special weapons: use Select or the item menu)" : !game.atStore ? STORE_WHY
+      : "Every plain weapon and armour piece in your pack goes into the armoury by tier; weapons lose their kind (you pick it when you take one). Special weapons stay: use Select or the item menu";
     dep.addEventListener("click", () => sendMessage({ type: "depositGear", all: true }));
     hsArmoury.append(dep);
   }
@@ -584,6 +793,7 @@ export function createHeroSheet(game: HeroSheetContext) {
     }
     heroModal.hidden = !open;
     hideItemTip();
+    if (!open && (selectMode || selectedGear.size)) setSelectMode(false);
     if (open) renderHeroSheet(true);
   }
   document.getElementById("hero-btn")!.addEventListener("click", (e) => {
@@ -600,7 +810,12 @@ export function createHeroSheet(game: HeroSheetContext) {
       e.preventDefault();
       setHeroSheetOpen(heroModal.hidden);
     } else if (e.key === "Escape" && !heroModal.hidden) {
-      setHeroSheetOpen(false);
+      // Gear deposit tiers 2026-11-27: the select-mode confirm, then select mode, close before the sheet does.
+      if (selConfirm) {
+        selConfirm = false;
+        refreshSelection();
+      } else if (selectMode) setSelectMode(false);
+      else setHeroSheetOpen(false);
     }
   });
   function syncHeroProfile(
