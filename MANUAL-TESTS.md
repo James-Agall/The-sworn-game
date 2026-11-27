@@ -4,6 +4,28 @@ Start the game with `scripts/live.sh` (frozen copy that keeps running while code
 code) or `npm run dev`. Open http://localhost:5173. Detailed step-by-step checklists live at the end of each
 "landed" section in `ROADMAP.md`; this is the short version, in the order I would try them.
 
+## Hotbar: weapons and spells (2026-11-27)
+The hotbar (bottom of the screen in adventure view) now has two rows. Top row: your WEAPONS, a divider, then your
+SPELLS. Bottom row: the nine TOOLS (1-9) with the Energy meter under it.
+1. New game: the top row shows your Iron Sword (lit, label ⇧5) and two dashed empty weapon slots (⇧6, ⇧7), then four
+   dashed spell slots (⇧1..⇧4). Hover an empty one: "No weapon" / "No spell learned". Clicking them does nothing.
+2. Take a second weapon (Creative: armoury, or loot one): it fills the next empty slot at once. Click it, or press
+   Shift+5 / Shift+6 / ... (the number on the slot): you wield it and Space attacks with it. 0 still cycles weapons.
+   Hover a weapon slot: name, tier, stats and its key.
+3. Press 1 (hoe in hand): the weapon slot goes dark but you keep the weapon. Click a weapon slot (or its Shift key): the
+   hoe is put away and that weapon is lit.
+4. Wear a shield and carry a bow: the bow slot is dimmed; clicking it shows "A bow needs both hands ..." and nothing
+   changes (shield stays on, tool stays in hand). 0 skips the bow.
+5. Learn spells (church, tome or level up): each fills its dashed slot. Click a spell or press Shift+1..4 / F1..F4: you
+   aim (crosshair). Esc cancels only the aim; a second Esc puts the tool away and readies the weapon. Casting works with
+   a tool or a weapon in hand. A spell on cooldown shows the dark overlay with seconds left.
+6. Strategy view (Tab): only the spells show, above the command bar, as the old spell bar did. There is no separate
+   spell bar any more.
+7. Resize the window (1280x800, 1024x720) and open / close the Stockpile and Build panels: the hotbar moves to free space
+   (between the hero card and the minimap, or above them) with smaller slots if needed; it never covers the hero card,
+   the minimap, the top panels or the Energy meter.
+Keys: tools 1-9; weapons Shift+5..Shift+9 (first five weapon slots), 0 cycles; spells Shift+1..4 or F1..F4.
+
 ## Esc readies your weapon (2026-11-27)
 1. Open Build, pick Wood Wall, hover the map (white box), press Esc: no tool is highlighted, the box is gone, the
    requirements line is empty. Right-click and right-drag on open ground: nothing is built or demolished. Space attacks.

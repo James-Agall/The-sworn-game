@@ -41,6 +41,10 @@ priorities, hero tools, seasons/weather, interiors, animals in buildings, bluepr
   highlight, no ghost / hover box, right- and left-clicks place / demolish nothing. Esc enters it (plus hotbar tool away,
   a pack weapon wielded into an empty slot) only when `isAnyEscapeLayerOpen()` in main.ts finds nothing else open; any
   tool pick leaves it. Browser check: `node client/esc-smoke.mjs --out <scratch>`.
+- Unified hotbar (2026-11-27, `client/src/herotools.ts`): two rows, top = weapons (Shift+5..9, 0 cycles, dashed
+  placeholders to 3) | spells (the old `#spell-bar` reparented in, Shift+1..4 / F1..F4, empty slots dashed), bottom =
+  tools 1-9 + Energy; `placeBar()` picks free space around the hero bar / minimap / panels. Outside adventure view only
+  the spell group shows. Browser check: `node client/hotbar-smoke.mjs --out <scratch>`.
 - `scripts/run-tests.mjs` (test runner, sets per-test env), `scripts/live.sh` (the user's always-on frozen copy: DO NOT RUN).
 - Install/run: `npm install`, `npm run dev` (server :8080 + client :5173; do not use these ports for tests, see rules).
 - Type check: `npx tsc --noEmit -p server`, `-p client`, `-p shared` (check each package's tsconfig). Build client:
