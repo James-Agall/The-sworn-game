@@ -84,9 +84,10 @@ const ICON: Record<HeroTool, string> = {
 const CSS = `
 #hero-hotbar { position: fixed; left: 50%; bottom: 162px; transform: translateX(-50%); z-index: 9; display: flex; flex-direction: column;
   align-items: center; gap: 3px; pointer-events: none; }
-/* Strategy / classic view: only the spell group, where the old standalone spell bar sat (index.html styles #spell-bar). */
-body:not(.adventure-mode) #hero-hotbar { bottom: 96px; }
-body.strategy-mode #hero-hotbar { bottom: 216px; }
+/* Strategy / classic view: only the spell group, where the old standalone spell bar sat (index.html styles #spell-bar;
+   these beat menuSkin.css's adventure placement). In adventure view placeBar() below positions the hotbar. */
+body:not(.adventure-mode) #hero-hotbar { bottom: 96px !important; left: 50% !important; right: auto !important; transform: translateX(-50%) !important; }
+body.strategy-mode #hero-hotbar { bottom: 216px !important; }
 body:not(.adventure-mode) #hero-hotbar .hh-slots { display: contents; }
 body:not(.adventure-mode) #hero-hotbar :is(.hh-hint, .hh-energy, .hh-tools, .hh-weapons) { display: none; }
 #hero-hotbar #spell-bar { position: static; transform: none; pointer-events: auto; }
@@ -107,12 +108,11 @@ body.adventure-mode #hero-hotbar .spell-btn kbd { left: 2px; top: 0; right: auto
 #hero-hotbar .hh-slot.on { border-color: #f2b632; box-shadow: 0 0 6px rgba(242,182,50,.8); }
 #hero-hotbar .hh-slot.none { opacity: .4; }
 #hero-hotbar .hh-slot:focus-visible, #hero-hotbar .spell-btn:focus-visible { outline: 2px solid #fff; outline-offset: 1px; }
-/* Narrow windows: smaller slots so all three groups fit on one row above the hero bar / minimap. */
-@media (max-width: 1180px) {
-  #hero-hotbar .hh-slot { width: 30px; height: 30px; }
-  #hero-hotbar .hh-slot .hs-item { width: 22px; height: 22px; }
-  body.adventure-mode #hero-hotbar .spell-btn { width: 34px; height: 34px; }
-}
+/* placeBar(): smaller slots when the full row doesn't fit; wrapping as the last resort. */
+#hero-hotbar.compact .hh-slot { width: 30px; height: 30px; }
+#hero-hotbar.compact .hh-slot .hs-item { width: 22px; height: 22px; }
+body.adventure-mode #hero-hotbar.compact .spell-btn { width: 34px; height: 34px; }
+#hero-hotbar.wrap .hh-slots { flex-wrap: wrap; justify-content: center; overflow-x: visible !important; }
 #hero-hotbar .hh-slot kbd { position: absolute; left: 2px; top: 0; font-size: 9px; color: #fff; text-shadow: 0 0 2px #000; }
 #hero-hotbar .hh-slot small { position: absolute; right: 2px; bottom: 0; font-size: 9px; color: #fff; text-shadow: 0 0 2px #000; }
 #hero-hotbar .hh-hint { font-size: 11px; color: #fff; text-shadow: 0 0 3px #000; white-space: nowrap; min-height: 14px; }
@@ -227,6 +227,66 @@ export function setupHeroTools(deps: HeroToolsDeps): HeroToolsUi {
       weaponsEl.appendChild(s);
     });
   }
+  // Adventure view: sit on the bottom edge between the hero bar and the minimap when the row fits there (smaller slots
+  // if needed), else lift above both, centred; wrap only if even the compact row is wider than the window. Inline
+  // !important so it beats menuSkin.css's fixed placement. Re-run on a timer: panels open / close and slots change.
+  let placed = "";
+  function placeBar() {
+    const st = root.style;
+    if (!document.body.classList.contains("adventure-mode") || getComputedStyle(root).display === "none") {
+      if (placed) for (const k of ["left", "right", "bottom", "transform", "max-width"]) st.removeProperty(k);
+      if (placed) root.classList.remove("compact", "wrap");
+      placed = "";
+      return;
+    }
+    const vw = window.innerWidth;
+    const vh = window.innerHeight;
+    const box = (id: string) => {
+      const e = document.getElementById(id);
+      const r = e?.getBoundingClientRect();
+      return r && r.width > 0 && r.height > 0 && getComputedStyle(e!).visibility !== "hidden" ? r : null;
+    };
+    const hb = box("hero-bar");
+    const mm = box("minimap-frame");
+    const lo = (hb ? hb.right : 0) + 8;
+    const hi = (mm ? mm.left : vw) - 8;
+    const width = (compact: boolean) => {
+      root.classList.toggle("compact", compact);
+      root.classList.remove("wrap");
+      return slotsEl.scrollWidth + 4;
+    };
+    let compact = false;
+    let wrap = false;
+    let w = width(false);
+    let bottom = 10;
+    let [a, b] = [lo, hi];
+    if (w > hi - lo && (w = width((compact = true))) > hi - lo) {
+      // Lift above the hero bar / minimap (whichever reaches higher), between the open side panels (Stockpile on the
+      // left, Build on the right, or their edge tabs), full size if it fits there.
+      bottom = vh - Math.min(hb ? hb.top : vh, mm ? mm.top : vh) + 6;
+      const econ = document.getElementById("economy-panel")?.classList.contains("collapsed") === false ? box("economy-panel") : null;
+      const build = document.getElementById("build-panel")?.classList.contains("collapsed") === false ? box("build-panel") : null;
+      const econTab = box("economy-panel-toggle");
+      const buildTab = box("build-panel-toggle");
+      a = Math.max(econ ? econ.right : 0, econTab ? econTab.right : 0) + 8;
+      b = Math.min(build ? build.left : vw, buildTab ? buildTab.left : vw) - 8;
+      if ((w = width((compact = false))) > b - a && (w = width((compact = true))) > b - a) wrap = true;
+    }
+    root.classList.toggle("compact", compact);
+    root.classList.toggle("wrap", wrap);
+    const half = Math.min(w, b - a) / 2;
+    const cx = Math.max(a + half, Math.min(b - half, vw / 2));
+    const sig = `${Math.round(cx)}|${Math.round(bottom)}|${compact}|${wrap}|${Math.round(b - a)}`;
+    if (sig === placed) return;
+    placed = sig;
+    st.setProperty("left", `${Math.round(cx)}px`, "important");
+    st.setProperty("right", "auto", "important");
+    st.setProperty("bottom", `${Math.round(bottom)}px`, "important");
+    st.setProperty("transform", "translateX(-50%)", "important");
+    st.setProperty("max-width", `${Math.max(120, b - a)}px`, "important");
+  }
+  window.setInterval(placeBar, 250);
+  window.addEventListener("resize", placeBar);
   function pickWeapon(id: string) {
     // A bow with a shield worn: the server refuses it with its message; keep the tool in hand.
     const w = deps.weapons().find((x) => x.id === id);
