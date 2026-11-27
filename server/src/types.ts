@@ -977,6 +977,9 @@ export interface HeroProfile {
   companion?:import("./companions.js").CompanionRecord;
   appearance?: import("@colony/shared/protocol").HeroAppearance;
   key: string;
+  // Set once the player's starter sword was considered (granted when they had no weapon at all); saved, so a
+  // sword that was dropped or sold is never granted again.
+  starterWeapon?: true;
   equipment: Equipment;
   // Unequipped items only (equipped ones live in `equipment`), at most HERO_INVENTORY_CAP.
   inventory: GearItem[];

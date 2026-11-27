@@ -244,7 +244,24 @@ export function heroProfileFor(key: string): HeroProfile {
 }
 
 export function heroProfileOf(player: Player): HeroProfile {
-  return heroProfileFor(player.profileKey);
+  const prof = heroProfileFor(player.profileKey);
+  ensureStarterWeapon(prof);
+  return prof;
+}
+
+// Every player can at least fight: a profile with no weapon at all (equipped or in the pack) gets a plain tier-1 sword,
+// equipped, ONCE (the flag is saved, so dropping or selling it never grants another). Same item the armoury makes for
+// tier 1 (PLAIN_GEAR). Heroes ("hero:<id>") are not players and equip from the player's gear.
+export function starterSword(): GearItem {
+  const def = PLAIN_GEAR.weapon;
+  return { id: randomUUID(), slot: def.slot, name: "Iron Sword", tier: 1, stats: def.stats(1), kind: "sword", icon: "icon-weaponT1" };
+}
+export function ensureStarterWeapon(prof: HeroProfile) {
+  if (prof.starterWeapon || prof.key.startsWith(HERO_KEY_PREFIX)) return;
+  prof.starterWeapon = true;
+  if (prof.equipment.weapon || prof.inventory.some((i) => i.slot === "weapon")) return;
+  prof.equipment.weapon = starterSword();
+  recomputeHeroProfile(prof);
 }
 
 // After any change to a profile: re-derive its modifiers, mark it for resending, and clamp the HP of
@@ -483,6 +500,7 @@ export function serializeHeroProfiles() {
     companion:p.companion,
     appearance: sanitizeHeroAppearance(p.appearance),
     key: p.key, equipment: p.equipment, inventory: p.inventory, xp: p.xp,
+    ...(p.starterWeapon ? { starterWeapon: true } : {}),
     ...(p.heroClass ? { heroClass: p.heroClass, heroName: p.heroName } : {}),
     // Hero phase 4 (old saves: none learned; restore then grants the level-ups already earned).
     spells: p.spells, spellSlots: p.spellSlots, spellAuto: p.spellAuto, spellGrants: p.spellGrants,
@@ -509,6 +527,7 @@ export function restoreHeroProfiles(saved: unknown) {
       : undefined;
     const prof = newHeroProfile(raw.key, eq, hero ? [] : inv, xp, hero);
     prof.appearance = sanitizeHeroAppearance(raw.appearance);
+    if (raw.starterWeapon === true) prof.starterWeapon = true;
     restoreSpellBook(prof, raw);
     const life = sanitizeHeroLife(raw.life);
     if (life) prof.life = life;

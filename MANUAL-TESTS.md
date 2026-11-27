@@ -1664,3 +1664,13 @@ URL (e.g. `http://localhost:5173/?rig=1`, or `&rig=1` after `?mode=creative`) to
    he recoils backwards) and the tool swing (hotbar tool + Space) all use the same rig and size.
 
 Automated / sheets: `node scripts/player-rig-sheets.mjs <out dir> <private vite port>` (see PLAYER-RIG-2026-11-27.md).
+
+## Starter weapon (27 November 2026)
+Every player can fight from the first second: a player with no weapon at all (none equipped, none in the pack) gets a plain
+tier-1 **Iron Sword**, equipped, once. Saved games count too (the first time you load one and you have no weapon).
+1. Start a **new game** (Creative or Solo), open the Inventory (`` ` ``): the equipment stand shows an Iron Sword in the weapon
+   slot. Close the sheet, put away any hotbar tool, and press **Space**: the hero strikes.
+2. Drop the sword (right-click it in the stand/pack, or unequip then Drop), save, reload: no second sword appears.
+3. Load an **old save** whose hero had no weapon: the Iron Sword is equipped on the first use. A hero who already has a
+   weapon (equipped or in the pack) is left alone.
+4. Recruited heroes (companions/heroes with a class) never get one; they equip from your gear as before.
