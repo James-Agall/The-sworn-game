@@ -23,8 +23,9 @@ import {PLAYER_BASES,HOME_PROPS} from "@colony/shared/playerBases";
 // (or a stand-in tool swing), bob when idle, sit lower on a chair, lie across a bed asleep ("z"), face where they go
 // and show a speech bubble when they greet. Stairs ("U" / "D") are drawn in code; upstairs has no exit hint.
 import { loadTexture } from "./atlas";
+import { createGroundItems } from "./groundItems";
 import { Assets, Container, Graphics, Sprite, Text, Texture } from "pixi.js";
-import { TileType, SPELLS, type SpellId, type InteriorSpellEffect, type PlayerSnapshot } from "@colony/shared/protocol";
+import { TileType, SPELLS, type GroundItemSnapshot, type SpellId, type InteriorSpellEffect, type PlayerSnapshot } from "@colony/shared/protocol";
 import {
   INTERIOR_BOB_MS, INTERIOR_BOB_PX, INTERIOR_ESC_EXIT_TILES, INTERIOR_FADE_MS, INTERIOR_TILE_PX, INTERIOR_VIGNETTE_ALPHA,
   INTERIOR_WALK_FRAME_MS, INTERIOR_WORK_MS, INTERIOR_ZOOM, type InteriorMap, type InteriorNpcLive, type InteriorProp, type InteriorView,
@@ -143,6 +144,8 @@ export interface InteriorUi {
   // Deep mines: message `interiorMobs`.
   onMobs: (key: string, mobs: MineMobLive[]) => void;
   onPlayers: (players: PlayerSnapshot[]) => void;
+  // Interior fixes 2026-11-27: the stacks dropped in this hostile interior (snapshot `ground` entries marked `in`).
+  onGround: (list: GroundItemSnapshot[]) => void;
   reset: () => void;
 }
 
@@ -230,9 +233,12 @@ export function setupInterior(deps: InteriorDeps): InteriorUi {
   let openChest:{x:number;y:number;until:number}|null=null;
   let hover:{x:number;y:number}|null=null;
   const interactionOutline=new Graphics();interactionOutline.zIndex=1e7;
+  // Interior fixes 2026-11-27: dropped stacks, drawn like the world's (same sprites / prompts) in interior px, on the
+  // floor under the furniture and people; the "E / Click: pick up" label over everything.
+  const drops=createGroundItems(()=>T);drops.layer.zIndex=-2;drops.overlay.zIndex=1e7;
   const interactionHint=document.createElement('div');interactionHint.id='interior-use-hint';interactionHint.hidden=true;document.body.append(interactionHint);
   const hintStyle=document.createElement('style');hintStyle.textContent='#interior-use-hint{position:fixed;left:50%;bottom:115px;transform:translateX(-50%);max-width:calc(100vw - 30px);padding:9px 14px;background:#eadbb7ee;color:#352916;border:1px solid #967c4f;border-radius:4px;z-index:18;font:14px Georgia;pointer-events:none;text-align:center}#interior-use-hint[hidden]{display:none}#hl-dialogue{max-height:min(65vh,620px);overflow-y:auto}#hl-choices button{padding:7px 9px;min-height:31px}';document.head.append(hintStyle);
-  window.addEventListener('pointermove',e=>{if(!view||!(e.target instanceof HTMLCanvasElement)){hover=null;return;}const p=localPoint(e);hover={x:Math.floor(p.x/T),y:Math.floor(p.y/T)};if(!decorating)deps.combatAim?.(p.x,p.y);});
+  window.addEventListener('pointermove',e=>{if(!view||!(e.target instanceof HTMLCanvasElement)){hover=null;return;}const p=localPoint(e);hover={x:Math.floor(p.x/T),y:Math.floor(p.y/T)};drops.hover(p.x,p.y);if(!decorating)deps.combatAim?.(p.x,p.y);});
   const editor=document.createElement('section');editor.id='home-editor';editor.hidden=true;
   editor.innerHTML=`<h3>Make yourself at home</h3><label>Base style <select id="home-base">${PLAYER_BASES.map(b=>`<option value="${b.id}">${b.label}</option>`).join('')}</select></label><button id="home-base-apply">Use this base</button><label>Floor <select id="home-floor"><option value="wood">Wood planks</option><option value="stone">Stone tiles</option><option value="dirt">Packed earth</option></select></label><label>Walls <select id="home-wall"><option value="wood">Timber</option><option value="stone">Stone</option></select></label><label>Furnishing <select id="home-prop"><option value="remove">Remove furnishing</option>${HOME_PROPS.map(p=>`<option value="${p}">${p.replace(/([A-Z])/g,' $1')}</option>`).join('')}</select></label><label>Facing <select id="home-facing"><option value="n">North</option><option value="e">East</option><option value="s" selected>South</option><option value="w">West</option></select></label><img id="home-preview" alt="Selected furnishing"/><p>Click a floor tile to place or remove furniture. Paths and the doorway must stay clear. Furniture changes are free.</p><button id="home-done">Done decorating</button>`;
   document.body.append(editor);
@@ -262,6 +268,8 @@ export function setupInterior(deps: InteriorDeps): InteriorUi {
       return;
     }
     if(e.button!==0)return;
+    const stack=decorating?null:drops.hit(point.x,point.y);
+    if(stack){e.preventDefault();e.stopImmediatePropagation();deps.send({type:'pickupGround',id:stack.id});return;}
     if(decorating){e.preventDefault();e.stopImmediatePropagation();const prop=select('prop').value;edit({op:prop==='remove'?'remove':'place',prop,x,y,facing:select('facing').value});return;}
     const object=view.exploration?.objects.some(o=>o.x===x&&o.y===y&&(!o.secret||Math.hypot((x+.5)*T-target.x,(y+.5)*T-target.y)<T*1.8))||view.furniture?.some(o=>o.x===x&&o.y===y&&!o.cleared);
     if(object){e.preventDefault();e.stopImmediatePropagation();deps.send({type:'interiorUse',x,y});return;}
@@ -548,7 +556,7 @@ export function setupInterior(deps: InteriorDeps): InteriorUi {
       });
     }
     if (pendingLive && pendingLive.key === v.key && pendingLive.storey === m.storey) applyLive(pendingLive.npcs);
-    room.addChild(hero, slash, interactionOutline);
+    room.addChild(hero, slash, interactionOutline, drops.layer, drops.overlay);
     for (const o of others.values()) room.addChild(o);
     builtKey = keyOf(v);
     syncMobs();
@@ -751,7 +759,7 @@ export function setupInterior(deps: InteriorDeps): InteriorUi {
     deps.onChange?.(on);
   }
   function clearRoom() {
-    for (const c of room.removeChildren()) if (c !== hero && c !== slash && c!==interactionOutline) c.destroy();
+    for (const c of room.removeChildren()) if (c !== hero && c !== slash && c!==interactionOutline && c!==drops.layer && c!==drops.overlay) c.destroy();
     others.clear();
     npcViews.clear();
     mobViews.clear();
@@ -794,6 +802,8 @@ export function setupInterior(deps: InteriorDeps): InteriorUi {
     const hx=target.x/T-.5,hy=target.y/T-.5,objects=[...(view.exploration?.objects??[]),...(view.furniture??[]).filter(o=>!o.cleared).map(o=>({...o,available:true,secret:false}))],hovered=hover?objects.find(o=>o.available&&o.x===hover!.x&&o.y===hover!.y&&(!o.secret||Math.hypot(o.x-hx,o.y-hy)<1.8)):undefined;
     const nearby=objects.filter(o=>o.available&&Math.hypot(o.x-hx,o.y-hy)<=EXPLORATION_REACH).sort((a,b)=>Math.hypot(a.x-hx,a.y-hy)-Math.hypot(b.x-hx,b.y-hy))[0],use=hovered??nearby;
     if(use&&!decorating){highlighted={x:use.x,y:use.y};const near=Math.hypot(use.x-hx,use.y-hy)<=EXPLORATION_REACH;interactionOutline.roundRect(use.x*T+2,use.y*T+2,T-4,T-4,3).stroke({width:2,color:near?0xf4db95:0xc0b69a,alpha:.8});interactionHint.textContent=near?`E · ${use.prompt} ${use.label}`:`${use.label} · Walk closer to ${use.prompt.toLowerCase()}`;interactionHint.hidden=false;}
+    // The nearest dropped stack gets "E: pick up" (not while a container / door is highlighted: E uses that first).
+    if(highlighted||decorating)drops.near(NaN,NaN);else drops.near(target.x,target.y);
     animateNpcs(performance.now());
     animateMobs(performance.now());
     if(!use&&view.exploration&&!decorating){interactionHint.textContent=(view.exploration.pattern??'')+' · '+(view.exploration.stealth??'')+' · J: journal';interactionHint.hidden=false;}
@@ -841,6 +851,7 @@ export function setupInterior(deps: InteriorDeps): InteriorUi {
       if (!v) {
         view = null;heroCombat=undefined;
         builtKey = "";
+        drops.clear();
         clearRoom();
         setInside(false);
         return;
@@ -907,8 +918,12 @@ export function setupInterior(deps: InteriorDeps): InteriorUi {
         others.delete(oid);
       }
     },
+    onGround(list) {
+      drops.sync(list);
+    },
     reset() {
       if (view) this.onMessage(null);
+      drops.clear();
     },
   };
 }

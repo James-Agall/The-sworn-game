@@ -1,6 +1,7 @@
 import { combatMotion } from "./playerCombat.js";
 import {explorationView} from './adventureLoot.js';
 import {storyRoomMap} from './story.js';
+import {nearestGround,tryPickupNearest} from './groundItems.js';
 import {furnitureView,useFurniture,furnitureRoomMap,resetFurniture} from './furniture.js';
 import {bossMoveSpeed} from './bossCombat.js';
 import {companionSnapshots,companionLive} from "./companions.js";
@@ -546,6 +547,13 @@ function sendView(p: Player, force = false) {
 }
 
 export function companionRoomGrid(p:Player){return p.interior?mapOf(p.interior):undefined;}
+// Interior fixes 2026-11-27 (groundItems.ts): the instance a hero stands in, if it is a HOSTILE interior (an encounter:
+// bandit camp, cave, ruin; or a mine / quarry): the building anchor + storey + layout / layer (the same identity as
+// roomKeyOf and adventureLoot's room: one cave, one mine layer). Peaceful buildings: null (no drops there).
+export function hostileInteriorScope(p:Player):string|null{
+ const I=p.interior;if(!I||!(encounterKind(I.tile)||I.templateId==='mine'))return null;
+ return `${I.key}:${I.storey}:v${I.variant}`;
+}
 export function refreshInteriorView(key?:string){for(const p of players.values())if(p.interior&&(!key||p.interior.key===key))sendView(p,true);}
 export function handleInteriorTalk(p:Player,id:unknown){
  if(typeof id!=='string'||id.length>200||p.dead||!p.interior)return;const v=viewFor(p);if(!v)return;
@@ -858,6 +866,9 @@ export function interiorInteract(p: Player) {
     else if(v.view.furniture?.some(f=>f.x===q.x&&f.y===q.y))offer(d+(v.view.furniture.find(f=>f.x===q.x&&f.y===q.y)?.action==='travel'?0.5:0),()=>handleInteriorUse(p,q.x,q.y));
     else if (q.prop === "chest") offer(d, () => (v.view.chest ? chestTalk(p, "", inside(q.x, q.y)) : toast(p, "This chest is not yours")));
   }
+  // Interior fixes 2026-11-27: a stack dropped in this hostile interior, within reach (talking to someone wins a tie).
+  const drop = nearestGround(p);
+  if (drop) offer(drop.d + 0.05, () => tryPickupNearest(p));
   const de = dist(map.exit.x, map.exit.y);
   if (de <= INTERIOR_USE_RANGE_TILES) offer(de + 0.25, () => exitInterior(p));
   const pick = best as Pick | null;

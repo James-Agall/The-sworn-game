@@ -3877,7 +3877,11 @@ async function main() {
       syncDamagedBuildings(message.damagedBuildings);
       syncGates(message.gates);
       zonesUi.apply(message.zones);
-      groundUi.sync(message.ground);
+      // Interior fixes 2026-11-27: stacks inside a hostile interior (`in`) are drawn by the interior view.
+      if (message.ground) {
+        groundUi.sync(message.ground.filter((s) => !s.in));
+        interiorRef.ui?.onGround(message.ground.filter((s) => s.in));
+      }
       const meNow = message.players.find((pl) => pl.id === myId);
       if (meNow && !meNow.inside) groundUi.near(meNow.x, meNow.y);
       if (message.sites) syncFortMarkers(message.sites);

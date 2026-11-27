@@ -1510,8 +1510,10 @@ export interface InteriorSpellEffect {key:string;variant:number;fromX:number;fro
 // name / tier / slot / kind / icon only). x / y are world px.
 export interface GroundItemSnapshot {
   id: string;
+  // Interior px when `in` (Interior fixes 2026-11-27: a stack inside the hostile interior the hero is in), else world px.
   x: number;
   y: number;
+  in?: 1;
   k: "g" | "e";
   good?: PackGood;
   qty?: number;

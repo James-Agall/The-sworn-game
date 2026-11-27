@@ -1,8 +1,11 @@
 // groundItems.ts: Inventory 2026-11-26 (INVENTORY-2026-11-26.md). The hero drops carried goods (a quantity of one
 // good) or one pack gear item at their feet; the stack lies on the ground until anyone near picks it up, or it rots
-// away after GROUND_DESPAWN_TICKS. Overworld only (never inside an interior). One global, bounded map (insertion
-// order = age, so the oldest goes first past GROUND_MAX_ITEMS); nothing here scans the world or the chunks, so cold
-// chunks and world streaming are untouched. Saved in the current save format (saves.ts `groundItems`).
+// away after GROUND_DESPAWN_TICKS. Overworld, and (Interior fixes 2026-11-27) inside HOSTILE interiors (camps, caves,
+// ruins, mines, quarries: interiors.ts hostileInteriorScope): such a stack carries the interior instance as `scope`
+// and interior px; it is listed / picked up only by heroes in that same instance. Peaceful buildings refuse drops.
+// One global, bounded map (insertion order = age, so the oldest goes first past GROUND_MAX_ITEMS); nothing here scans
+// the world or the chunks, so cold chunks and world streaming are untouched. Saved in the current save format
+// (saves.ts `groundItems`).
 import { GEAR_SLOTS, TICK_RATE, TILE_SIZE, type GearItem, type GroundItemSnapshot } from "@colony/shared/protocol";
 import { PACK_CAP, PACK_GOODS, PACK_LABEL, PACK_WEIGHT, type PackGood } from "@colony/shared/herolife";
 import { GAME_DAY_TICKS, HERO_INVENTORY_CAP, SNAPSHOT_VIEW_TILES } from "./constants.js";
@@ -12,12 +15,15 @@ import { inBounds } from "./tiles.js";
 import { isWalkableTile } from "./pathfinding.js";
 import { lifeOf, packWeight, toast } from "./herolife.js";
 import { heroProfileOf, recomputeHeroProfile, refuseGear } from "./heroes.js";
+import { companionRoomGrid, hostileInteriorScope } from "./interiors.js";
 
 export interface GroundItem {
   id: string;
-  // World px (the centre of the tile it lies on).
+  // World px (the centre of the tile it lies on); interior px when `scope` is set.
   x: number;
   y: number;
+  // Interior fixes 2026-11-27: the hostile interior instance it lies in (hostileInteriorScope); absent = overworld.
+  scope?: string;
   kind: "good" | "gear";
   good?: PackGood;
   qty?: number;
@@ -59,22 +65,42 @@ function rateLimited(p: Player): boolean {
 
 // "" = the hero may drop here, else why not.
 function dropBlock(p: Player): string {
-  if (p.interior) return "You can't drop things indoors: step outside first";
+  if (p.interior && !hostileInteriorScope(p)) return "You can't drop things indoors: step outside first";
   return "";
 }
 
-// The walkable tile nearest the hero's feet within GROUND_REACH_TILES (their own tile first), or null.
-function dropSpot(p: Player): { x: number; y: number } | null {
-  const mx = tileOf(p.x), my = tileOf(p.y);
+// Where the hero stands: the overworld (scope undefined, world px) or a hostile interior instance (interior px).
+function placeOf(p: Player): { scope?: string; x: number; y: number } | null {
+  if (!p.interior) return { x: p.x, y: p.y };
+  const scope = hostileInteriorScope(p);
+  return scope ? { scope, x: p.interior.x, y: p.interior.y } : null;
+}
+const samePlace = (it: GroundItem, scope: string | undefined) => it.scope === scope;
+
+// The walkable tile nearest the hero's feet within GROUND_REACH_TILES (their own tile first), or null. Indoors: the
+// interior's own grid (never a wall, the exit mat, stairs, a shaft, a container or any other furnished / prop tile).
+function dropSpot(p: Player): { x: number; y: number; scope?: string } | null {
+  const at = placeOf(p);
+  if (!at) return null;
+  const grid = at.scope ? companionRoomGrid(p) : undefined;
+  if (at.scope && !grid) return null;
+  const free = (tx: number, ty: number) => {
+    if (!grid) return inBounds(tx, ty) && isWalkableTile(tx, ty);
+    const { map, solid } = grid;
+    if (tx < 0 || ty < 0 || tx >= map.w || ty >= map.h || solid[ty * map.w + tx] || map.cells[ty * map.w + tx] === "E") return false;
+    if ((map.exit.x === tx && map.exit.y === ty) || (map.stairs && map.stairs.x === tx && map.stairs.y === ty)) return false;
+    return !map.props.some((q) => q.x === tx && q.y === ty);
+  };
+  const mx = tileOf(at.x), my = tileOf(at.y);
   let best: { x: number; y: number; d: number } | null = null;
   for (let ty = my - 1; ty <= my + 1; ty++) {
     for (let tx = mx - 1; tx <= mx + 1; tx++) {
-      if (!inBounds(tx, ty) || !isWalkableTile(tx, ty)) continue;
-      const d = Math.hypot(centre(tx) - p.x, centre(ty) - p.y) / TILE_SIZE;
+      if (!free(tx, ty)) continue;
+      const d = Math.hypot(centre(tx) - at.x, centre(ty) - at.y) / TILE_SIZE;
       if (d <= GROUND_REACH_TILES && (!best || d < best.d)) best = { x: tx, y: ty, d };
     }
   }
-  return best ? { x: centre(best.x), y: centre(best.y) } : null;
+  return best ? { x: centre(best.x), y: centre(best.y), ...(at.scope ? { scope: at.scope } : {}) } : null;
 }
 
 function add(item: GroundItem) {
@@ -102,7 +128,7 @@ export function handleDropGood(p: Player, good: unknown, qty: unknown) {
   // Same good on the same tile: one stack (moved to the back of the age order, its timer restarted).
   let merged: GroundItem | undefined;
   for (const it of items.values()) {
-    if (it.kind === "good" && it.good === g && tileOf(it.x) === tileOf(spot.x) && tileOf(it.y) === tileOf(spot.y)) {
+    if (it.kind === "good" && it.good === g && samePlace(it, spot.scope) && tileOf(it.x) === tileOf(spot.x) && tileOf(it.y) === tileOf(spot.y)) {
       merged = it;
       break;
     }
@@ -140,8 +166,10 @@ export function handlePickupGround(p: Player, id: unknown) {
   if (p.dead || typeof id !== "string" || id.length > 20) return;
   const it = items.get(id);
   if (!it) return toast(p, "That is no longer there");
-  if (p.interior) return;
-  if (Math.hypot(it.x - p.x, it.y - p.y) / TILE_SIZE > GROUND_REACH_TILES) return toast(p, "Walk closer to pick that up");
+  const at = placeOf(p);
+  // Another place (overworld vs an interior, or another interior instance): not here.
+  if (!at || !samePlace(it, at.scope)) return;
+  if (Math.hypot(it.x - at.x, it.y - at.y) / TILE_SIZE > GROUND_REACH_TILES) return toast(p, "Walk closer to pick that up");
   pickUp(p, it);
 }
 
@@ -170,20 +198,25 @@ function pickUp(p: Player, it: GroundItem) {
   toast(p, `You pick up ${n} ${PACK_LABEL[g].toLowerCase()}${it.qty > 0 ? ` (${it.qty} left on the ground: your pack is full)` : ""}`);
 }
 
-// E (herolife.ts handleInteract, after talking): the nearest stack within reach, if any. True if one was there.
-export function tryPickupNearest(p: Player): boolean {
-  if (p.dead || p.interior || items.size === 0) return false;
-  let best: GroundItem | null = null;
-  let bestD = Infinity;
+// The nearest stack within reach where the hero stands (overworld or this hostile interior), and its distance (tiles).
+export function nearestGround(p: Player): { it: GroundItem; d: number } | null {
+  if (p.dead || items.size === 0) return null;
+  const at = placeOf(p);
+  if (!at) return null;
+  let best: { it: GroundItem; d: number } | null = null;
   for (const it of items.values()) {
-    const d = Math.hypot(it.x - p.x, it.y - p.y) / TILE_SIZE;
-    if (d <= GROUND_REACH_TILES && d < bestD) {
-      best = it;
-      bestD = d;
-    }
+    if (!samePlace(it, at.scope)) continue;
+    const d = Math.hypot(it.x - at.x, it.y - at.y) / TILE_SIZE;
+    if (d <= GROUND_REACH_TILES && (!best || d < best.d)) best = { it, d };
   }
-  if (!best) return false;
-  pickUp(p, best);
+  return best;
+}
+// E (herolife.ts handleInteract after talking; interiors.ts interiorInteract by distance): picks up the nearest
+// stack within reach, if any. True if one was there.
+export function tryPickupNearest(p: Player): boolean {
+  const near = nearestGround(p);
+  if (!near) return false;
+  pickUp(p, near.it);
   return true;
 }
 
@@ -201,21 +234,26 @@ export function updateGroundItems() {
 
 const snapOf = (it: GroundItem): GroundItemSnapshot =>
   it.kind === "good"
-    ? { id: it.id, x: it.x, y: it.y, k: "g", good: it.good, qty: it.qty }
-    : { id: it.id, x: it.x, y: it.y, k: "e", name: it.gear!.name, tier: it.gear!.tier, slot: it.gear!.slot, ...(it.gear!.kind ? { kind: it.gear!.kind } : {}), ...(it.gear!.icon ? { icon: it.gear!.icon } : {}) };
+    ? { id: it.id, x: it.x, y: it.y, ...(it.scope ? { in: 1 as const } : {}), k: "g", good: it.good, qty: it.qty }
+    : { id: it.id, x: it.x, y: it.y, ...(it.scope ? { in: 1 as const } : {}), k: "e", name: it.gear!.name, tier: it.gear!.tier, slot: it.gear!.slot, ...(it.gear!.kind ? { kind: it.gear!.kind } : {}), ...(it.gear!.icon ? { icon: it.gear!.icon } : {}) };
 
-// The snapshot's `ground` for this player: the stacks within the snapshot view distance (or the strategy view rect),
-// none indoors. JSON, only when the list changed since the last one sent to them; otherwise null.
+// The snapshot's `ground` for this player: outdoors the overworld stacks within the snapshot view distance (or the
+// strategy view rect); in a hostile interior every stack of that instance (marked `in`, interior px); in a peaceful
+// building none. JSON, only when the list changed since the last one sent to them; otherwise null.
 export function groundPayloadFor(p: Player): string | null {
   if (items.size === 0 && (p.groundSent === undefined || p.groundSent === "[]")) return null;
-  const key = `${version}|${p.interior ? 1 : 0}|${tileOf(p.x) >> 2}|${tileOf(p.y) >> 2}|${p.viewSetAt}`;
+  const scope = p.interior ? hostileInteriorScope(p) ?? "-" : "";
+  const key = `${version}|${scope}|${tileOf(p.x) >> 2}|${tileOf(p.y) >> 2}|${p.viewSetAt}`;
   if (key === p.groundKey) return null;
   p.groundKey = key;
   const limit = SNAPSHOT_VIEW_TILES * TILE_SIZE;
   const view = p.view;
   const out: GroundItemSnapshot[] = [];
-  if (!p.interior) {
+  if (scope && scope !== "-") {
+    for (const it of items.values()) if (it.scope === scope) out.push(snapOf(it));
+  } else if (!p.interior) {
     for (const it of items.values()) {
+      if (it.scope) continue;
       const near = (Math.abs(it.x - p.x) < limit && Math.abs(it.y - p.y) < limit) || (!!view && Math.abs(it.x - view.x) < view.halfW && Math.abs(it.y - view.y) < view.halfH);
       if (near) out.push(snapOf(it));
     }
@@ -242,8 +280,12 @@ export function restoreGroundItems(raw: unknown) {
   for (const r of list.slice(-GROUND_MAX_ITEMS) as unknown as Record<string, unknown>[]) {
     if (!r || typeof r !== "object" || typeof r.id !== "string" || !/^g\d{1,9}$/.test(r.id)) continue;
     const x = Number(r.x), y = Number(r.y), tick = Number(r.droppedAtTick);
-    if (![x, y, tick].every(Number.isFinite) || !inBounds(tileOf(x), tileOf(y))) continue;
-    const base = { id: r.id, x, y, droppedAtTick: tick, dropperKey: typeof r.dropperKey === "string" ? r.dropperKey.slice(0, 64) : "" };
+    // Interior stacks: a scope like "12,34:0:v1" and interior px (an interior map is at most a few dozen tiles).
+    const scope = typeof r.scope === "string" && /^-?\d{1,5},-?\d{1,5}:\d:v\d{1,2}$/.test(r.scope) ? r.scope : undefined;
+    if (r.scope !== undefined && !scope) continue;
+    if (![x, y, tick].every(Number.isFinite)) continue;
+    if (scope ? x < 0 || y < 0 || x > 256 * TILE_SIZE || y > 256 * TILE_SIZE : !inBounds(tileOf(x), tileOf(y))) continue;
+    const base = { id: r.id, x, y, ...(scope ? { scope } : {}), droppedAtTick: tick, dropperKey: typeof r.dropperKey === "string" ? r.dropperKey.slice(0, 64) : "" };
     if (r.kind === "good") {
       const qty = Math.floor(Number(r.qty));
       if (!(PACK_GOODS as unknown[]).includes(r.good) || !Number.isFinite(qty) || qty <= 0) continue;
@@ -260,7 +302,7 @@ export function resetGroundItems() {
   version++;
 }
 // Test hook `groundItems`: the list; `spawn` adds n stacks of 1 `good` at (x, y) px without any rule (cap tests).
-export function groundDebug(spawn?: { n: number; good: PackGood; x: number; y: number }) {
-  if (spawn) for (let i = 0; i < spawn.n; i++) add({ id: `g${nextId++}`, x: spawn.x, y: spawn.y, kind: "good", good: spawn.good, qty: 1, droppedAtTick: state.cycleTick, dropperKey: "" });
+export function groundDebug(spawn?: { n: number; good: PackGood; x: number; y: number; scope?: string }) {
+  if (spawn) for (let i = 0; i < spawn.n; i++) add({ id: `g${nextId++}`, x: spawn.x, y: spawn.y, ...(spawn.scope ? { scope: spawn.scope } : {}), kind: "good", good: spawn.good, qty: 1, droppedAtTick: state.cycleTick, dropperKey: "" });
   return { items: Array.from(items.values(), (it) => structuredClone(it)), max: GROUND_MAX_ITEMS, despawnTicks: GROUND_DESPAWN_TICKS, dropperDelayTicks: GROUND_DROPPER_DELAY_TICKS };
 }

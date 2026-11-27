@@ -86,6 +86,7 @@ const SERVER_ENV = {
   "hero-tools": W80,
   calendar: W80,
   interiors: INSTANT,
+  "interior-drops": INSTANT,
   "gravestone-events": { ...INSTANT, ...LEGACY },
   "cavalry-siege": LEGACY,
   "halflatch-ward-lapse": INSTANT,
