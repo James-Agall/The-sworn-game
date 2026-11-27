@@ -1697,26 +1697,62 @@ tier-1 **Iron Sword**, equipped, once. Saved games count too (the first time you
    weapon (equipped or in the pack) is left alone.
 4. Recruited heroes (companions/heroes with a class) never get one; they equip from your gear as before.
 
-## Deposit gear to the armoury (27 November 2026)
+## Deposit gear to the armoury (27 November 2026; tiers + select mode same day)
+
+Every weapon has a deposit tier. Plain weapons keep theirs. **Special** weapons (relics, adventure gear, a weapon with no
+1-3 tier or stronger than the plain one of its tier) go in **one tier higher, capped at 3**: base tier = their own 1-3,
+else the highest plain tier whose power score is <= theirs. Power score = damage% + attack speed% + move speed% +
+0.5 x spell power% + 0.1 x max HP - damage taken%. Plain weapons score 20 / 40 / 70 (tier 1 / 2 / 3).
+
+| Weapon | Power | Base | Goes in as |
+|---|---|---|---|
+| The Sworn Oathblade (relic) | 70 | 3 | tier 3 (capped) |
+| Gunne's Tooth (relic) | 65 | 2 | tier 3 |
+| Morvain's Whisper (relic) | 70 | 3 | tier 3 (capped) |
+| Abbey Emberstaff (relic) | 55 | 2 | tier 3 |
+| Counterweight sword / Long ash spear / Breaching axe / Yew hunting bow (adventure, tier 1) | -4..8 | 1 | tier 2 |
+
+It always comes back from the armoury as a PLAIN weapon of that tier (the relic / trait / stats are gone). Armour stays
+plain-only: relic and adventure armour, leg armour, tomes, trinkets are refused.
 
 1. Take a weapon and a helmet from the armoury (Inventory, Armoury section), then put them on and take them off again so
-   they sit in the pack. Stand next to your Town Center (or a storage chest). Right-click the weapon in the pack: the menu
-   has **Deposit to armoury** (hover: "Goes into the armoury as a tier-N weapon; you pick the kind when you take one").
-   Click it: toast "Deposited <name> to the armoury (tier N weapons: count)", the item leaves the pack and the
-   Armoury's "Weapon TN (count)" button goes up by one.
+   they sit in the pack. Stand next to your Town Center (or a storage chest). Hover the weapon: the tooltip says
+   "Deposit to armoury: goes in as a tier N weapon". Right-click it: **Deposit to armoury: goes in as a tier N weapon**.
+   Click it: toast "Deposited <name> to the armoury as a tier N weapon (tier N weapons: count)", the item leaves the
+   pack and the Armoury's "Weapon TN (count)" button goes up by one.
 2. Right-click the helmet: deposit it; the armour count of that tier goes up. Take a "Helmet" or "Shield" back: a plain
    piece of that tier returns (the round trip).
-3. Walk 20 tiles away and right-click an item: **Deposit to armoury** is greyed out, its tooltip says "Stand next to your
+3. Get a relic weapon (Creative: kill a mini-boss, or a hearth). Hover it: "goes in as a tier 3 weapon (special: +1
+   tier)" and, in red, "Special weapon: once deposited it comes back as a plain tier-3 weapon (its unique stats and relic
+   status are lost)". Right-click > Deposit: the menu does NOT deposit yet, it shows the warning and **Yes, deposit as a
+   plain tier-3 weapon** / Cancel. Esc or Cancel: the relic stays. Yes: it goes in as tier 3. Later the same relic can
+   drop for you again.
+4. Walk 20 tiles away and right-click an item: **Deposit to armoury** is greyed out, its tooltip says "Stand next to your
    Town Center or a storage chest to deposit". The Armoury's **Deposit gear to armoury (N)** button is disabled too.
-4. Right-click a relic, a Spell Tome, an adventure piece or leg armour: the entry is greyed out ("Relics and special
-   gear can't go into the armoury: keep or drop them" / "Leg armour can't go into the armoury ..."). An equipped piece is
-   not in the pack: unequip it first.
-5. Back by the Town Center press **Deposit gear to armoury (N)**: every plain weapon / helm / breastplate / shield goes in
-   at once; relics and special pieces stay.
-6. In the Great hall, E at the chest: "Deposit all plain gear (N) into the armoury" and one row per piece (up to 8),
-   each saying what it goes in as. Use one: the panel refreshes.
+5. Right-click a relic helm / adventure shield ("Special armour ... can't go into the armoury"), a Spell Tome ("Spell
+   tomes can't ..."), a trinket or leg armour: the entry is greyed out with the reason. An equipped piece is not in the
+   pack: unequip it first.
+6. **Select mode**: above the pack press **Select** (it turns into "Done selecting"). Click items: each gets a blue
+   outline and a check mark; click again to unselect. Shift+click another item: everything eligible between the two is
+   selected. Items the armoury refuses are greyed out and do nothing; hovering says why. Space / Enter on a focused
+   item toggles it. **Select all eligible**, **Clear**, and "N selected" update live. The line under the buttons reads
+   e.g. "5 items: 3 weapons (T1 x1, T2 x2), 2 armour (T1 x1, T2 x1)".
+7. Ctrl+click (Cmd+click on a Mac) an item with select mode OFF: it is selected and NOT equipped; the selection buttons
+   appear. A plain click still equips, right-click still opens the menu.
+8. Walk away from the store with items selected: **Deposit selected (N) to armoury** greys out ("Stand next to ...");
+   the selection stays. Come back: it enables.
+9. Select a relic or adventure weapon too and press **Deposit selected**: a red box says the special weapons come back
+   as plain weapons and lose their unique stats. Esc closes only that box. Press Deposit again, then **Deposit all N**:
+   one toast "Deposited N items to the armoury (tier 1 weapons: .., tier 2 armour: ..)"; the pack and the Armoury
+   counts update; the selection clears (select mode stays on).
+10. Esc in select mode leaves select mode (the sheet stays); the next Esc closes the sheet. Closing the sheet clears the
+    selection.
+11. The Armoury's **Deposit gear to armoury (N)** counts and deposits only PLAIN pieces; special weapons stay in the pack.
+12. In the Great hall, E at the chest: "Deposit all plain gear (N) into the armoury" and one row per piece (up to 8),
+    each saying what it goes in as, special weapons included ("goes in as a tier 3 weapon (special: +1 tier); it comes
+    back as a plain weapon"). A special row first asks "Yes: deposit ... / No, keep it."
 
-Automated: `npm test -- gear-deposit`.
+Automated: `npm test -- gear-deposit`; browser: `node client/gear-deposit-smoke.mjs --out <scratch dir>`.
 
 ## Drop things inside caves, ruins, camps and mines (27 November 2026)
 

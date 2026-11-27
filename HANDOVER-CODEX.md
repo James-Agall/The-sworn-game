@@ -47,6 +47,8 @@ priorities, hero tools, seasons/weather, interiors, animals in buildings, bluepr
   the spell group shows. Browser check: `node client/hotbar-smoke.mjs --out <scratch>`.
 - Gear deposit (2026-11-27): `depositGear` (`herolife.ts handleDepositGear`, rule `armouryDepositOf` in protocol.ts)
   puts plain tier 1-3 pack weapons / helms / breastplates / shields into `state.equipment`; test `gear-deposit`.
+  Every weapon now has a deposit tier (special weapons +1, cap 3; `itemIds` multi-select; hero sheet Select mode):
+  INVENTORY-2026-11-26.md "Gear deposit tiers + select"; browser check `client/gear-deposit-smoke.mjs`.
 - Interior drops (2026-11-27): ground stacks inside hostile interiors carry `scope` (`interiors.ts hostileInteriorScope`:
   anchor + storey + layout/layer) and interior px; client draws them in `interior.ts`; test `interior-drops`.
 - Hotbar indoors (2026-11-27): `body.interior-hostile` (caves, ruins, camps, mines) shows the hotbar; tools are
