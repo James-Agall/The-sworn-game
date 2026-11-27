@@ -10,7 +10,7 @@ import { treeAt } from "@colony/shared/trees";
 import { animalsForSale, dismountHero, heroAnimalInteract, heroHandProduct, isMounted, sellAnimalTo } from "./animals.js";
 import { MOUNT_REST_DECAY_MULT, MOUNT_SPEED_MULT } from "@colony/shared/animals";
 import { heroInfirmaryHealMult, heroRestMultAt, roomAtIndex, warmRoomAt } from "./structures.js";
-import { GEAR_SLOTS, TICK_RATE, TILE_SIZE, TileType, TRADE_GOODS, armouryDepositOf, type GearItem, type TradeGood, type RelationTier } from "@colony/shared/protocol";
+import { GEAR_SLOTS, TICK_RATE, TILE_SIZE, TileType, TRADE_GOODS, armouryDepositOf, type ArmouryDeposit, type GearItem, type TradeGood, type RelationTier } from "@colony/shared/protocol";
 import {
   ALLIANCE_ASK_MIN, AUTO_EAT_BELOW, BRIDE_GIFT_GOLD, CEREMONY_FEE, COURT_GIFT_GOLD, COURT_NEEDED, FOUND_CAMP_COST, DIALOGUE, GATHER, GIFT_GOLD, GIFT_RELATION, HERO_SKILLS, HERO_SKILL_LABEL,
   MASTER_FEE, MASTER_MAX_LEVEL, NEED_LOW, NEED_MAX, NPC_ROLE_LABEL, PACK_CAP, PACK_FOOD, PACK_GOODS, PACK_LABEL,
@@ -1422,9 +1422,17 @@ export function handleHeroAction(p: Player, action: unknown, build: unknown, goo
 // message runs in the sender's clan). Same place rule as the goods deposit; equipped pieces, relics, adventure gear,
 // tomes and leg armour are refused (armouryDepositOf). `all`: every eligible pack item, one toast.
 const gearDepositTimes = new Map<string, number[]>();
-export function handleDepositGear(p: Player, itemId: unknown, all: unknown) {
+const STORE_WHY = "Stand next to your Town Center or a storage chest to deposit";
+// Gear deposit tiers 2026-11-27: `itemIds` (multi-select, at most 40 unique ids) deposits each eligible pack item and
+// skips the rest (one toast with the touched stock counters and the first skip reason). Rate-limited per message.
+// `all` stays plain-only: special weapons (relics, adventure gear) go in only by id, after the client's confirm.
+export function handleDepositGear(p: Player, itemId: unknown, all: unknown, itemIds?: unknown) {
   if (p.dead) return;
-  if (all !== true && (typeof itemId !== "string" || itemId.length > 100)) return;
+  const multi = itemIds !== undefined;
+  if (multi) {
+    if (!Array.isArray(itemIds) || itemIds.length === 0 || itemIds.length > 200) return;
+    if (itemIds.some((s) => typeof s !== "string" || s.length === 0 || s.length > 100)) return;
+  } else if (all !== true && (typeof itemId !== "string" || itemId.length > 100)) return;
   const now = Date.now();
   const recent = (gearDepositTimes.get(p.id) ?? []).filter((t) => now - t < 1000);
   if (recent.length >= 6) return toast(p, "Slow down: one thing at a time");
@@ -1432,9 +1440,26 @@ export function handleDepositGear(p: Player, itemId: unknown, all: unknown) {
   gearDepositTimes.set(p.id, recent);
   const prof = heroProfileOf(p);
   let picked: GearItem[];
-  if (all === true) {
-    picked = prof.inventory.filter((i) => !("refuse" in armouryDepositOf(i)));
-    if (!picked.length) return toast(p, "No plain weapons or armour in your pack to deposit (relics and special gear stay with you)");
+  const skipped: string[] = [];
+  if (multi) {
+    const ids = [...new Set(itemIds as string[])];
+    if (ids.length > 40) return refuseGear(p, "Select at most 40 items to deposit at once");
+    picked = [];
+    for (const id of ids) {
+      const item = prof.inventory.find((i) => i.id === id);
+      if (!item) {
+        const worn = GEAR_SLOTS.map((s) => prof.equipment[s]).find((e) => e?.id === id);
+        skipped.push(worn ? `${worn.name} is equipped: unequip it first` : "an item is not in your pack");
+        continue;
+      }
+      const to = armouryDepositOf(item);
+      if ("refuse" in to) skipped.push(`${item.name}: ${to.refuse}`);
+      else picked.push(item);
+    }
+    if (!picked.length) return refuseGear(p, `Nothing deposited. Skipped ${skipped.length}: ${skipped[0]}`);
+  } else if (all === true) {
+    picked = prof.inventory.filter((i) => { const to = armouryDepositOf(i); return !("refuse" in to) && !to.boosted; });
+    if (!picked.length) return toast(p, "No plain weapons or armour in your pack to deposit (relics and special gear go in one at a time)");
   } else {
     const item = prof.inventory.find((i) => i.id === itemId);
     if (!item) {
@@ -1445,21 +1470,27 @@ export function handleDepositGear(p: Player, itemId: unknown, all: unknown) {
     if ("refuse" in to) return refuseGear(p, to.refuse);
     picked = [item];
   }
-  if (!nearOwnStore(p, 3)) return toast(p, "Stand next to your Town Center or a storage chest to deposit");
+  if (!nearOwnStore(p, 3)) return toast(p, STORE_WHY);
   const ids = new Set(picked.map((i) => i.id));
   for (let i = prof.inventory.length - 1; i >= 0; i--) if (ids.has(prof.inventory[i].id)) prof.inventory.splice(i, 1);
-  let last = { stock: "weapon" as "weapon" | "armour", tier: 1 as 1 | 2 | 3 };
+  // The stock counters this deposit touched, weapons then armour, by tier.
+  const touched = new Set<string>();
+  let last: ArmouryDeposit | null = null;
   for (const item of picked) {
-    const to = armouryDepositOf(item) as { stock: "weapon" | "armour"; tier: 1 | 2 | 3 };
+    const to = armouryDepositOf(item) as ArmouryDeposit;
     state.equipment[to.stock][to.tier - 1]++;
-    equipEvent({ type: "deposit", slot: to.stock, tier: to.tier, detail: item.name });
+    equipEvent({ type: "deposit", slot: to.stock, tier: to.tier, detail: `${item.name} (${to.why})` });
+    touched.add(`${to.stock === "weapon" ? 0 : 1}${to.tier}`);
     last = to;
   }
   recomputeHeroProfile(prof);
-  const label = (s: "weapon" | "armour") => (s === "weapon" ? "weapons" : "armour");
-  toast(p, picked.length === 1
-    ? `Deposited ${picked[0].name} to the armoury (tier ${last.tier} ${label(last.stock)}: ${state.equipment[last.stock][last.tier - 1]})`
-    : `Deposited ${picked.length} pieces of gear to the armoury`);
+  const counter = (stock: "weapon" | "armour", tier: number) => `tier ${tier} ${stock === "weapon" ? "weapons" : "armour"}: ${state.equipment[stock][tier - 1]}`;
+  if (picked.length === 1 && !skipped.length) {
+    return toast(p, `Deposited ${picked[0].name} to the armoury as ${last!.stock === "weapon" ? `a tier ${last!.tier} weapon` : `tier ${last!.tier} armour`} (${counter(last!.stock, last!.tier)})`);
+  }
+  const counts = [...touched].sort().map((k) => counter(k[0] === "0" ? "weapon" : "armour", Number(k[1])));
+  toast(p, `Deposited ${picked.length} item${picked.length === 1 ? "" : "s"} to the armoury (${counts.join(", ")})`
+    + (skipped.length ? `. Skipped ${skipped.length}: ${skipped[0]}` : ""));
 }
 
 // One unit of the best food: from the pack, else (near home / a chest) from the clan stock. True if eaten.

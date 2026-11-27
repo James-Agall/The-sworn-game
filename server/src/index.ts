@@ -458,7 +458,7 @@ function handleMessage(player: Player, message: ClientMessage) {
   } else if (message.type === "pickupGround") {
     handlePickupGround(player, message.id);
   } else if (message.type === "depositGear") {
-    handleDepositGear(player, message.itemId, message.all);
+    handleDepositGear(player, message.itemId, message.all, message.itemIds);
   } else if(message.type==="interiorEdit"){
     handleInteriorEdit(player,message);
   } else if(message.type==="adventureJournal"){

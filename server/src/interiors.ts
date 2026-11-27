@@ -33,7 +33,7 @@ import {
   type InteriorNpcPose, type InteriorNpcSnapshot, type InteriorTemplateId, type InteriorView,
 } from "@colony/shared/interiors";
 import { STATION_SKILL, NPC_ROLE_LABEL, PACK_CAP, PACK_GOODS, PACK_LABEL, PACK_WEIGHT, TALK_RANGE_TILES, type NpcRole, type PackGood } from "@colony/shared/herolife";
-import { PLAYER_HALF_SIZE, PLAYER_SPEED, TILE_SIZE, TileType, armouryDepositOf, isSolidTile } from "@colony/shared/protocol";
+import { PLAYER_HALF_SIZE, PLAYER_SPEED, TILE_SIZE, TileType, armouryDepositLabel, armouryDepositOf, isSolidTile, type ArmouryDeposit, type GearItem } from "@colony/shared/protocol";
 import type { Mob, Player, SiteState } from "./types.js";
 import { GAME_DAY_TICKS, dt } from "./constants.js";
 import { colonists, mobs, players, state } from "./state.js";
@@ -913,21 +913,31 @@ const goodsText = (c: Partial<Record<PackGood, number>>) =>
 
 // Inventory 2026-11-26: the Great hall's chest (a Town Center / Keep) opens on "Deposit carried goods" (into the
 // clan's shared stockpile: everything, or one good); its private storage is one choice further.
-function hallChestTalk(p: Player, head: string, at: TalkInside) {
+function hallChestTalk(p: Player, head: string, at: TalkInside, confirmId?: string) {
   const life = lifeOf(p);
   const goods = PACK_GOODS.filter((g) => (life.pack[g] ?? 0) > 0);
   const choices: ChoiceRt[] = [
     { label: "Deposit all carried goods into the stockpile.", action: "hallDeposit", arg: "all", disabled: goods.length ? undefined : "You carry nothing" },
     ...goods.map((g): ChoiceRt => ({ label: `Deposit ${life.pack[g]} ${PACK_LABEL[g].toLowerCase()}.`, action: "hallDeposit", arg: g })),
   ];
-  // Interior fixes 2026-11-27: plain pack weapons / armour into the armoury stock (tier only; the kind is picked on Take).
-  const gear = heroProfileOf(p).inventory.filter((i) => !("refuse" in armouryDepositOf(i)));
-  if (gear.length) {
-    choices.push({ label: `Deposit all plain gear (${gear.length}) into the armoury.`, action: "hallGear", arg: "all" });
-    for (const i of gear.slice(0, 8)) {
-      const to = armouryDepositOf(i) as { stock: string; tier: number };
-      choices.push({ label: `Deposit ${i.name} (goes in as a tier-${to.tier} ${to.stock === "weapon" ? "weapon; you pick the kind when you take one" : "armour piece"}).`, action: "hallGear", arg: i.id });
-    }
+  // Interior fixes 2026-11-27: pack weapons / armour into the armoury stock (tier only; the kind is picked on Take).
+  // Gear deposit tiers 2026-11-27: special weapons are listed too, at their boosted tier; "all" stays plain-only and a
+  // special one asks first (`confirm`: the panel shows only Yes / Keep it).
+  const inv = heroProfileOf(p).inventory;
+  const conf = confirmId ? inv.find((i) => i.id === confirmId) : undefined;
+  const confTo = conf ? armouryDepositOf(conf) : undefined;
+  if (conf && confTo && !("refuse" in confTo)) {
+    furnitureTalk(p, "Hall chest", `Deposit ${conf.name} into the armoury as ${armouryDepositLabel(confTo)}?\nIt comes back as a plain tier-${confTo.tier} weapon: its unique stats${conf.relicId ? " and relic status" : ""} are lost.`, [
+      { label: `Yes: deposit ${conf.name} (it becomes a plain tier-${confTo.tier} weapon).`, action: "hallGear", arg: `confirm:${conf.id}` },
+      { label: "No, keep it.", action: "hallGear", arg: "back" },
+    ], at);
+    return;
+  }
+  const gear = inv.map((i) => ({ i, to: armouryDepositOf(i) })).filter((g): g is { i: GearItem; to: ArmouryDeposit } => !("refuse" in g.to));
+  const plainN = gear.filter((g) => !g.to.boosted).length;
+  if (plainN) choices.push({ label: `Deposit all plain gear (${plainN}) into the armoury.`, action: "hallGear", arg: "all" });
+  for (const { i, to } of gear.slice(0, 8)) {
+    choices.push({ label: `Deposit ${i.name} (goes in as ${armouryDepositLabel(to)}${to.stock === "weapon" ? to.boosted ? "; it comes back as a plain weapon" : "; you pick the kind when you take one" : ""}).`, action: "hallGear", arg: i.id });
   }
   choices.push({ label: "Open shared Stockpile.", action: "openStockpile" }, { label: "Use the hall chest (private storage).", action: "chestPrivate" });
   const text = `${head ? head + "\n\n" : ""}Deposit carried goods into your shared stockpile.\nCarried (${packWeight(life)} / ${PACK_CAP}): ${goodsText(life.pack)}.`;
@@ -997,7 +1007,14 @@ export function interiorFurnitureChoice(p: Player, action: string, arg: unknown)
   if (action === "chestPrivate") return chestTalk(p, "", at(chestProp), true);
   if (action === "hallGear") {
     if (!sharedStockAccess(p) || typeof arg !== "string") return closeTalk(p);
-    handleDepositGear(p, arg === "all" ? undefined : arg, arg === "all");
+    if (arg === "back") return hallChestTalk(p, "", at(chestProp));
+    const confirmed = arg.startsWith("confirm:");
+    const id = confirmed ? arg.slice(8) : arg;
+    const item = heroProfileOf(p).inventory.find((i) => i.id === id);
+    const to = item ? armouryDepositOf(item) : undefined;
+    // A special weapon (relic / adventure gear) asks first: it loses its unique stats.
+    if (!confirmed && to && !("refuse" in to) && to.boosted) return hallChestTalk(p, "", at(chestProp), id);
+    handleDepositGear(p, id === "all" ? undefined : id, id === "all");
     return hallChestTalk(p, "", at(chestProp));
   }
   if (action === "hallDeposit") {

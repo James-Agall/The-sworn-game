@@ -760,18 +760,70 @@ export interface GearItem {
   spellId?: SpellId;
 }
 // Interior fixes 2026-11-27 (`depositGear`): the colony armoury stock (`EquipmentStock`) counts only tiers, so a pack
-// item may go in only if the armoury "Take" can hand back the same kind of piece: tier 1-3 plain weapons (-> weapon
-// stock; the kind is not kept) and helms / breastplates / shields (head / chest / offhand -> armour stock). Relics,
-// adventure gear, tomes and leg armour (the armoury makes none) cannot. Returns the stock it goes into, or the refusal.
-export function armouryDepositOf(item: GearItem): { stock: "weapon" | "armour"; tier: 1 | 2 | 3 } | { refuse: string } {
-  if (item.tier === "relic" || item.relicId || item.adventureTrait || item.spellId || item.slot === "tome" || ![1, 2, 3].includes(item.tier as number)) {
-    return { refuse: "Relics and special gear can't go into the armoury: keep or drop them" };
+// item goes in as a tier and the armoury "Take" later hands back a plain piece of that tier (the weapon kind is picked
+// then). Gear deposit tiers 2026-11-27: EVERY weapon has a deposit tier. A plain weapon keeps its own tier 1-3. A
+// SPECIAL weapon (a relic, adventure gear, a weapon with no valid 1-3 tier, or one stronger than the plain weapon of its
+// tier) is boosted a tier: min(3, base + 1), base = its own tier 1-3, else the highest plain tier whose power score is
+// <= its own (minimum 1). It comes back as a PLAIN weapon (the relic / trait / unique stats are gone).
+// Armour stays plain-only: helms / breastplates / shields of tier 1-3 keep their tier; relic / adventure armour, leg
+// armour (the armoury makes none), tomes, trinkets and spell items are refused.
+// Plain weapon damage per tier: the server's PLAIN_GEAR.weapon.stats(t) (WEAPON_DAMAGE_MULT x1.2 / 1.4 / 1.7);
+// gear-deposit-regression.mts asserts they match.
+export const PLAIN_WEAPON_DAMAGE_PCT = [20, 40, 70] as const;
+// Power score weights (per point of each ItemStats field): damage, attack speed and move speed % count 1 each, spell
+// power % 0.5 (it only helps spells), max HP 0.1 per HP, damage taken % -1 (negative = takes less = better).
+export const GEAR_POWER_WEIGHTS: Record<keyof ItemStats, number> = {
+  damagePct: 1, attackSpeedPct: 1, moveSpeedPct: 1, spellPowerPct: 0.5, maxHp: 0.1, damageTakenPct: -1,
+};
+export function gearPowerScore(stats: ItemStats | undefined): number {
+  let s = 0;
+  for (const [k, w] of Object.entries(GEAR_POWER_WEIGHTS)) {
+    const v = stats?.[k as keyof ItemStats];
+    if (typeof v === "number" && Number.isFinite(v)) s += v * w;
   }
-  const tier = item.tier as 1 | 2 | 3;
-  if (item.slot === "weapon") return { stock: "weapon", tier };
-  if (item.slot === "head" || item.slot === "chest" || item.slot === "offhand") return { stock: "armour", tier };
+  return s;
+}
+// Plain weapon power per tier (20 / 40 / 70).
+export const PLAIN_WEAPON_POWER = PLAIN_WEAPON_DAMAGE_PCT.map((d) => gearPowerScore({ damagePct: d }));
+// The highest plain tier whose power score is <= `score` (minimum 1).
+export function plainWeaponTierFor(score: number): 1 | 2 | 3 {
+  return score >= PLAIN_WEAPON_POWER[2] ? 3 : score >= PLAIN_WEAPON_POWER[1] ? 2 : 1;
+}
+export interface ArmouryDeposit {
+  stock: "weapon" | "armour";
+  // The tier it goes in as (the counter it moves: state.equipment[stock][tier - 1]).
+  tier: 1 | 2 | 3;
+  // Special weapon: +1 tier (also when capped at 3). baseTier = before the boost.
+  boosted: boolean;
+  baseTier: 1 | 2 | 3;
+  // Short human reason, e.g. "tier 2" or "tier 2 +1 (special)".
+  why: string;
+}
+const validTier = (t: unknown): t is 1 | 2 | 3 => t === 1 || t === 2 || t === 3;
+export function armouryDepositOf(item: GearItem): ArmouryDeposit | { refuse: string } {
+  if (item.slot === "tome" || item.spellId) return { refuse: "Spell tomes can't go into the armoury: learn, keep or drop them" };
+  if (item.slot === "weapon") {
+    const score = gearPowerScore(item.stats);
+    const own = validTier(item.tier) ? item.tier : null;
+    const special = !own || item.tier === "relic" || !!item.relicId || !!item.adventureTrait || score > PLAIN_WEAPON_POWER[own - 1];
+    if (!special) return { stock: "weapon", tier: own!, boosted: false, baseTier: own!, why: `tier ${own}` };
+    const baseTier = own ?? plainWeaponTierFor(score);
+    const tier = Math.min(3, baseTier + 1) as 1 | 2 | 3;
+    return { stock: "weapon", tier, boosted: true, baseTier, why: `tier ${baseTier} +1 (special)${baseTier === 3 ? ", capped at tier 3" : ""}` };
+  }
   if (item.slot === "legs") return { refuse: "Leg armour can't go into the armoury (it stocks only helms, breastplates and shields): keep or drop it" };
-  return { refuse: "Relics and special gear can't go into the armoury: keep or drop them" };
+  if (item.slot === "head" || item.slot === "chest" || item.slot === "offhand") {
+    if (item.tier === "relic" || item.relicId || item.adventureTrait || !validTier(item.tier)) {
+      return { refuse: "Special armour (relics, adventure gear) can't go into the armoury, only plain helms, breastplates and shields: keep or drop it" };
+    }
+    return { stock: "armour", tier: item.tier, boosted: false, baseTier: item.tier, why: `tier ${item.tier}` };
+  }
+  return { refuse: "Trinkets and spell items can't go into the armoury: keep or drop them" };
+}
+// "a tier 3 weapon (special: +1 tier)" / "a tier 2 weapon" / "tier 1 armour": what it goes in as (toasts, menus, chest).
+export function armouryDepositLabel(to: ArmouryDeposit): string {
+  if (to.stock === "armour") return `tier ${to.tier} armour`;
+  return `a tier ${to.tier} weapon${to.boosted ? ` (special: +1 tier${to.baseTier === 3 ? ", capped at 3" : ""})` : ""}`;
 }
 export type Equipment = Record<GearSlot, GearItem | null>;
 // Derived (server-computed) modifiers of the player's gear + level.
@@ -1494,7 +1546,9 @@ export type ClientMessage =
   | { type: "pickupGround"; id: string }
   // Interior fixes 2026-11-27: one plain tiered pack item (or `all` eligible ones) into the colony armoury stock
   // (armouryDepositOf), where the goods deposit works (next to the Town Center / a storage chest, or in an own building).
-  | { type: "depositGear"; itemId?: string; all?: boolean }
+  // `all` = every PLAIN eligible piece (special weapons only by id). Gear deposit tiers 2026-11-27: `itemIds` = the
+  // hero sheet's multi-select (at most 40 unique ids; each eligible one goes in, the rest are skipped, one toast).
+  | { type: "depositGear"; itemId?: string; all?: boolean; itemIds?: string[] }
   // Stardew phase 5c: leave the interior (Esc near the exit mat; walking onto the mat leaves by itself).
   | { type: "interiorEdit"; op: "base"|"floor"|"wall"|"place"|"remove"; base?:string; floor?:string; wall?:string; prop?:string; x?:number; y?:number; facing?:string }
   | { type:"adventureJournal"; op:"get"|"track"|"act"; id?:string }
