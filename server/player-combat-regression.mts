@@ -3,7 +3,7 @@ import { TileType as T, HungerMark } from '@colony/shared/protocol';
 import { attackSpec, strikeContains } from '@colony/shared/combatRules';
 import { state, players, mobs, wildlife, gates, heroProfiles, colonists } from './src/state.js';
 import { markTileRegistryStale, setTile } from './src/chunks.js';
-import { heroProfileOf } from './src/heroes.js';
+import { heroProfileOf, recomputeHeroProfile } from './src/heroes.js';
 import { createRaidMob } from './src/raids.js';
 import { queuePlayerAttack, handleCombatInput, stepPlayerCombat, playerCombatLive, defendPlayer, combatMotion, resetPlayerCombat } from './src/playerCombat.js';
 import { worldCombatSight } from './src/worldPlayerStrike.js';
@@ -20,6 +20,9 @@ function reset(kind='sword'){
   resetPlayerCombat();resetDuels();mobs.clear();wildlife.clear();gates.clear();state.tiles.fill(T.Empty);markTileRegistryStale();
   Object.assign(p,{x:512,y:512,hp:100,dead:false,attackCooldownTicks:0,input:{dx:0,dy:0},interior:undefined});
   prof.equipment={weapon:{id:'test-'+kind,slot:'weapon',kind,name:kind,tier:1,stats:{}}};
+  // Players now start with a plain tier-1 sword (starter weapon): the cached stats must follow this gear-free
+  // setup, otherwise they keep the starter sword's damage bonus and every damage figure below shifts.
+  recomputeHeroProfile(prof);
 }
 function mob(x:number,y:number,kind='banditClubman'){
   const m=createRaidMob(kind as any,{x:Math.floor(x/32),y:Math.floor(y/32)},'',false);Object.assign(m,{x,y,hp:500,maxHp:500,groupId:null,mark:HungerMark.None});mobs.set(m.id,m);return m;
