@@ -324,7 +324,21 @@ check((await ui()).spellBtns[1].aiming && (await ui()).toolOn === 0, "with the w
 await esc();
 await bothSizes("5-weapon-active-spell-cooldown");
 
-// ---- 7. -------------------------------------------------------------------------------------------------------------
+// ---- 7. strategy view: only the spell group shows, where the old spell bar sat (above the command bar / cards) --------
+await page.click("#strategy-btn"); await sleep(1200);
+const strat = await page.evaluate(() => document.body.classList.contains("strategy-mode"));
+s = await ui();
+const sbS = await rect("#spell-bar"), toolsS = await rect("#hero-hotbar .hh-tools"), cmdS = await rect("#command-bar"), cardsS = await rect("#regiment-cards");
+check(strat && s.spellBarVisible && shownSpells(s).length === 4 && !toolsS && !overlap(sbS, cmdS) && !overlap(sbS, cardsS),
+  `strategy view: the 4 spells show alone, clear of the command bar / regiment cards (${JSON.stringify({ strat, sbS, cmdS, cardsS, tools: !!toolsS })})`);
+await page.keyboard.press("Shift+Digit2"); await sleep(250);
+check((await ui()).spellBtns[1].aiming, "strategy view: Shift+2 still aims Fire Bolt");
+await esc();
+await page.screenshot({ path: path.join(OUT, "6-strategy-1280x800.png") });
+await page.click("#strategy-btn"); await sleep(1200);
+check(!(await page.evaluate(() => document.body.classList.contains("strategy-mode"))) && !!(await rect("#hero-hotbar .hh-tools")), "back in adventure view the tools show again");
+
+// ---- 8. -------------------------------------------------------------------------------------------------------------
 check(pageErrors.length === 0, `no page errors (${JSON.stringify(pageErrors)})`);
 await browser.close();
 cleanup();
