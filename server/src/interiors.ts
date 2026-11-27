@@ -927,8 +927,8 @@ function hallChestTalk(p: Player, head: string, at: TalkInside, confirmId?: stri
   const conf = confirmId ? inv.find((i) => i.id === confirmId) : undefined;
   const confTo = conf ? armouryDepositOf(conf) : undefined;
   if (conf && confTo && !("refuse" in confTo)) {
-    furnitureTalk(p, "Hall chest", `Deposit ${conf.name} into the armoury as ${armouryDepositLabel(confTo)}?\nIt comes back as a plain tier-${confTo.tier} weapon: its unique stats${conf.relicId ? " and relic status" : ""} are lost.`, [
-      { label: `Yes: deposit ${conf.name} (it becomes a plain tier-${confTo.tier} weapon).`, action: "hallGear", arg: `confirm:${conf.id}` },
+    furnitureTalk(p, "Hall chest", `Deposit ${conf.name} into the armoury as ${armouryDepositLabel(confTo)}?\nIt comes back as plain tier-${confTo.tier} ${confTo.stock === "weapon" ? "weapon" : "armour"}: its unique stats${conf.relicId ? " and relic status" : ""} are lost.`, [
+      { label: `Yes: deposit ${conf.name} (it becomes plain tier-${confTo.tier} ${confTo.stock === "weapon" ? "weapon" : "armour"}).`, action: "hallGear", arg: `confirm:${conf.id}` },
       { label: "No, keep it.", action: "hallGear", arg: "back" },
     ], at);
     return;
@@ -937,7 +937,7 @@ function hallChestTalk(p: Player, head: string, at: TalkInside, confirmId?: stri
   const plainN = gear.filter((g) => !g.to.boosted).length;
   if (plainN) choices.push({ label: `Deposit all plain gear (${plainN}) into the armoury.`, action: "hallGear", arg: "all" });
   for (const { i, to } of gear.slice(0, 8)) {
-    choices.push({ label: `Deposit ${i.name} (goes in as ${armouryDepositLabel(to)}${to.stock === "weapon" ? to.boosted ? "; it comes back as a plain weapon" : "; you pick the kind when you take one" : ""}).`, action: "hallGear", arg: i.id });
+    choices.push({ label: `Deposit ${i.name} (goes in as ${armouryDepositLabel(to)}${to.boosted ? `; it comes back as plain ${to.stock === "weapon" ? "weapon" : "armour"}` : to.stock === "weapon" ? "; you pick the kind when you take one" : ""}).`, action: "hallGear", arg: i.id });
   }
   choices.push({ label: "Open shared Stockpile.", action: "openStockpile" }, { label: "Use the hall chest (private storage).", action: "chestPrivate" });
   const text = `${head ? head + "\n\n" : ""}Deposit carried goods into your shared stockpile.\nCarried (${packWeight(life)} / ${PACK_CAP}): ${goodsText(life.pack)}.`;

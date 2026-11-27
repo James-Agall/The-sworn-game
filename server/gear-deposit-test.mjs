@@ -1,6 +1,6 @@
 // Scripted test: Interior fixes 2026-11-27, `depositGear` (pack gear into the colony armoury stock).
 // Weapons -> state.equipment.weapon[tier-1], helms / breastplates / shields -> armour[tier-1], the item leaves the pack;
-// equipped pieces, special (relic / adventure) armour, tomes and leg armour are refused; away from any own store
+// equipped pieces, tomes and trinkets are refused (armour deposit 2026-11-27: head / body / legs / shield all count as armour, special armour +1 tier); away from any own store
 // refused; malformed messages ignored; `all` deposits every PLAIN eligible piece and keeps the rest; round trip (deposit
 // then the armoury Take gives back a plain piece of that tier); the stock survives save / load; the Town Center hall
 // chest offers it. Gear deposit tiers 2026-11-27: special WEAPONS (relics, adventure gear) deposit boosted a tier (the
@@ -91,20 +91,13 @@ for (const [slot, tier, want] of [["head", 1, "1,0,0"], ["chest", 3, "1,0,1"], [
   result(E.armour.join() === want && !inv.some((i) => i.id === it.id) && /armour:/.test(ev), `${slot} T${tier} -> armour stock [${E.armour}] (want ${want}); "${ev}"`);
 }
 
-// 2. Refusals: equipped, relic armour, adventure armour, tome, leg armour; nothing moves. (A relic / adventure WEAPON
+// 2. Refusals: equipped, tome, trinket; nothing moves. (A relic / adventure WEAPON
 // deposits now: section 6b.)
 const before = JSON.stringify(await eq());
 const hs = await hook("heroState");
 const equipped = hs.profile.equipment.weapon;
 ev = await deposit({ itemId: equipped?.id });
 result(!!equipped && /Unequip that first to deposit it in the armoury/.test(ev) && JSON.stringify(await eq()) === before, `equipped weapon (${equipped?.name}) refused: "${ev}"`);
-const relic = (await hook("grantRelic", { relicId: "oathkeeperHelm" })).item;
-ev = await deposit({ itemId: relic?.id });
-result(!!relic && /Special armour \(relics, adventure gear\) can't go into the armoury/.test(ev) && (await pack()).some((i) => i.id === relic.id), `relic armour (${relic?.name}) refused and kept: "${ev}"`);
-const adv = { id: `t-${++uid}`, slot: "offhand", tier: 1, kind: "shield", name: "Steady round shield", adventureTrait: "steady", stats: { damageTakenPct: -6, moveSpeedPct: -4 } };
-await put(adv);
-ev = await deposit({ itemId: adv.id });
-result(/Special armour/.test(ev) && (await pack()).some((i) => i.id === adv.id), `adventure armour refused and kept: "${ev}"`);
 const tome = (await hook("grantTome", {})).item;
 ev = await deposit({ itemId: tome?.id });
 result(!!tome && /Spell tomes can't go into the armoury/.test(ev) && (await pack()).some((i) => i.id === tome.id), `spell tome refused and kept: "${ev}"`);
@@ -115,10 +108,6 @@ result(/Trinkets and spell items can't go into the armoury/.test(ev) && (await p
 // A special weapon stays in the pack through "all" (section 5): it goes in only by id.
 const advW = plain("weapon", 1, { adventureTrait: "breach", kind: "axe", name: "Breaching axe", stats: { damagePct: 8 } });
 await put(advW);
-const legs = plain("legs", 1);
-await put(legs);
-ev = await deposit({ itemId: legs.id });
-result(/Leg armour can't go into the armoury/.test(ev) && (await pack()).some((i) => i.id === legs.id), `leg armour refused (cannot round-trip): "${ev}"`);
 ev = await deposit({ itemId: "no-such-item" });
 result(/That item is not in your pack/.test(ev), `unknown id: "${ev}"`);
 result(JSON.stringify(await eq()) === before, "no refusal changed the stock");
@@ -148,15 +137,14 @@ result(/Stand next to your Town Center or a storage chest to deposit/.test(ev) &
 for (let i = 0; i < 40 && c.life?.atStore; i++) await sleep(20);
 result(!c.life?.atStore, `away from stores atStore is off (${c.life?.atStore})`);
 
-// 5. `all` next to the Town Center: every plain piece goes; relic / adventure armour, the special weapon, tome,
-// trinket and legs stay.
+// 5. `all` next to the Town Center: every plain piece goes; the special weapon, tome and trinket stay.
 await hook("teleportPlayer", { x: px(tc.x), y: px(tc.y + 2) });
 await put(plain("chest", 2));
 ev = await deposit({ all: true });
 E = await eq();
 inv = await pack();
 const left = inv.map((i) => i.id).sort().join();
-const keep = [relic.id, adv.id, tome.id, legs.id, trinket.id, advW.id].sort().join();
+const keep = [tome.id, trinket.id, advW.id].sort().join();
 result(E.weapon.join() === "1,1,0" && E.armour.join() === "2,1,1" && left === keep && /Deposited 2 items to the armoury \(tier 1 weapons: 1, tier 2 armour: 1\)$/.test(ev), `deposit all: weapons [${E.weapon}], armour [${E.armour}], pack keeps only the special pieces (${inv.map((i) => i.name).join(", ")}); "${ev}"`);
 ev = await deposit({ all: true });
 result(/No plain weapons or armour in your pack/.test(ev), `deposit all with nothing eligible: "${ev}"`);
@@ -223,9 +211,9 @@ s0 = await eq();
 ev = await deposit({ itemIds: [mA.id, mB.id, mA.id, mC.id, mD.id, mRelic.id, "no-such", theirs.id, worn.id, mB.id] });
 s1 = await eq();
 inv = await pack();
-result(delta(s0, s1) === "1,1,1|1,0,0" && ![mA, mB, mC, mRelic].some((x) => inv.some((i) => i.id === x.id)) && inv.some((i) => i.id === mD.id) && inv.some((i) => i.id === tome.id),
-  `mixed itemIds: 4 deposited (duplicates once), delta ${delta(s0, s1)}; legs kept`);
-result(new RegExp(`^Deposited 4 items to the armoury \\(tier 1 weapons: ${s1.weapon[0]}, tier 2 weapons: ${s1.weapon[1]}, tier 3 weapons: ${s1.weapon[2]}, tier 1 armour: ${s1.armour[0]}\\)\\. Skipped 4: Test legs T1: Leg armour`).test(ev), `aggregated toast: "${ev}"`);
+result(delta(s0, s1) === "1,1,1|2,0,0" && ![mA, mB, mC, mD, mRelic].some((x) => inv.some((i) => i.id === x.id)) && inv.some((i) => i.id === tome.id),
+  `mixed itemIds: 5 deposited (duplicates once; legs count as armour), delta ${delta(s0, s1)}`);
+result(new RegExp(`^Deposited 5 items to the armoury \\(tier 1 weapons: ${s1.weapon[0]}, tier 2 weapons: ${s1.weapon[1]}, tier 3 weapons: ${s1.weapon[2]}, tier 1 armour: ${s1.armour[0]}\\)\\. Skipped 3: an item is not in your pack`).test(ev), `aggregated toast: "${ev}"`);
 oHook.delete("packGear");
 other.send(JSON.stringify({ type: "testHook", op: "packGear" }));
 for (let i = 0; i < 300 && !oHook.has("packGear"); i++) await sleep(10);
@@ -237,10 +225,10 @@ ev = await deposit({ itemIds: ["no-such", theirs.id] });
 result(/^Nothing deposited\. Skipped 2: an item is not in your pack/.test(ev), `ids not in the pack (incl. another player's): "${ev}"`);
 const many = Array.from({ length: 41 }, (_, k) => `id-${k}`);
 s0 = await eq();
-ev = await deposit({ itemIds: [...many, mD.id] });
+ev = await deposit({ itemIds: [...many, tome.id] });
 result(/Select at most 40 items/.test(ev) && JSON.stringify(await eq()) === JSON.stringify(s0), `42 unique ids refused: "${ev}"`);
-ev = await deposit({ itemIds: [...Array(50).fill(mD.id)] });
-result(/^Nothing deposited\. Skipped 1: Test legs T1/.test(ev), `50 copies of one id = 1 unique id: "${ev}"`);
+ev = await deposit({ itemIds: [...Array(50).fill(tome.id)] });
+result(/^Nothing deposited\. Skipped 1: .+: Spell tomes/.test(ev), `50 copies of one id = 1 unique id: "${ev}"`);
 const nM = c.events.length;
 const invM = JSON.stringify(await pack());
 await sleep(1100);
@@ -320,13 +308,13 @@ const hallRelic = (await hook("grantRelic", { relicId: "abbeyEmberstaff" })).ite
 c.dialogue = null;
 send({ type: "interact" });
 for (let i = 0; i < 100 && !c.dialogue; i++) await sleep(10);
-const relicRow = idx(/Deposit Abbey Emberstaff \(goes in as a tier 3 weapon \(special: \+1 tier\); it comes back as a plain weapon\)/);
+const relicRow = idx(/Deposit Abbey Emberstaff \(goes in as a tier 3 weapon \(special: \+1 tier\); it comes back as plain weapon\)/);
 result(relicRow >= 0, `hall chest lists the relic staff at its boosted tier: [${dlg()?.choices?.map((x) => x.label).join(" | ")}]`);
 const e4 = await eq();
 c.dialogue = null;
 await hook("heroLife", { choice: relicRow });
 for (let i = 0; i < 100 && !c.dialogue; i++) await sleep(10);
-result(/comes back as a plain tier-3 weapon: its unique stats and relic status are lost/.test(c.dialogue?.dialogue?.text ?? "") && idx(/^Yes: deposit Abbey Emberstaff/) >= 0 && idx(/^No, keep it/) >= 0 && JSON.stringify(await eq()) === JSON.stringify(e4) && (await pack()).some((i) => i.id === hallRelic.id),
+result(/comes back as plain tier-3 weapon: its unique stats and relic status are lost/.test(c.dialogue?.dialogue?.text ?? "") && idx(/^Yes: deposit Abbey Emberstaff/) >= 0 && idx(/^No, keep it/) >= 0 && JSON.stringify(await eq()) === JSON.stringify(e4) && (await pack()).some((i) => i.id === hallRelic.id),
   `a special row asks first (nothing moved): "${c.dialogue?.dialogue?.text}" [${dlg()?.choices?.map((x) => x.label).join(" | ")}]`);
 let pick = idx(/^No, keep it/);
 c.dialogue = null;

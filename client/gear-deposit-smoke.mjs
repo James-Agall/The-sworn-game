@@ -166,14 +166,15 @@ const it = (slot, tier, kind, name, stats, extra = {}) => ({ id: `g-${String(++u
 const PACK = [
   it("weapon", 1, "sword", "Iron Sword", { damagePct: 20 }),
   it("weapon", 2, "axe", "Steel Axe", { damagePct: 40 }),
-  it("legs", 1, "greaves", "Iron Greaves", { damageTakenPct: -5 }),
+  it("trinket", 1, "charm", "Iron Charm", { maxHp: 5 }),
   it("head", 1, "helm", "Bronze Helm", { damageTakenPct: -6 }),
   it("weapon", 1, "axe", "Breaching axe", { damagePct: -2 }, { adventureTrait: "breach" }),
   it("chest", 2, "cuirass", "Steel Breastplate", { damageTakenPct: -30 }),
 ];
 for (const item of PACK) await hook("packGear", { item });
 const relic = (await hook("grantRelic", { relicId: "gunneTooth" })).item;
-const relicHelm = (await hook("grantRelic", { relicId: "oathkeeperHelm" })).item;
+const relicHelm = it("trinket", 1, "charm", "Bone Charm", { maxHp: 8 });
+await hook("packGear", { item: relicHelm });
 const tome = (await hook("grantTome", {})).item;
 let p = await until((x) => x.inventory.length === PACK.length + 3);
 check(p.inventory.length === PACK.length + 3 && !!relic && !!relicHelm && !!tome, `pack: ${p.inventory.map((i) => i.name).join(", ")}`);
@@ -189,13 +190,13 @@ check(/Deposit gear to armoury \(4\)/.test(await stockText()), `the armoury "Dep
 // ---- tooltip + context menu of a special weapon ---------------------------------------------------------------------
 await cell(6).hover(); await sleep(250);
 const tip = await page.evaluate(() => document.getElementById("hs-tip")?.innerText ?? "");
-check(/Deposit to armoury: goes in as a tier 3 weapon \(special: \+1 tier\)/.test(tip) && /comes back as a plain tier-3 weapon \(its unique stats and relic status are lost\)/.test(tip), `relic tooltip shows the deposit tier and the warning: ${JSON.stringify(tip)}`);
+check(/Deposit to armoury: goes in as a tier 3 weapon \(special: \+1 tier\)/.test(tip) && /comes back as plain tier-3 weapon \(its unique stats and relic status are lost\)/.test(tip), `relic tooltip shows the deposit tier and the warning: ${JSON.stringify(tip)}`);
 await shot("1-relic-tooltip");
 await cell(0).hover(); await sleep(250);
 const tip0 = await page.evaluate(() => document.getElementById("hs-tip")?.innerText ?? "");
 check(/Deposit to armoury: goes in as a tier 1 weapon/.test(tip0) && !/special/.test(tip0), `plain sword tooltip: tier 1, no special note (${JSON.stringify(tip0)})`);
 await cell(2).hover(); await sleep(250);
-check(/Armoury: Leg armour can't go into the armoury/.test(await page.evaluate(() => document.getElementById("hs-tip")?.innerText ?? "")), "leg armour tooltip gives the refusal");
+check(/Armoury: Trinkets and spell items can't go into the armoury/.test(await page.evaluate(() => document.getElementById("hs-tip")?.innerText ?? "")), "trinket tooltip gives the refusal");
 let n0 = await mark();
 await cell(6).click({ button: "right" }); await sleep(250);
 const menu = () => page.evaluate(() => ({ shown: !document.getElementById("hs-item-menu").hidden, items: [...document.querySelectorAll("#hs-item-menu button")].map((b) => b.textContent), note: document.querySelector("#hs-item-menu .hs-menu-note")?.textContent ?? null }));
@@ -203,7 +204,7 @@ let m = await menu();
 check(m.shown && m.items.includes("Deposit to armoury: goes in as a tier 3 weapon (special: +1 tier)"), `context menu entry names the tier (${JSON.stringify(m.items)})`);
 await page.locator("#hs-item-menu button", { hasText: "Deposit to armoury" }).click(); await sleep(250);
 m = await menu();
-check(m.shown && /comes back as a plain tier-3 weapon/.test(m.note ?? "") && m.items[0] === "Yes, deposit as a plain tier-3 weapon" && (await sentSince(n0)).length === 0, `the menu asks before the relic goes in, nothing sent yet (${JSON.stringify(m)})`);
+check(m.shown && /comes back as plain tier-3 weapon/.test(m.note ?? "") && m.items[0] === "Yes, deposit as plain tier-3 weapon" && (await sentSince(n0)).length === 0, `the menu asks before the relic goes in, nothing sent yet (${JSON.stringify(m)})`);
 await shot("2-relic-menu-confirm");
 await esc();
 check(!(await menu()).shown && await visible("#hero-modal") && (await sentSince(n0)).length === 0, "Esc closes only the confirm menu; the relic stays, nothing sent");
@@ -271,7 +272,7 @@ await page.waitForFunction(() => document.querySelectorAll("#hs-inv [data-pack-i
 const eqS = (await hook("equipState")).equipment;
 await sleep(600);
 const st = await stockText();
-check(p.inventory.map((i) => i.name).sort().join() === [relicHelm.name, tome.name, "Iron Greaves"].sort().join() && eqS.weapon.join() === "1,2,1" && eqS.armour.join() === "1,1,0",
+check(p.inventory.map((i) => i.name).sort().join() === [relicHelm.name, tome.name, "Iron Charm"].sort().join() && eqS.weapon.join() === "1,2,1" && eqS.armour.join() === "1,1,0",
   `pack keeps only the ineligible 3; stock weapons [${eqS.weapon}], armour [${eqS.armour}] (${p.inventory.map((i) => i.name)})`);
 check(/Weapon T1 \(1\)/.test(st) && /Weapon T2 \(2\)/.test(st) && /Weapon T3 \(1\)/.test(st) && /Body armour T1 \(1\)/.test(st), `the armoury buttons show the new stock (${st})`);
 b = await bar();

@@ -765,8 +765,8 @@ export interface GearItem {
 // SPECIAL weapon (a relic, adventure gear, a weapon with no valid 1-3 tier, or one stronger than the plain weapon of its
 // tier) is boosted a tier: min(3, base + 1), base = its own tier 1-3, else the highest plain tier whose power score is
 // <= its own (minimum 1). It comes back as a PLAIN weapon (the relic / trait / unique stats are gone).
-// Armour stays plain-only: helms / breastplates / shields of tier 1-3 keep their tier; relic / adventure armour, leg
-// armour (the armoury makes none), tomes, trinkets and spell items are refused.
+// Armour works the same way (armour deposit 2026-11-27): helm, body, legs and shield each count as one armour piece;
+// special armour is boosted a tier. Tomes, trinkets and spell items are refused.
 // Plain weapon damage per tier: the server's PLAIN_GEAR.weapon.stats(t) (WEAPON_DAMAGE_MULT x1.2 / 1.4 / 1.7);
 // gear-deposit-regression.mts asserts they match.
 export const PLAIN_WEAPON_DAMAGE_PCT = [20, 40, 70] as const;
@@ -788,6 +788,12 @@ export const PLAIN_WEAPON_POWER = PLAIN_WEAPON_DAMAGE_PCT.map((d) => gearPowerSc
 // The highest plain tier whose power score is <= `score` (minimum 1).
 export function plainWeaponTierFor(score: number): 1 | 2 | 3 {
   return score >= PLAIN_WEAPON_POWER[2] ? 3 : score >= PLAIN_WEAPON_POWER[1] ? 2 : 1;
+}
+// Plain armour damage taken per tier (-15 / -30 / -45 %: server ARMOUR_DAMAGE_TAKEN_MULT x0.85 / 0.7 / 0.55).
+export const PLAIN_ARMOUR_DAMAGE_TAKEN_PCT = [-15, -30, -45] as const;
+export const PLAIN_ARMOUR_POWER = PLAIN_ARMOUR_DAMAGE_TAKEN_PCT.map((d) => gearPowerScore({ damageTakenPct: d }));
+export function plainArmourTierFor(score: number): 1 | 2 | 3 {
+  return score >= PLAIN_ARMOUR_POWER[2] ? 3 : score >= PLAIN_ARMOUR_POWER[1] ? 2 : 1;
 }
 export interface ArmouryDeposit {
   stock: "weapon" | "armour";
@@ -811,12 +817,17 @@ export function armouryDepositOf(item: GearItem): ArmouryDeposit | { refuse: str
     const tier = Math.min(3, baseTier + 1) as 1 | 2 | 3;
     return { stock: "weapon", tier, boosted: true, baseTier, why: `tier ${baseTier} +1 (special)${baseTier === 3 ? ", capped at tier 3" : ""}` };
   }
-  if (item.slot === "legs") return { refuse: "Leg armour can't go into the armoury (it stocks only helms, breastplates and shields): keep or drop it" };
-  if (item.slot === "head" || item.slot === "chest" || item.slot === "offhand") {
-    if (item.tier === "relic" || item.relicId || item.adventureTrait || !validTier(item.tier)) {
-      return { refuse: "Special armour (relics, adventure gear) can't go into the armoury, only plain helms, breastplates and shields: keep or drop it" };
-    }
-    return { stock: "armour", tier: item.tier, boosted: false, baseTier: item.tier, why: `tier ${item.tier}` };
+  // Armour deposit 2026-11-27: head, body (chest), legs and shield each count as one full armour piece of their tier.
+  // Same rule as weapons: a plain piece keeps its tier; a special one (relic, adventure gear, no valid 1-3 tier, or
+  // stronger than the plain armour of its tier) is boosted a tier, min(3, base + 1), and comes back as plain armour.
+  if (item.slot === "head" || item.slot === "chest" || item.slot === "legs" || item.slot === "offhand") {
+    const score = gearPowerScore(item.stats);
+    const own = validTier(item.tier) ? item.tier : null;
+    const special = !own || item.tier === "relic" || !!item.relicId || !!item.adventureTrait || score > PLAIN_ARMOUR_POWER[own - 1];
+    if (!special) return { stock: "armour", tier: own!, boosted: false, baseTier: own!, why: `tier ${own}` };
+    const baseTier = own ?? plainArmourTierFor(score);
+    const tier = Math.min(3, baseTier + 1) as 1 | 2 | 3;
+    return { stock: "armour", tier, boosted: true, baseTier, why: `tier ${baseTier} +1 (special)${baseTier === 3 ? ", capped at tier 3" : ""}` };
   }
   return { refuse: "Trinkets and spell items can't go into the armoury: keep or drop them" };
 }

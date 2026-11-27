@@ -657,9 +657,9 @@ export function createHeroSheet(game: HeroSheetContext) {
     // Gear deposit tiers 2026-11-27: the entry names the tier it goes in as; a special weapon asks first (inline confirm).
     const depositTip = (to: ArmouryDeposit) => to.stock === "weapon"
       ? `Goes into the armoury as ${armouryDepositLabel(to)}; you pick the kind when you take one${to.boosted ? ` (it comes back as a plain tier-${to.tier} weapon)` : ""}`
-      : `Goes into the armoury as ${armouryDepositLabel(to)} (taken back as a helmet, body armour or shield)`;
+      : `Goes into the armoury as ${armouryDepositLabel(to)} (taken back as a helmet, body armour or shield${to.boosted ? `; it comes back as plain tier-${to.tier} armour` : ""})`;
     const specialWarn = (item: GearItem, to: ArmouryDeposit) =>
-      `Special weapon: once deposited it comes back as a plain tier-${to.tier} weapon (its unique stats${item.relicId ? " and relic status are" : " are"} lost)`;
+      `Special ${to.stock === "weapon" ? "weapon" : "armour"}: once deposited it comes back as plain tier-${to.tier} ${to.stock === "weapon" ? "weapon" : "armour"} (its unique stats${item.relicId ? " and relic status are" : " are"} lost)`;
     const depositNotes = (item: GearItem): { text: string; cls?: string }[] => {
       const to = armouryDepositOf(item);
       if ("refuse" in to) return [{ text: `Armoury: ${to.refuse}`, cls: "muted" }];
@@ -671,7 +671,7 @@ export function createHeroSheet(game: HeroSheetContext) {
       return {
         label: "refuse" in to ? "Deposit to armoury" : `Deposit to armoury: goes in as ${armouryDepositLabel(to)}`,
         run: "refuse" in to || !to.boosted ? send : () => openInvMenu(sock, item, [
-          { label: `Yes, deposit as a plain tier-${to.tier} weapon`, run: send },
+          { label: `Yes, deposit as plain tier-${to.tier} ${to.stock === "weapon" ? "weapon" : "armour"}`, run: send },
         ], `${specialWarn(item, to)}. Deposit it?`),
         disabled: "refuse" in to ? to.refuse : game.atStore ? undefined : STORE_WHY, title: "refuse" in to ? undefined : depositTip(to),
       };

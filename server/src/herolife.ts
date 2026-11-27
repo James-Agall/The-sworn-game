@@ -1420,7 +1420,7 @@ export function handleHeroAction(p: Player, action: unknown, build: unknown, goo
 
 // Interior fixes 2026-11-27: plain tiered pack gear into the colony armoury stock (state.equipment, per clan: the
 // message runs in the sender's clan). Same place rule as the goods deposit; equipped pieces, relics, adventure gear,
-// tomes and leg armour are refused (armouryDepositOf). `all`: every eligible pack item, one toast.
+// tomes and trinkets are refused (armouryDepositOf). `all`: every eligible pack item, one toast.
 const gearDepositTimes = new Map<string, number[]>();
 const STORE_WHY = "Stand next to your Town Center or a storage chest to deposit";
 // Gear deposit tiers 2026-11-27: `itemIds` (multi-select, at most 40 unique ids) deposits each eligible pack item and
