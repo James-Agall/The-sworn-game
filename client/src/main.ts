@@ -62,6 +62,7 @@ import type {
   TownCenterSnapshot, GearItem,
 } from "@colony/shared/protocol";
 import { TICK_RATE } from "@colony/shared/protocol"; // long days: respawn-window ETA
+import { PLAYER_WEAPON_KINDS } from "@colony/shared/protocol";
 import { applySnapshotDelta, newDeltaClientState } from "@colony/shared/snapshotDelta";
 import { RELATION_TIER_NAMES } from "@colony/shared/protocol"; // forts phase D: relation tier labels
 import {
@@ -90,7 +91,7 @@ import {
   MAX_CHUNKS_PER_REQUEST, decodeByteRuns,
 } from "@colony/shared/streaming";
 
-import { type ToolCategory, TOOL_CATEGORIES, TOOLS } from "./tools";
+import { type ToolCategory, TOOL_CATEGORIES, TOOLS, TOOL_NONE } from "./tools";
 import {
   COLONIST_COLORS, WORKER_KINDS, HIDE_AT_POST_KINDS, AT_POST_HIDE_RADIUS_PX, GARRISON_TILES, SELECTION_COLOR,
   DRAG_THRESHOLD_PX, UNIT_HIT_RADIUS, STANCE_HOTKEYS, MOB_VISUALS, MOB_KINDS, MOB_SPRITE_URL_OVERRIDES, MOB_TINT,
@@ -4340,7 +4341,7 @@ async function main() {
   combatControls=setupPlayerCombat({send:sendMessage,swing:()=>sound.play("sword_swing"),context:()=>{
     const me=latestPlayersForSpells.find(p=>p.id===myId),inside=!!interiorRef.ui?.active();
     const menu=document.getElementById("main-menu"),talk=document.getElementById("hl-dialogue");
-    return{me,inside,enabled:!!me&&!me.dead&&!strategyCam.inStrategy&&!timeControlsApi.currentPaused&&heroModal.hidden&&!!menu?.hidden&&(talk?.hidden??true)&&!spellBarApi.spellAim&&(inside||buildPanel.classList.contains("collapsed")&&selectedIds.size===0&&(heroToolsRef.ui?.combatReady()??true))};
+    return{me,inside,enabled:!!me&&!me.dead&&!strategyCam.inStrategy&&!timeControlsApi.currentPaused&&heroModal.hidden&&!!menu?.hidden&&(talk?.hidden??true)&&!spellBarApi.spellAim&&(inside||(buildPanel.classList.contains("collapsed")||currentTool===TOOL_NONE)&&selectedIds.size===0&&(heroToolsRef.ui?.combatReady()??true))};
   }});
   const combatCues=new Graphics();combatCues.zIndex=1e7;worldLayer.addChild(combatCues);
   app.ticker.add(()=>{
@@ -4635,7 +4636,7 @@ async function main() {
     }
     const tile = pointerTile(x, y);
     if (!tile) return;
-    if (socket.readyState !== socket.OPEN) return;
+    if (socket.readyState !== socket.OPEN || currentTool === TOOL_NONE) return;
     const value = e.button === 2 ? currentTool : TileType.Empty;
     if (value === TileType.Empty) {
       requestDemolish([{ x: tile.tileX, y: tile.tileY }]);
@@ -4742,6 +4743,40 @@ async function main() {
       placeTile(drag.x, drag.y, currentTool);
     }
   }
+
+  // Esc = weapon ready (2026-11-27): once Escape has nothing else to close, it puts the hotbar tool away, drops the
+  // build tool (TOOL_NONE) and, with the weapon slot empty, wields a weapon from the pack. Capture phase, so the
+  // layers are seen open before their own Escape handlers close them (one press closes one thing).
+  const ESCAPE_LAYER_IDS = ["main-menu", "settings-modal", "menu-dropdown-list", "hero-modal", "quest-panel", "work-panel", "person-card", "chronicle-panel", "progression-book", "trade-panel", "family-panel", "hl-dialogue", "demolish-confirm"];
+  function isAnyEscapeLayerOpen(): boolean {
+    if (strategyCam.inStrategy || spellBarApi.spellAim || strategyApi.armedOrder || buildingPanelApi.infoTile) return true;
+    if (document.getElementById("character-creator-modal")) return true;
+    if (interiorRef.ui?.active() && !(document.getElementById("int-exit")?.hidden ?? true)) return true;
+    return ESCAPE_LAYER_IDS.some((id) => { const el = document.getElementById(id); return !!el && !el.hidden; });
+  }
+  const WEAPON_TIER_RANK = (i: GearItem) => (i.tier === "relic" ? 4 : i.tier);
+  function readyWeapon() {
+    const prof = heroSheetApi.heroProfile;
+    if (!prof || prof.equipment.weapon) return;
+    // The player's weapon slot (server handleEquipItem): sword / axe / spear / bow, and a bow not with a shield.
+    const ok = prof.inventory.filter((i) => i.slot === "weapon" && (PLAYER_WEAPON_KINDS as readonly string[]).includes(i.kind ?? "") && !(i.kind === "bow" && prof.equipment.offhand));
+    const last = heroToolsRef.ui?.lastWeaponId();
+    const pick = ok.find((i) => i.id === last) ?? ok.sort((a, b) => WEAPON_TIER_RANK(b) - WEAPON_TIER_RANK(a) || (a.id < b.id ? -1 : 1))[0];
+    if (!pick) return;
+    sendMessage({ type: "equipItem", itemId: pick.id, slot: "weapon" });
+    pushEventToast("build", `Weapon ready: ${pick.name}`);
+  }
+  window.addEventListener("keydown", (e) => {
+    if (e.key !== "Escape" || e.repeat || e.ctrlKey || e.altKey || e.metaKey) return;
+    if (e.target instanceof HTMLElement && e.target.closest("input, textarea, select")) return;
+    if (isAnyEscapeLayerOpen()) return;
+    heroToolsRef.ui?.disarm();
+    if (currentTool !== TOOL_NONE) selectTool(TOOL_NONE);
+    structDrag = null;
+    moatDrag = null;
+    cursorHighlight.clear();
+    readyWeapon();
+  }, true);
 
   app.canvas.addEventListener("pointerup", (e) => {
     if (moatDrag && e.pointerId === moatDrag.pointerId) moatDrag = null;
@@ -4903,7 +4938,7 @@ async function main() {
       openBuildingInfo(tile.tileX, tile.tileY);
       return;
     }
-    if (!tile || showInfo) return;
+    if (!tile || showInfo || currentTool === TOOL_NONE) return;
     requestDemolish([{ x: tile.tileX, y: tile.tileY }]);
   });
 
@@ -4999,7 +5034,7 @@ async function main() {
     }
     placementGhost.visible =
       !!tile && ((currentTool === TileType.TownCenter && !!TOWN_CENTER_MARKER_TEXTURE) || isRoadTile(currentTool));
-    if (!tile) return;
+    if (!tile || currentTool === TOOL_NONE) return;
     placementGhost.position.set(tile.tileX * tileSize + tileSize / 2, tile.tileY * tileSize + tileSize / 2);
     // Multi-tile build tools: a w x h ghost from the hovered (top-left) tile, red when a part tile is taken
     // (placing on the same building upgrades it instead, so that stays white).

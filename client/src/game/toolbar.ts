@@ -10,7 +10,7 @@ import { BLUEPRINT_TOOL } from "@colony/shared/buildingTemplates";
 import { ZONE_TOOL_ANIMAL, ZONE_TOOL_ERASE, ZONE_TOOL_HEMP, ZONE_TOOL_HOME, ZONE_TOOL_STOCKPILE, ZONE_TOOL_WHEAT, isZoneTool } from "@colony/shared/zones";
 import { ROOM_TOOL_STONE, ROOM_TOOL_WOOD } from "@colony/shared/structures";
 import { isRoadTile, TileType } from "@colony/shared/protocol";
-import { type ToolCategory, TOOL_CATEGORIES, TOOLS } from "../tools";
+import { type ToolCategory, TOOL_CATEGORIES, TOOLS, TOOL_NONE } from "../tools";
 import { TILE_SPRITE_FILES, TILE_OPTIONAL_ART } from "../worldVisuals";
 import type { ArmyOrderKind } from "@colony/shared/protocol";
 
@@ -108,7 +108,7 @@ export function createToolbar(game: ToolbarContext) {
   }
   function selectTool(tile: TileType, fromUser = false) {
     game.currentTool = tile;
-    zonesUi.setActive(game.activeCategory === "zones" || isZoneTool(tile));
+    zonesUi.setActive(tile !== TOOL_NONE && (game.activeCategory === "zones" || isZoneTool(tile)));
     blueprintsUi.setActive(false);
     // Picking something to build puts the units down, so right-click places instead of giving orders.
     if (fromUser && tile !== TileType.Empty && game.selectedIds.size > 0) game.setSelection([]);
@@ -118,6 +118,10 @@ export function createToolbar(game: ToolbarContext) {
     refreshBuildRequirements();
   }
   function refreshBuildRequirements() {
+    if (game.currentTool === TOOL_NONE) {
+      buildRequirementsEl.textContent = "";
+      return;
+    }
     const def = TOOLS.find((t) => t.tile === game.currentTool);
     const text = def && def.cost ? def.cost : "No requirements.";
     const needs = progressionUi.locked()[game.currentTool];

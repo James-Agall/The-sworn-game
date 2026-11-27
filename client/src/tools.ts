@@ -85,6 +85,10 @@ function pastureYieldText(tile: TileType): string {
   return `Each batch: ${parts.join(" + ")}`;
 }
 
+// Esc (weapon ready): no build tool picked. Client-only, never sent; matches no tile and no toolbar button, so the
+// toolbar highlights nothing and the ghost / cursor highlight stay hidden. Right-click places and demolishes nothing.
+export const TOOL_NONE = -1 as TileType;
+
 export const TOOLS: ToolDef[] = [
   // Modular building phase 1: walls are the Structure section's wall pieces (right-drag paints a straight line).
   { tile: TileType.Wall, label: "Wood Wall", key: "1", cost: `${buildCostText(TileType.Wall)}. 200 HP. Right-drag paints a line`, category: "structure", drag: "line" },
