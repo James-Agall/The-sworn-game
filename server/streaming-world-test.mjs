@@ -18,7 +18,7 @@ import WebSocket from "ws";
 const DIR = path.dirname(fileURLToPath(import.meta.url));
 const TSX = [path.join(DIR, "node_modules/.bin/tsx"), path.join(DIR, "../node_modules/.bin/tsx")].find((p) => existsSync(p));
 const TILE = 32;
-const DAY = 20 * 375; // a whole game day (day + night)
+const DAY = 11240; // a whole game day (day + night)
 const SIZE = Number(process.env.STREAM_TEST_SIZE ?? 512);
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const portFree = (port) => new Promise((res) => { const s = net.createServer(); s.once("error", () => res(false)); s.listen(port, () => s.close(() => res(true))); });

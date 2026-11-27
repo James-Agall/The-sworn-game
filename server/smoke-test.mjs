@@ -14,7 +14,7 @@ const DIR = path.dirname(fileURLToPath(import.meta.url));
 const TSX = [path.join(DIR, "node_modules/.bin/tsx"), path.join(DIR, "../node_modules/.bin/tsx")].find((p) => existsSync(p));
 const TILE = 32;
 const TICK = 20;
-const DAY = TICK * 300;
+const DAY = TICK * 450;
 const T = { Empty: 0, Wall: 1, LumberjackPost: 3, KnightPost: 5, House: 13, MilitiaPost: 32, Pasture: 21, Gate: 70, Moat: 75, Drawbridge: 76 };
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const t0 = Date.now();
@@ -422,7 +422,7 @@ await check("creative: spawn enemy/neutral and force-attack", async () => {
 await check("people: 10 at start, a post takes a free villager, the dead stay dead", async () => {
   const start = bootPeople.persons === 10 && bootPeople.free === 9;
   // Vacancies fill by day only: start in the morning.
-  await hook("setCycleTick", { tick: 2 * (DAY + TICK * 75) + TICK * 10 });
+  await hook("setCycleTick", { tick: 2 * (DAY + TICK * 112) + TICK * 10 });
   await ff(2);
   await hook("killColonists", { kind: "villager" });
   await hook("peopleState", { creative: false, spawn: 2 });
@@ -444,7 +444,7 @@ await check("people: 10 at start, a post takes a free villager, the dead stay de
   // Across a dusk and a dawn (the old respawn windows), by time travel (a whole day of ticks is too slow here).
   await hook("setCycleTick", { tick: DAY - 3 });
   await ff(TICK * 2);
-  await hook("setCycleTick", { tick: 2 * DAY + TICK * 150 - 3 });
+  await hook("setCycleTick", { tick: 2 * (DAY + TICK * 112) - 3 });
   await ff(TICK * 3);
   ps = await hook("peopleState");
   const stayDead = at(ps).length === 0 && ps.vacancies.some((q) => q.tx === L.x && q.ty === L.y);
@@ -463,7 +463,7 @@ await check("people growth: birth, child grows up, immigrant, freed prisoners", 
   let ps = await hook("peopleState", { dawn: { birth: true } });
   const kid = ps.persons.find((p) => p.child);
   const born = !!kid && kid.parents.length === 2 && ps.people.children === 1;
-  await hook("setCycleTick", { tick: (kid?.born ?? 0) + 6 * (DAY + TICK * 75) + 5 });
+  await hook("setCycleTick", { tick: (kid?.born ?? 0) + 6 * (DAY + TICK * 112) + 5 });
   await ff(TICK + 1);
   ps = await hook("peopleState");
   const grown = ps.persons.some((p) => p.id === kid?.id && !p.child) && ps.people.children === 0;
@@ -622,7 +622,7 @@ await check("camp hearth: guarded until the guards fall, walk-up frees the priso
 // 8e. village life phase 4: with no builder, free villagers raise a construction site (at half speed)
 await check("villagers help build", async () => {
   await hook("peopleState", { creative: false, clear: true, spawn: 2 });
-  await hook("setCycleTick", { tick: 3 * (DAY + TICK * 75) + TICK * 10 });
+  await hook("setCycleTick", { tick: 3 * (DAY + TICK * 112) + TICK * 10 });
   await hook("setInstantBuild", { enabled: false });
   const B = { x: tc.x + 3, y: tc.y - 9 };
   await clearBox(B.x, B.y, 2);
@@ -640,7 +640,7 @@ await check("villagers help build", async () => {
 // 8f. village life phase 4: the levy (civilians fight as militia, survivors go back to their jobs) + raid scaling
 await check("levy: call to arms, a death, survivors revert; raid scales with people", async () => {
   await hook("peopleState", { creative: false, clear: true, spawn: 3 });
-  await hook("setCycleTick", { tick: 4 * (DAY + TICK * 75) + TICK * 10 });
+  await hook("setCycleTick", { tick: 4 * (DAY + TICK * 112) + TICK * 10 });
   await hook("setInstantBuild", { enabled: true });
   const L = { x: tc.x - 6, y: tc.y + 9 };
   await clearBox(L.x, L.y, 2);

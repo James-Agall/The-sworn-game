@@ -1,7 +1,7 @@
 // Scripted test: long days & vacancies (was dawn/dusk-only respawns) (ROADMAP "Long days & dawn/dusk respawns").
 // Self-contained: boots its OWN private server (tsx, COLONY_TEST_HOOKS=1, COLONY_WORLD_SIZE=80,
 // COLONY_SAVE_DIR = a temp dir) on PORT (default 19760). Run from server/: `node day-respawn-test.mjs`.
-//   A) constants: 300 s day, 60-90 s night, upkeep 3.75 a day, rescaled night goals (1/2/4/7/10).
+//   A) constants: 450 s day, 100-125 s night (2026-11-27: was 300 s / 60-90 s), upkeep 5.62 a day, rescaled night goals (1/2/4/7/10).
 //   Village life (2026-11-03): the dawn/dusk respawn windows are gone; a dead worker leaves a vacancy.
 //   B) a builder killed mid-day: its post is filled by a free villager within a second (no toast, no window).
 //   C) one killed at night: the vacancy waits for dawn, then a villager takes it.
@@ -106,9 +106,9 @@ try {
   let st = await c.hook("respawnState");
   const K = st.constants;
   const CYCLE = K.DAY_TICKS + K.NIGHT_TICKS;
-  result(K.DAY_TICKS === 300 * TICK_RATE, `A: day = ${K.DAY_TICKS / TICK_RATE} s (300)`);
-  result(K.NIGHT_TICKS >= 60 * TICK_RATE && K.NIGHT_TICKS <= 90 * TICK_RATE, `A: night = ${K.NIGHT_TICKS / TICK_RATE} s (60-90)`);
-  result(Math.abs(K.FOOD_PER_COLONIST_PER_DAY - 3.75) < 1e-9, `A: upkeep ${K.FOOD_PER_COLONIST_PER_DAY}/colonist/day (= 1 per 100 s, as before)`);
+  result(K.DAY_TICKS === 450 * TICK_RATE, `A: day = ${K.DAY_TICKS / TICK_RATE} s (450)`);
+  result(K.NIGHT_TICKS >= 100 * TICK_RATE && K.NIGHT_TICKS <= 125 * TICK_RATE, `A: night = ${K.NIGHT_TICKS / TICK_RATE} s (100-125)`);
+  result(Math.abs(K.FOOD_PER_COLONIST_PER_DAY - 5.62) < 1e-9, `A: upkeep ${K.FOOD_PER_COLONIST_PER_DAY}/colonist/day (= 1 per 100 s, as before)`);
   result(K.FARM_GROW_TICKS === 3 * (K.FOOD_TIME_MULT ?? 1) * (K.LEGACY_DAY_TICKS + K.LEGACY_NIGHT_TICKS), `A: farm grow stays ${K.FARM_GROW_TICKS / TICK_RATE} s of real time (x FOOD_TIME_MULT since 2026-11-06)`);
   const nightGoals = st.goalTitles.filter((t) => t.startsWith("Survive"));
   result(

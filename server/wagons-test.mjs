@@ -24,8 +24,8 @@ const result = (ok, msg) => {
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const TILE = 32;
 const TICK = 20;
-const DAY = TICK * 300;
-const CYCLE = TICK * 375;
+const DAY = TICK * 450;
+const CYCLE = 11240;
 const DIR = path.dirname(fileURLToPath(import.meta.url));
 const TSX = [path.join(DIR, "node_modules/.bin/tsx"), path.join(DIR, "../node_modules/.bin/tsx")].find((p) => existsSync(p));
 const saveDir = mkdtempSync(path.join(tmpdir(), "wagons-test-"));

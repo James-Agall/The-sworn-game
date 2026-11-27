@@ -24,7 +24,7 @@ const result = (ok, msg) => {
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const TILE = 32;
 const TICK = 20;
-const DAY = TICK * 375;
+const DAY = 11240;
 const T = { Wall: 1, SiteKeep: 77 };
 const DIR = path.dirname(fileURLToPath(import.meta.url));
 const TSX = [path.join(DIR, "node_modules/.bin/tsx"), path.join(DIR, "../node_modules/.bin/tsx")].find((p) => existsSync(p));
