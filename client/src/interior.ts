@@ -136,6 +136,8 @@ export interface InteriorDeps {
 
 export interface InteriorUi {
   active: () => boolean;
+  // Interior fixes 2026-11-27: a hostile interior (encounter / mine): the hotbar shows (weapons, spells; tools off).
+  hostile: () => boolean;
   useHighlighted: () => boolean;
   onSpell:(effect:InteriorSpellEffect)=>void;
   onMessage: (view: InteriorView | null) => void;
@@ -162,6 +164,8 @@ function vignetteTexture(): Texture {
   g.fillRect(0, 0, 256, 256);
   return Texture.from(c);
 }
+
+const isHostile = (v: InteriorView) => v.map.templateId === "mine" || !!v.mine?.encounter || !!v.exploration;
 
 export function setupInterior(deps: InteriorDeps): InteriorUi {
   const layer = new Container();
@@ -277,7 +281,7 @@ export function setupInterior(deps: InteriorDeps): InteriorUi {
     if(npc){e.preventDefault();e.stopImmediatePropagation();deps.send({type:'interiorTalk',id:npc[0]});return;}
     if(view.map.props.some(p=>p.x===x&&p.y===y&&['chest','bed','bedFine'].includes(p.prop))){e.preventDefault();e.stopImmediatePropagation();openChest={x,y,until:performance.now()+5000};rebuildPending=true;window.setTimeout(()=>{openChest=null;rebuildPending=true;},5000);deps.send({type:'interiorUse',x,y});}
   },true);
-  const homeStyle=document.createElement('style');homeStyle.textContent=`#home-editor{position:fixed;right:18px;top:140px;width:240px;max-height:75vh;overflow:auto;padding:18px;background:#242c26f5;color:#eee2c6;border:1px solid #a48c59;border-radius:10px;z-index:40;font:14px Georgia}#home-editor[hidden]{display:none}#home-editor label{display:block;margin:12px 0}#home-editor select,#home-editor button{display:block;box-sizing:border-box;width:100%;padding:8px;margin-top:5px;background:#3c4737;color:#fff0cf;border:1px solid #8a7954;border-radius:5px}#home-preview{width:52px;height:52px;object-fit:contain;image-rendering:pixelated}#home-editor p{font-size:12px;line-height:1.5;color:#c1c4ae}#home-decorate{padding:7px 12px;background:#344733;color:#f4e3bc;border:1px solid #b09562;border-radius:5px}#home-decorate[hidden]{display:none}`;homeStyle.textContent+=`body.interior-mode #next-bar,body.interior-mode #event-feed,body.interior-mode #goal-tracker,body.interior-mode #economy-panel,body.interior-mode #economy-panel-toggle,body.interior-mode #build-panel,body.interior-mode #build-panel-toggle,body.interior-mode #minimap-frame,body.interior-mode #hero-hotbar{display:none!important}body.interior-mode.interior-stockpile #economy-panel:not(.collapsed){display:block!important}body.interior-mode #int-hud{top:100px}body.interior-mode #player-bar{top:58px!important}`;document.head.append(homeStyle);
+  const homeStyle=document.createElement('style');homeStyle.textContent=`#home-editor{position:fixed;right:18px;top:140px;width:240px;max-height:75vh;overflow:auto;padding:18px;background:#242c26f5;color:#eee2c6;border:1px solid #a48c59;border-radius:10px;z-index:40;font:14px Georgia}#home-editor[hidden]{display:none}#home-editor label{display:block;margin:12px 0}#home-editor select,#home-editor button{display:block;box-sizing:border-box;width:100%;padding:8px;margin-top:5px;background:#3c4737;color:#fff0cf;border:1px solid #8a7954;border-radius:5px}#home-preview{width:52px;height:52px;object-fit:contain;image-rendering:pixelated}#home-editor p{font-size:12px;line-height:1.5;color:#c1c4ae}#home-decorate{padding:7px 12px;background:#344733;color:#f4e3bc;border:1px solid #b09562;border-radius:5px}#home-decorate[hidden]{display:none}`;homeStyle.textContent+=`body.interior-mode #next-bar,body.interior-mode #event-feed,body.interior-mode #goal-tracker,body.interior-mode #economy-panel,body.interior-mode #economy-panel-toggle,body.interior-mode #build-panel,body.interior-mode #build-panel-toggle,body.interior-mode #minimap-frame,body.interior-mode:not(.interior-hostile) #hero-hotbar{display:none!important}body.interior-mode.interior-stockpile #economy-panel:not(.collapsed){display:block!important}body.interior-mode #int-hud{top:100px}body.interior-mode #player-bar{top:58px!important}`;document.head.append(homeStyle);
 
   const hero = new Sprite(deps.playerTexture);
   hero.anchor.set(0.5, 0.85);
@@ -412,7 +416,7 @@ export function setupInterior(deps: InteriorDeps): InteriorUi {
   }
 
   function build(v: InteriorView) {
-    const keep = new Set<Container>([hero, slash, interactionOutline, ...others.values()]);
+    const keep = new Set<Container>([hero, slash, interactionOutline, drops.layer, drops.overlay, ...others.values()]);
     // Deep mines: the monsters' sprites go with the room; syncMobs() below draws them again.
     mobViews.clear();
     for (const c of room.removeChildren()) if (!keep.has(c)) c.destroy();
@@ -753,6 +757,7 @@ export function setupInterior(deps: InteriorDeps): InteriorUi {
     vignette.visible = on;
     deps.worldLayer.visible = !on;
     document.body.classList.toggle("interior-mode",on);
+    if(!on)document.body.classList.remove("interior-hostile");
     hud.hidden = !on;
     interactionHint.hidden=!on;
     fadeT = performance.now();
@@ -843,6 +848,7 @@ export function setupInterior(deps: InteriorDeps): InteriorUi {
 
   return {
     active: () => !!view,
+    hostile: () => !!view && isHostile(view),
     onSpell(effect){if(!view||view.key!==effect.key||(view.instanceVariant??view.map.variant)!==effect.variant)return;const g=new Graphics();g.zIndex=1e6;room.addChild(g);spellFx.push({effect,started:performance.now(),g});},
     useHighlighted:()=>{if(!view||!highlighted||decorating)return false;deps.send({type:'interiorUse',...highlighted});return true;},
     onMessage(v) {
@@ -859,6 +865,8 @@ export function setupInterior(deps: InteriorDeps): InteriorUi {
       // Layered mines: another layer of the same Mine is a fresh room too.
       const fresh = !view || view.key !== v.key || view.map.storey !== v.map.storey || view.map.variant !== v.map.variant;
       view = v;
+      // Interior fixes 2026-11-27: caves, ruins, bandit camps and mines (all built on the "mine" template) show the hotbar.
+      document.body.classList.toggle("interior-hostile",isHostile(v));
       titleEl.textContent = v.mine?.encounter==='ruin'?RUIN_TITLES[v.map.variant%4]:v.title;
       // Deep mines: status, monsters left (Space fights), hazards.
       mineEl.hidden = !v.mine;

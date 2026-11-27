@@ -4295,6 +4295,7 @@ async function main() {
     offhandWorn: () => !!heroSheetApi.heroProfile?.equipment.offhand,
     weaponTip: (e, item, hint) => heroSheetApi.showItemTip(e, item, null, hint, false),
     hideTip: hideItemTip,
+    toolsOff: () => !!interiorRef.ui?.hostile(),
   });
   // Unified hotbar: the spell bar (its buttons, cooldown overlays, tooltips and hotkeys untouched) becomes its SPELLS group.
   heroTools.spellHost.appendChild(document.getElementById("spell-bar")!);

@@ -12,6 +12,9 @@
 // The top row always shows in adventure view so nothing jumps when gear or spells arrive.
 // Shift+5..9 were free: bare / Ctrl / Alt digits, Shift+1..4, F1..F4 and every letter are taken (MANUAL-TESTS.md).
 // Outside adventure view (strategy / classic command view) only the spell group shows, where the old spell bar sat.
+// Interior fixes 2026-11-27: inside a HOSTILE interior (cave, ruin, bandit camp, mine / quarry) the hotbar shows
+// (interior.ts body.interior-hostile); weapons and spells work, the tool slots are dimmed ("Not usable in here": the
+// server refuses every tool indoors) and cannot be armed, so Space always attacks there (deps.toolsOff).
 import { Graphics } from "pixi.js";
 import { TileType, type GearItem } from "@colony/shared/protocol";
 import { CROPS, CropStage, type CropId } from "@colony/shared/zones";
@@ -49,6 +52,8 @@ export interface HeroToolsDeps {
   // The inventory's item tooltip (name, tier, stat lines) with a footer hint; hideTip hides it.
   weaponTip: (e: MouseEvent, item: GearItem, hint: string) => void;
   hideTip: () => void;
+  // Interior fixes 2026-11-27: inside a hostile interior: no tool can be used (slots dimmed, never armed).
+  toolsOff?: () => boolean;
 }
 
 export interface HeroToolsUi {
@@ -109,6 +114,7 @@ body.adventure-mode #hero-hotbar .spell-btn kbd { left: 2px; top: 0; right: auto
 #hero-hotbar .hh-slot .hs-item { width: 26px; height: 26px; margin: 0; pointer-events: none; }
 #hero-hotbar .hh-slot.on { border-color: #f2b632; box-shadow: 0 0 6px rgba(242,182,50,.8); }
 #hero-hotbar .hh-slot.none { opacity: .4; }
+#hero-hotbar .hh-slot.off { opacity: .3; filter: grayscale(1); cursor: not-allowed; }
 #hero-hotbar .hh-slot:focus-visible, #hero-hotbar .spell-btn:focus-visible { outline: 2px solid #fff; outline-offset: 1px; }
 /* placeBar(), per row: smaller slots when the row doesn't fit; wrapping as the last resort. */
 #hero-hotbar .hh-slots.compact .hh-slot { width: 30px; height: 30px; }
@@ -285,6 +291,7 @@ export function setupHeroTools(deps: HeroToolsDeps): HeroToolsUi {
         for (const k of ["left", "right", "bottom", "transform", "max-width"]) st.removeProperty(k);
         for (const r of rows) r.classList.remove("compact", "wrap");
         guide?.style.removeProperty("bottom");
+        document.getElementById("interior-use-hint")?.style.removeProperty("bottom");
       }
       placed = "";
       return;
@@ -346,6 +353,22 @@ export function setupHeroTools(deps: HeroToolsDeps): HeroToolsUi {
       const want = meets ? `${Math.round(pick.bottom + root.offsetHeight + 4)}px` : "";
       if (guide.style.bottom !== want) want ? guide.style.setProperty("bottom", want) : guide.style.removeProperty("bottom");
     }
+    // Interior fixes 2026-11-27: inside a hostile interior the use hint (#interior-use-hint, bottom 115px, centred,
+    // shown / hidden every frame) sits above whatever is at the bottom centre: the hotbar, the lifted combat guide and
+    // the hero bar.
+    const useHint = document.getElementById("interior-use-hint");
+    if (useHint) {
+      let want = "";
+      if (document.body.classList.contains("interior-hostile")) {
+        const tops = [vh - pick.bottom - root.offsetHeight];
+        const g = guide?.getBoundingClientRect();
+        if (g && g.width > 0) tops.push(g.top);
+        if (hb) tops.push(hb.top);
+        const need = vh - Math.min(...tops) + 6;
+        if (need > 115) want = `${Math.round(need)}px`;
+      }
+      if (useHint.style.bottom !== want) want ? useHint.style.setProperty("bottom", want) : useHint.style.removeProperty("bottom");
+    }
   }
   window.setInterval(placeBar, 250);
   window.addEventListener("resize", placeBar);
@@ -372,7 +395,9 @@ export function setupHeroTools(deps: HeroToolsDeps): HeroToolsUi {
   }
 
   const tool = (): HeroTool | null => (armed >= 0 ? HERO_TOOLS[armed] : null);
+  let toolsOff = false;
   function pick(k: number) {
+    if (toolsOff) return;
     if (k === armed && HERO_TOOLS[k] === "seeds") crop = CROPS[(CROPS.indexOf(crop) + 1) % CROPS.length];
     else armed = k === armed ? -1 : k;
     refreshSlots();
@@ -382,9 +407,15 @@ export function setupHeroTools(deps: HeroToolsDeps): HeroToolsUi {
     HERO_TOOLS.forEach((t, k) => {
       const s = slotEls[k];
       s.classList.toggle("on", k === armed);
+      s.classList.toggle("off", toolsOff);
+      s.setAttribute("aria-disabled", String(toolsOff));
       const n = t === "seeds" ? deps.itemCount(SEED_ITEM[crop]) : deps.itemCount(HERO_TOOL_ITEM[t]);
       s.classList.toggle("none", !deps.gatesOpen() && n <= 0);
       countEls[k].textContent = t === "seeds" ? `${crop === "wheat" ? "W" : "H"}${n}` : t === "wateringCan" && life ? String(life.water) : t === "manure" ? String(n) : "";
+      if (toolsOff) {
+        s.title = `${HERO_TOOL_LABEL[t]}: Not usable in here`;
+        return;
+      }
       s.title = `${HERO_TOOL_LABEL[t]}${t === "seeds" ? ` (${crop}; press ${k + 1} again for ${CROPS[(CROPS.indexOf(crop) + 1) % CROPS.length]})` : ""}${!deps.gatesOpen() && n <= 0 ? ": none in your stores (craft by hand)" : ""}`;
     });
   }
@@ -429,6 +460,12 @@ export function setupHeroTools(deps: HeroToolsDeps): HeroToolsUi {
   let hintSig = "";
   function frame(now: number) {
     highlight.clear();
+    const off = !!deps.toolsOff?.();
+    if (off !== toolsOff) {
+      toolsOff = off;
+      if (off) armed = -1;
+      refreshSlots();
+    }
     const h = deps.active() ? deps.hero() : null;
     if (!h) {
       last = null;
@@ -552,10 +589,12 @@ export function setupHeroTools(deps: HeroToolsDeps): HeroToolsUi {
     spellHost,
     wheel(deltaY) {
       if (!deps.active() || deltaY === 0) return false;
-      const n = HERO_TOOLS.length;
+      // In a hostile interior the tools are off: the ring is the weapons only.
+      const n = toolsOff ? 0 : HERO_TOOLS.length;
       // One ring: the tools, then the weapons; the hand with no tool sits on the wielded weapon.
       const ws = deps.weapons();
       const total = n + ws.length;
+      if (!total) return true;
       const eqI = ws.findIndex((w) => w.id === deps.equippedWeaponId());
       const cur = armed >= 0 ? armed : eqI >= 0 ? n + eqI : -1;
       const next = cur < 0 ? (deltaY > 0 ? 0 : total - 1) : (cur + (deltaY > 0 ? 1 : -1) + total) % total;
